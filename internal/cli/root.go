@@ -19,6 +19,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fatih/color"
 	"github.com/gozinc/zinc/version"
@@ -41,3 +42,20 @@ func init() {
 
 var cyanBold = color.New(color.FgHiCyan).SprintFunc()
 var whiteBold = color.New(color.Bold).SprintFunc()
+var whiteDim = color.New(color.Faint).SprintFunc()
+var redBold = color.New(color.Bold, color.FgHiRed).SprintFunc()
+var greenBold = color.New(color.Bold, color.FgHiGreen).SprintFunc()
+
+func logError(msg string) {
+	fmt.Printf("%s  Error: %s\n", redBold("✖"), msg)
+}
+
+func logSuccess(msg string) {
+	fmt.Printf("%s  %s\n", greenBold("✔"), msg)
+}
+
+func logErrorAndPanic(err error) {
+	if err != nil {
+		logError(err.Error())
+	}
+}

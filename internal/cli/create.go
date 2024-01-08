@@ -18,9 +18,14 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gozinc/zinc/version"
+	"github.com/jmorganca/ollama/progress"
 	"github.com/spf13/cobra"
 )
 
@@ -39,6 +44,27 @@ var createCmd = &cobra.Command{
 	Short: "Create a new Zinc project",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println(zincInfoMessage(version.Version, version.GoVersion))
+		fmt.Println("")
+
+		projectName := stringPrompt("What's the project name?", "my_app", "my_app")
+		tailwind := stringPrompt("Will you be using Tailwind CSS for styling", "y/n", "")
+		htmx := stringPrompt("Will you use HTMX?", "y/n", "")
+
+		projectPath, err := filepath.Abs(projectName)
+		logErrorAndPanic(err)
+
+		err = os.MkdirAll(projectPath, os.ModePerm)
+		logErrorAndPanic(err)
+
+		p := progress.NewProgress(os.Stdout)
+		defer p.Stop()
+
+		//
+
+		if !noGit {
+			err = initializeGitRepo(projectPath, p)
+			logErrorAndPanic(err)
+		}
 		return nil
 	},
 }
@@ -49,6 +75,25 @@ func zincInfoMessage(version, goVersion string) string {
 
 func zincTextArt() string {
 	return `
-▀█ █ █▄░█ █▀▀
+▀█ █ █▄░█ █▀▀   fullstack web framework for golang
 █▄ █ █░▀█ █▄▄`
+}
+
+func stringPrompt(label, example, defaultValue string) string {
+	r := bufio.NewReader(os.Stdin)
+
+	fmt.Fprintf(os.Stdout, "%s  %s %s ", cyanBold("➜"), label, whiteDim(example))
+
+	s, err := r.ReadString('\n')
+	if err != nil {
+		panic(err)
+	}
+
+	s = strings.TrimSpace(s)
+
+	if len(s) == 0 {
+		s = defaultValue
+	}
+
+	return s
 }
