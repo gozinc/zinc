@@ -24,12 +24,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	noGit bool
+)
+
 func init() {
-	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(createCmd)
+
+	createCmd.Flags().BoolVar(&noGit, "no-git", false, "Whether go use")
 }
 
-var initCmd = &cobra.Command{
-	Use:   "init",
+var createCmd = &cobra.Command{
+	Use:   "create",
 	Short: "Create a new Zinc project",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println(zincInfoMessage(version.Version, version.GoVersion))
