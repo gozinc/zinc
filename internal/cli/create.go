@@ -54,7 +54,7 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Zinc project",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println(zincInfoMessage(version.Version, version.GoVersion))
+		fmt.Println(zincInfoMessage(version.Version))
 		fmt.Println("")
 
 		projectName := stringPrompt("What's the project name?", "my_app", "my_app")
@@ -130,8 +130,8 @@ var createCmd = &cobra.Command{
 	},
 }
 
-func zincInfoMessage(version, goVersion string) string {
-	return fmt.Sprintf("%s   v%s build with Go %s", cyanBold(zincTextArt()), whiteBold(version), whiteBold(goVersion))
+func zincInfoMessage(version string) string {
+	return fmt.Sprintf("%s   v%s", cyanBold(zincTextArt()), whiteBold(version))
 }
 
 func zincTextArt() string {

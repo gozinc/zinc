@@ -18,4 +18,3 @@
 package version
 
 var Version = "dev"
-var GoVersion = "dev"
