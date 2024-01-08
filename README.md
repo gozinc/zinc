@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="400px" src="https://i.imgur.com/xa12Efm.png" alt="Zinc Logo" />
+  <img width="200px" src="https://i.imgur.com/xa12Efm.png" alt="Zinc Logo" />
 </div>
 
 # Zinc
