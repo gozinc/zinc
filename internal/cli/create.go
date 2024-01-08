@@ -24,9 +24,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gozinc/zinc/version"
-	"github.com/jmorganca/ollama/progress"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +40,8 @@ const (
 	tailwindConfURL = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/tailwind.config.js"
 	tailwindSource  = "https://raw.githubusercontent.com/tailwindlabs/tailwindcss/master/src/css/preflight.css"
 	htmxSource      = "https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"
+	airGo           = "github.com/cosmtrek/air@latest"
+	templGo         = "github.com/a-h/templ/cmd/templ@latest"
 )
 
 func init() {
@@ -59,6 +61,8 @@ var createCmd = &cobra.Command{
 		tailwind := stringPrompt("Will you be using Tailwind CSS for styling", "yes", "yes")
 		htmx := stringPrompt("Will you use HTMX?", "yes", "yes")
 
+		startTask("Setting up files ...")
+
 		projectPath, err := filepath.Abs(projectName)
 		logErrorAndPanic(err)
 
@@ -67,17 +71,13 @@ var createCmd = &cobra.Command{
 
 		staticDir := path.Join(projectPath, "static")
 
-		p := progress.NewProgress(os.Stdout)
-		defer p.Stop()
-
-		spinner := progress.NewSpinner("Setting up files")
-		p.Add("Setting up files", spinner)
-
 		if tailwind != "no" && tailwind != "n" {
 			err = saveFile(projectPath, "tailwind.config.js", tailwindConfURL)
 			logErrorAndPanic(err)
 
 			cssDir := path.Join(staticDir, "css")
+			err = os.MkdirAll(cssDir, os.ModePerm)
+			logErrorAndPanic(err)
 
 			err = saveFile(cssDir, "tailwind.css", tailwindSource)
 			logErrorAndPanic(err)
@@ -87,6 +87,8 @@ var createCmd = &cobra.Command{
 
 		if htmx != "no" && htmx != "n" {
 			jsDir := path.Join(staticDir, "js")
+			err = os.MkdirAll(jsDir, os.ModePerm)
+			logErrorAndPanic(err)
 
 			err = saveFile(jsDir, "htmx.min.js", htmxSource)
 			logErrorAndPanic(err)
@@ -101,13 +103,29 @@ var createCmd = &cobra.Command{
 			err = saveFile(projectPath, ".gitignore", gitIgnoreURL)
 			logErrorAndPanic(err)
 
-			err = initializeGitRepo(projectPath, p)
+			err = initializeGitRepo(projectPath)
 			logErrorAndPanic(err)
 
 			logSuccess("Setup Git")
 		}
 
-		spinner.Stop()
+		startTask("Downloading tools ...")
+
+		var wg sync.WaitGroup
+		wg.Add(3)
+
+		downloadTailwind(&wg)
+		go downloadGoTool("air", airGo, &wg)
+		go downloadGoTool("templ", templGo, &wg)
+
+		wg.Wait()
+		logSuccess("Done!")
+
+		fmt.Printf(`
+	# now run the application
+	cd %s
+	zinc run . # not yet
+`, projectName)
 		return nil
 	},
 }

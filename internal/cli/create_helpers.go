@@ -1,21 +1,16 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
-
-	"github.com/jmorganca/ollama/progress"
+	"sync"
 )
 
-func initializeGitRepo(dir string, p *progress.Progress) error {
-	status := "Initializing Git"
-	s := progress.NewSpinner(status)
-	p.Add(status, s)
-	defer s.Stop()
-
+func initializeGitRepo(dir string) error {
 	if !isGitInstalled(dir) {
 		logError("Git is not installed. Skipping Git initialization")
 		return nil
@@ -49,6 +44,10 @@ func isGitInstalled(dir string) bool {
 
 func saveFile(directory, fileName, contentURL string) error {
 	file := path.Join(directory, fileName)
+	_, err := os.Create(file)
+	if err != nil {
+		return err
+	}
 
 	resp, err := http.Get(contentURL)
 	if err != nil {
@@ -62,4 +61,26 @@ func saveFile(directory, fileName, contentURL string) error {
 	}
 
 	return os.WriteFile(file, data, os.ModePerm)
+}
+
+func downloadTailwind(wg *sync.WaitGroup) error {
+	startTask("Downloading tailwind ...")
+	cmd := exec.Command("sudo", "npm", "-g", "i", "tailwindcss")
+	err := cmd.Run()
+	fmt.Println("	Failed to download tailwindcss cli using npm")
+	fmt.Println("	Download it yourself")
+	logErrorAndPanic(err)
+	wg.Done()
+	return nil
+}
+
+func downloadGoTool(name, src string, wg *sync.WaitGroup) error {
+	startTask(fmt.Sprintf("Downloading %s ...\n", name))
+	cmd := exec.Command("go", "install", src)
+	err := cmd.Run()
+	fmt.Println(fmt.Sprintf("	Failed to download %s using npm\n", name))
+	fmt.Println("	Download it yourself")
+	logErrorAndPanic(err)
+	wg.Done()
+	return nil
 }
