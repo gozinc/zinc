@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -31,6 +32,14 @@ import (
 
 var (
 	noGit bool
+)
+
+const (
+	airTomlURL      = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/.air.toml"
+	gitIgnoreURL    = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/.gitignore"
+	tailwindConfURL = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/tailwind.config.js"
+	tailwindSource  = "https://raw.githubusercontent.com/tailwindlabs/tailwindcss/master/src/css/preflight.css"
+	htmxSource      = "https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"
 )
 
 func init() {
@@ -47,8 +56,8 @@ var createCmd = &cobra.Command{
 		fmt.Println("")
 
 		projectName := stringPrompt("What's the project name?", "my_app", "my_app")
-		tailwind := stringPrompt("Will you be using Tailwind CSS for styling", "y/n", "")
-		htmx := stringPrompt("Will you use HTMX?", "y/n", "")
+		tailwind := stringPrompt("Will you be using Tailwind CSS for styling", "yes", "yes")
+		htmx := stringPrompt("Will you use HTMX?", "yes", "yes")
 
 		projectPath, err := filepath.Abs(projectName)
 		logErrorAndPanic(err)
@@ -56,15 +65,49 @@ var createCmd = &cobra.Command{
 		err = os.MkdirAll(projectPath, os.ModePerm)
 		logErrorAndPanic(err)
 
+		staticDir := path.Join(projectPath, "static")
+
 		p := progress.NewProgress(os.Stdout)
 		defer p.Stop()
 
-		//
+		spinner := progress.NewSpinner("Setting up files")
+		p.Add("Setting up files", spinner)
+
+		if tailwind != "no" && tailwind != "n" {
+			err = saveFile(projectPath, "tailwind.config.js", tailwindConfURL)
+			logErrorAndPanic(err)
+
+			cssDir := path.Join(staticDir, "css")
+
+			err = saveFile(cssDir, "tailwind.css", tailwindSource)
+			logErrorAndPanic(err)
+
+			logSuccess("Setup Tailwind CSS")
+		}
+
+		if htmx != "no" && htmx != "n" {
+			jsDir := path.Join(staticDir, "js")
+
+			err = saveFile(jsDir, "htmx.min.js", htmxSource)
+			logErrorAndPanic(err)
+
+			logSuccess("Setup HTMX")
+		}
+
+		err = saveFile(projectPath, ".air.toml", airTomlURL)
+		logErrorAndPanic(err)
 
 		if !noGit {
+			err = saveFile(projectPath, ".gitignore", gitIgnoreURL)
+			logErrorAndPanic(err)
+
 			err = initializeGitRepo(projectPath, p)
 			logErrorAndPanic(err)
+
+			logSuccess("Setup Git")
 		}
+
+		spinner.Stop()
 		return nil
 	},
 }

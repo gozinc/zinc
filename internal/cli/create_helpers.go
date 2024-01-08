@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"io"
+	"net/http"
+	"os"
 	"os/exec"
+	"path"
 
 	"github.com/jmorganca/ollama/progress"
 )
@@ -41,4 +45,21 @@ func isGitInstalled(dir string) bool {
 	}
 
 	return true
+}
+
+func saveFile(directory, fileName, contentURL string) error {
+	file := path.Join(directory, fileName)
+
+	resp, err := http.Get(contentURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(file, data, os.ModePerm)
 }

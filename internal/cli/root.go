@@ -57,5 +57,6 @@ func logSuccess(msg string) {
 func logErrorAndPanic(err error) {
 	if err != nil {
 		logError(err.Error())
+		panic(err)
 	}
 }
