@@ -17,13 +17,8 @@
 
 package main
 
-import (
-	"context"
-
-	"github.com/gozinc/zinc/internal/cli"
-	"github.com/spf13/cobra"
-)
+import "github.com/gozinc/zinc/cmd/zinc"
 
 func main() {
-	cobra.CheckErr(cli.ExecuteContext(context.Background()))
+	zinc.ExecuteCLI()
 }

@@ -99,6 +99,17 @@ var createCmd = &cobra.Command{
 		err = saveFile(projectPath, ".air.toml", airTomlURL)
 		logErrorAndExit(err)
 
+		startTask("Downloading tools ...")
+
+		var wg sync.WaitGroup
+		wg.Add(3)
+
+		go downloadTailwind(&wg)
+		go downloadGoTool("air", airGo, &wg)
+		go downloadGoTool("templ", templGo, &wg)
+
+		wg.Wait()
+
 		if !noGit {
 			err = saveFile(projectPath, ".gitignore", gitIgnoreURL)
 			logErrorAndExit(err)
@@ -109,23 +120,12 @@ var createCmd = &cobra.Command{
 			logSuccess("Setup Git")
 		}
 
-		startTask("Downloading tools ...")
-
-		var wg sync.WaitGroup
-		wg.Add(3)
-
-		downloadTailwind(&wg)
-		go downloadGoTool("air", airGo, &wg)
-		go downloadGoTool("templ", templGo, &wg)
-
-		wg.Wait()
 		logSuccess("Done!")
 
-		fmt.Printf(`
-	# now run the application
-	cd %s
-	zinc run . # not yet
-`, projectName)
+		showMessage("# now run the application", true, false)
+		showMessage(fmt.Sprintf("cd %s", projectName), true, false)
+		showMessage("zinc run .", true, false)
+
 		return nil
 	},
 }

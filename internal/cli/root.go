@@ -60,6 +60,19 @@ func startTask(msg string) {
 	fmt.Printf("%s  %s\n", yellowBold("⧖"), msg)
 }
 
+func showMessage(msg string, tab, bad bool) {
+	t := ""
+	if tab {
+		t = "	"
+	}
+
+	if bad {
+		fmt.Printf("%s%s  %s\n", t, redBold("•"), msg)
+	} else {
+		fmt.Printf("%s%s  %s\n", t, greenBold("•"), msg)
+	}
+}
+
 func logErrorAndExit(err error) {
 	if err != nil {
 		logError(err.Error())

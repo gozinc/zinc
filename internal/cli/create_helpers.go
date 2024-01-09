@@ -63,26 +63,24 @@ func saveFile(directory, fileName, contentURL string) error {
 	return os.WriteFile(file, data, os.ModePerm)
 }
 
-func downloadTailwind(wg *sync.WaitGroup) error {
+func downloadTailwind(wg *sync.WaitGroup) {
 	startTask("Downloading tailwind ...")
 	cmd := exec.Command("sudo", "npm", "-g", "i", "tailwindcss")
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("	Failed to download tailwindcss cli using npm")
-		fmt.Println("	Download it yourself")
+		showMessage("Failed to download tailwindcss cli using npm", true, true)
+		showMessage("Download it yourself", true, true)
 	}
 	wg.Done()
-	return nil
 }
 
-func downloadGoTool(name, src string, wg *sync.WaitGroup) error {
+func downloadGoTool(name, src string, wg *sync.WaitGroup) {
 	startTask(fmt.Sprintf("Downloading %s ...\n", name))
 	cmd := exec.Command("go", "install", src)
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println(fmt.Sprintf("	Failed to download %s using go install\n", name))
-		fmt.Println("	Download it yourself")
+		showMessage(fmt.Sprintf("Failed to download %s using go install\n", name), true, true)
+		showMessage("Download it yourself", true, true)
 	}
 	wg.Done()
-	return nil
 }
