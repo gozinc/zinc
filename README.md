@@ -11,7 +11,7 @@ Fullstack Go Tooling
 Using Go
 
 ```bash
-go install https://github.com/gozinc/zinc@latest
+go install github.com/gozinc/zinc@latest
 ```
 
 Or install from [releases](https://github.com/gozinc/zinc/releases/latest)
