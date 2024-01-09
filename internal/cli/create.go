@@ -19,8 +19,10 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -35,13 +37,9 @@ var (
 )
 
 const (
-	airTomlURL      = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/.air.toml"
-	gitIgnoreURL    = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/.gitignore"
-	tailwindConfURL = "https://raw.githubusercontent.com/gozinc/zinc/main/internal/cli/template/tailwind.config.js"
-	tailwindSource  = "https://raw.githubusercontent.com/tailwindlabs/tailwindcss/master/src/css/preflight.css"
-	htmxSource      = "https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"
-	airGo           = "github.com/cosmtrek/air@latest"
-	templGo         = "github.com/a-h/templ/cmd/templ@latest"
+	templateURL = "https://github.com/gozinc/template.git"
+	templGo     = "github.com/a-h/templ/cmd/templ@latest"
+	airGo       = "github.com/cosmtrek/air@latest"
 )
 
 func init() {
@@ -58,10 +56,8 @@ var createCmd = &cobra.Command{
 		fmt.Println("")
 
 		projectName := stringPrompt("What's the project name?", "my_app", "my_app")
-		tailwind := stringPrompt("Will you be using Tailwind CSS for styling", "yes", "yes")
-		htmx := stringPrompt("Will you use HTMX?", "yes", "yes")
 
-		startTask("Setting up files ...")
+		startTask("Setting up project files ...")
 
 		projectPath, err := filepath.Abs(projectName)
 		logErrorAndExit(err)
@@ -69,56 +65,78 @@ var createCmd = &cobra.Command{
 		err = os.MkdirAll(projectPath, os.ModePerm)
 		logErrorAndExit(err)
 
-		staticDir := path.Join(projectPath, "static")
+		ctx := context.Background()
 
-		if tailwind != "no" && tailwind != "n" {
-			err = saveFile(projectPath, "tailwind.config.js", tailwindConfURL)
+		gitClone := exec.CommandContext(ctx, "git", "clone", templateURL, ".")
+		gitClone.Dir = projectPath
+
+		err = gitClone.Run()
+		if err != nil {
 			logErrorAndExit(err)
-
-			cssDir := path.Join(staticDir, "css")
-			err = os.MkdirAll(cssDir, os.ModePerm)
-			logErrorAndExit(err)
-
-			err = saveFile(cssDir, "tailwind.css", tailwindSource)
-			logErrorAndExit(err)
-
-			logSuccess("Setup Tailwind CSS")
 		}
-
-		if htmx != "no" && htmx != "n" {
-			jsDir := path.Join(staticDir, "js")
-			err = os.MkdirAll(jsDir, os.ModePerm)
-			logErrorAndExit(err)
-
-			err = saveFile(jsDir, "htmx.min.js", htmxSource)
-			logErrorAndExit(err)
-
-			logSuccess("Setup HTMX")
-		}
-
-		err = saveFile(projectPath, ".air.toml", airTomlURL)
-		logErrorAndExit(err)
-
-		startTask("Downloading tools ...")
 
 		var wg sync.WaitGroup
-		wg.Add(3)
 
-		go downloadTailwind(&wg)
+		wg.Add(1)
+		go func() {
+			// remove .git folder
+			dotGitFolder := path.Join(projectPath, ".git")
+			err := os.RemoveAll(dotGitFolder)
+
+			if err != nil {
+				logError(err.Error())
+				showMessage("Failed to remove .git folder, remove it yourself", true, true)
+			}
+			wg.Done()
+		}()
+
+		wg.Add(1)
+		go func() {
+			startTask("Downloading go dependencies ...")
+
+			goModDownload := exec.CommandContext(ctx, "go", "mod", "download")
+			goModDownload.Dir = projectPath
+
+			err := goModDownload.Run()
+			if err != nil {
+				logErrorAndExit(err)
+			}
+
+			wg.Done()
+		}()
+
+		wg.Add(1)
+		go func() {
+			startTask("Downloading templ ...")
+			downloadGoTool("templ", templGo, &wg)
+
+			startTask("Generating templ code ...")
+			templeGen := exec.CommandContext(ctx, "templ", "generate")
+			templeGen.Dir = projectPath
+
+			err := templeGen.Run()
+			if err != nil {
+				logErrorAndExit(err)
+			}
+
+			wg.Done()
+		}()
+
+		wg.Add(1)
 		go downloadGoTool("air", airGo, &wg)
-		go downloadGoTool("templ", templGo, &wg)
+
+		if !noGit {
+			startTask("Initializing Git")
+			err = initializeGitRepo(projectPath)
+			if err != nil {
+				logError(err.Error())
+			}
+		}
 
 		wg.Wait()
 
-		if !noGit {
-			err = saveFile(projectPath, ".gitignore", gitIgnoreURL)
-			logErrorAndExit(err)
-
-			err = initializeGitRepo(projectPath)
-			logErrorAndExit(err)
-
-			logSuccess("Setup Git")
-		}
+		fmt.Println("")
+		downloadTailwind(&wg)
 
 		logSuccess("Done!")
 

@@ -2,11 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"os/exec"
-	"path"
 	"sync"
 )
 
@@ -42,45 +38,21 @@ func isGitInstalled(dir string) bool {
 	return true
 }
 
-func saveFile(directory, fileName, contentURL string) error {
-	file := path.Join(directory, fileName)
-	_, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-
-	resp, err := http.Get(contentURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(file, data, os.ModePerm)
-}
-
+// TODO: download Tailwindcss with this function
 func downloadTailwind(wg *sync.WaitGroup) {
-	startTask("Downloading tailwind ...")
-	cmd := exec.Command("sudo", "npm", "-g", "i", "tailwindcss")
-	err := cmd.Run()
-	if err != nil {
-		showMessage("Failed to download tailwindcss cli using npm", true, true)
-		showMessage("Download it yourself", true, true)
-	}
-	wg.Done()
+	showMessage("Download tailwindcss cli, preferably using npm, do:", false, false)
+	showMessage("npm -g i tailwindcss", true, false)
 }
 
 func downloadGoTool(name, src string, wg *sync.WaitGroup) {
 	startTask(fmt.Sprintf("Downloading %s ...\n", name))
+
 	cmd := exec.Command("go", "install", src)
 	err := cmd.Run()
 	if err != nil {
 		showMessage(fmt.Sprintf("Failed to download %s using go install\n", name), true, true)
 		showMessage("Download it yourself", true, true)
 	}
+
 	wg.Done()
 }
