@@ -21,11 +21,14 @@ builds:
     main: ./cmd/zinc/main.go
     ldflags:
       - -s -w -X github.com/gozinc/zinc/version.Version={{ .Version }}
+      - -s -w -X github.com/gozinc/zinc/version.GoVersion={{ .Env.GOVERSION }}
     goos:
       - linux
       - windows
       - darwin
-
+    ignore:
+      - goos: darwin
+        goarch: "386"
 release:
   draft: true
   github:

@@ -20,13 +20,13 @@ func initializeGitRepo(dir string) error {
 	cmd.Dir = dir
 
 	err := cmd.Run()
-	logErrorAndPanic(err)
+	logErrorAndExit(err)
 
 	cmd = exec.Command("git", "add", ".")
 	cmd.Dir = dir
 
 	err = cmd.Run()
-	logErrorAndPanic(err)
+	logErrorAndExit(err)
 
 	return nil
 }
@@ -67,9 +67,10 @@ func downloadTailwind(wg *sync.WaitGroup) error {
 	startTask("Downloading tailwind ...")
 	cmd := exec.Command("sudo", "npm", "-g", "i", "tailwindcss")
 	err := cmd.Run()
-	fmt.Println("	Failed to download tailwindcss cli using npm")
-	fmt.Println("	Download it yourself")
-	logErrorAndPanic(err)
+	if err != nil {
+		fmt.Println("	Failed to download tailwindcss cli using npm")
+		fmt.Println("	Download it yourself")
+	}
 	wg.Done()
 	return nil
 }
@@ -78,9 +79,10 @@ func downloadGoTool(name, src string, wg *sync.WaitGroup) error {
 	startTask(fmt.Sprintf("Downloading %s ...\n", name))
 	cmd := exec.Command("go", "install", src)
 	err := cmd.Run()
-	fmt.Println(fmt.Sprintf("	Failed to download %s using npm\n", name))
-	fmt.Println("	Download it yourself")
-	logErrorAndPanic(err)
+	if err != nil {
+		fmt.Println(fmt.Sprintf("	Failed to download %s using go install\n", name))
+		fmt.Println("	Download it yourself")
+	}
 	wg.Done()
 	return nil
 }

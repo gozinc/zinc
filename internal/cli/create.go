@@ -54,7 +54,7 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Zinc project",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println(zincInfoMessage(version.Version))
+		fmt.Println(zincInfoMessage(version.Version, version.GoVersion))
 		fmt.Println("")
 
 		projectName := stringPrompt("What's the project name?", "my_app", "my_app")
@@ -64,23 +64,23 @@ var createCmd = &cobra.Command{
 		startTask("Setting up files ...")
 
 		projectPath, err := filepath.Abs(projectName)
-		logErrorAndPanic(err)
+		logErrorAndExit(err)
 
 		err = os.MkdirAll(projectPath, os.ModePerm)
-		logErrorAndPanic(err)
+		logErrorAndExit(err)
 
 		staticDir := path.Join(projectPath, "static")
 
 		if tailwind != "no" && tailwind != "n" {
 			err = saveFile(projectPath, "tailwind.config.js", tailwindConfURL)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			cssDir := path.Join(staticDir, "css")
 			err = os.MkdirAll(cssDir, os.ModePerm)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			err = saveFile(cssDir, "tailwind.css", tailwindSource)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			logSuccess("Setup Tailwind CSS")
 		}
@@ -88,23 +88,23 @@ var createCmd = &cobra.Command{
 		if htmx != "no" && htmx != "n" {
 			jsDir := path.Join(staticDir, "js")
 			err = os.MkdirAll(jsDir, os.ModePerm)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			err = saveFile(jsDir, "htmx.min.js", htmxSource)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			logSuccess("Setup HTMX")
 		}
 
 		err = saveFile(projectPath, ".air.toml", airTomlURL)
-		logErrorAndPanic(err)
+		logErrorAndExit(err)
 
 		if !noGit {
 			err = saveFile(projectPath, ".gitignore", gitIgnoreURL)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			err = initializeGitRepo(projectPath)
-			logErrorAndPanic(err)
+			logErrorAndExit(err)
 
 			logSuccess("Setup Git")
 		}
@@ -130,13 +130,13 @@ var createCmd = &cobra.Command{
 	},
 }
 
-func zincInfoMessage(version string) string {
-	return fmt.Sprintf("%s   v%s", cyanBold(zincTextArt()), whiteBold(version))
+func zincInfoMessage(version, goVersion string) string {
+	return fmt.Sprintf("%s   v%s build with Go v%s", cyanBold(zincTextArt()), whiteBold(version), whiteBold(goVersion))
 }
 
 func zincTextArt() string {
 	return `
-▀█ █ █▄░█ █▀▀   fullstack web framework for golang
+▀█ █ █▄░█ █▀▀   Fullstack web framework for golang
 █▄ █ █░▀█ █▄▄`
 }
 

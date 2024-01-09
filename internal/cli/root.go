@@ -20,6 +20,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/fatih/color"
 	"github.com/gozinc/zinc/version"
@@ -59,9 +60,9 @@ func startTask(msg string) {
 	fmt.Printf("%s  %s\n", yellowBold("⧖"), msg)
 }
 
-func logErrorAndPanic(err error) {
+func logErrorAndExit(err error) {
 	if err != nil {
 		logError(err.Error())
-		panic(err)
+		os.Exit(1)
 	}
 }
