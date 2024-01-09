@@ -131,7 +131,7 @@ var createCmd = &cobra.Command{
 }
 
 func zincInfoMessage(version, goVersion string) string {
-	return fmt.Sprintf("%s   v%s build with Go v%s", cyanBold(zincTextArt()), whiteBold(version), whiteBold(goVersion))
+	return fmt.Sprintf("%s   v%s, build with Go v%s", cyanBold(zincTextArt()), whiteBold(version), whiteBold(goVersion))
 }
 
 func zincTextArt() string {
