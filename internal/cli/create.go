@@ -125,6 +125,8 @@ var createCmd = &cobra.Command{
 		wg.Add(1)
 		go downloadGoTool("air", airGo, &wg)
 
+		wg.Wait()
+
 		if !noGit {
 			startTask("Initializing Git")
 			err = initializeGitRepo(projectPath)
@@ -132,8 +134,6 @@ var createCmd = &cobra.Command{
 				logError(err.Error())
 			}
 		}
-
-		wg.Wait()
 
 		fmt.Println("")
 		downloadTailwind(&wg)
