@@ -23,7 +23,7 @@ zinc create
 Run the application
 
 ```bash
-zinc run .
+zinc run
 ```
 
 Now open http://localhost:3000

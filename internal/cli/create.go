@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -72,7 +73,7 @@ var createCmd = &cobra.Command{
 
 		err = gitClone.Run()
 		if err != nil {
-			logErrorAndExit(err)
+			logErrorAndExit(fmt.Errorf("Failed to clone templates"))
 		}
 
 		var wg sync.WaitGroup
@@ -102,12 +103,21 @@ var createCmd = &cobra.Command{
 				logErrorAndExit(err)
 			}
 
+			startTask("Cleaning go project ...")
+
+			tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
+			tidyCmd.Dir = projectPath
+
+			err = tidyCmd.Run()
+			if err != nil {
+				logErrorAndExit(err)
+			}
+
 			wg.Done()
 		}()
 
 		wg.Add(1)
 		go func() {
-			startTask("Downloading templ ...")
 			downloadGoTool("templ", templGo, &wg)
 
 			startTask("Generating templ code ...")
@@ -127,11 +137,29 @@ var createCmd = &cobra.Command{
 
 		wg.Wait()
 
-		if !noGit {
+		if noGit {
 			startTask("Initializing Git")
 			err = initializeGitRepo(projectPath)
 			if err != nil {
 				logError(err.Error())
+			}
+		}
+
+		if runtime.GOOS == "windows" {
+			// changing air config bin path to add .exe
+			airTomlFile := path.Join(projectPath, ".air.toml")
+			airToml, err := os.ReadFile(airTomlFile)
+			if err != nil {
+				showMessage(err.Error(), true, true)
+			} else {
+				airTomlData := string(airToml)
+				//                                                     replace in two places
+				airTomlData = strings.Replace(airTomlData, "./tmp/main", "./tmp/main.exe", 2)
+
+				err = os.WriteFile(airTomlFile, []byte(airTomlData), os.ModePerm)
+				if err != nil {
+					showMessage(err.Error(), true, true)
+				}
 			}
 		}
 

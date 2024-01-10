@@ -23,16 +23,11 @@ var (
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the Zinc app",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.ExactArgs(0),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target := "."
-		if len(args) != 0 {
-			target = args[0]
-		}
-
 		ctx := context.Background()
 
-		airRun := exec.CommandContext(ctx, "air", "run", target)
+		airRun := exec.CommandContext(ctx, "air", "run")
 		setInOuts(airRun)
 
 		err := airRun.Start()
