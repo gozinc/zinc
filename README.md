@@ -26,6 +26,8 @@ Run the application
 zinc run .
 ```
 
+Now open http://localhost:3000
+
 # Flags
 
 1. `--no-git` - Don't initialize git repository
