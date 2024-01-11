@@ -80,6 +80,8 @@ var createCmd = &cobra.Command{
 
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
+
 			// remove .git folder
 			dotGitFolder := path.Join(projectPath, ".git")
 			err := os.RemoveAll(dotGitFolder)
@@ -88,11 +90,12 @@ var createCmd = &cobra.Command{
 				logError(err.Error())
 				showMessage("Failed to remove .git folder, remove it yourself", true, true)
 			}
-			wg.Done()
 		}()
 
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
+
 			startTask("Downloading go dependencies ...")
 
 			goModDownload := exec.CommandContext(ctx, "go", "mod", "download")
@@ -112,12 +115,12 @@ var createCmd = &cobra.Command{
 			if err != nil {
 				logErrorAndExit(err)
 			}
-
-			wg.Done()
 		}()
 
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
+
 			downloadGoTool("templ", templGo, &wg)
 
 			startTask("Generating templ code ...")
@@ -128,8 +131,6 @@ var createCmd = &cobra.Command{
 			if err != nil {
 				logErrorAndExit(err)
 			}
-
-			wg.Done()
 		}()
 
 		wg.Add(1)
