@@ -27,7 +27,7 @@ var runCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 
-		airRun := exec.CommandContext(ctx, "air", "run")
+		airRun := exec.CommandContext(ctx, "air")
 		setInOuts(airRun)
 
 		err := airRun.Start()
