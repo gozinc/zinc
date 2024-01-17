@@ -1,11 +1,3 @@
-# This is an example .goreleaser.yml file with some sensible defaults.
-# Make sure to check the documentation at https://goreleaser.com
-
-# The lines below are called `modelines`. See `:help modeline`
-# Feel free to remove those if you don't want/need to use them.
-# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# vim: set ts=2 sw=2 tw=0 fo=cnqoj
-
 version: 1
 
 before:
@@ -16,7 +8,8 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - main: "./cmd/zinc/main.go"
+    env:
       - CGO_ENABLED=0
     ldflags:
       - -s -w -X github.com/gozinc/zinc/version.Version={{ .Version }}
@@ -33,12 +26,12 @@ release:
   github:
     owner: gozinc
     name: zinc
-  name_template: "{{.ProjectName}} v{{.Version}}"
+  name_template: "{{.ProjectName}} CLI v{{.Version}}"
 
 archives:
   - format: tar.gz
     name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_
+      {{ .ProjectName }}_cli_{{ .Version }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386

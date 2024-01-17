@@ -4,13 +4,7 @@ Fullstack Go Tooling
 
 # Installation
 
-Using Go
-
-```bash
-go install github.com/gozinc/zinc@latest
-```
-
-Or install from [releases](https://github.com/gozinc/zinc/releases/latest)
+Install from [releases](https://github.com/gozinc/zinc/releases/latest)
 
 # Usage
 
