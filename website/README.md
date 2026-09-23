@@ -25,6 +25,23 @@ npm run check:templ
 
 ## Cloudflare Workers
 
+Cloudflare Workers Builds is connected to `0mjs/zinc`. Every push or merged
+pull request to `dev` automatically builds and deploys the docs to
+<https://zinc.carbonsoft.sh>. Other branches do not deploy to production.
+
+The `zinc` Worker's build settings are:
+
+- Production branch: `dev`
+- Root directory: `website`
+- Build command: `npm run check:site`
+- Deploy command: `npx wrangler deploy`
+- Build cache: enabled
+
+The build must pass the source-doc, Astro build, and generated-link checks
+before deployment. Cloudflare stores the deployment credential; GitHub Actions
+and repository secrets are not required. Manage this connection in the
+Cloudflare dashboard under **zinc → Settings → Builds**.
+
 The documentation is deployed with Workers Static Assets from `dist`:
 
 ```sh
