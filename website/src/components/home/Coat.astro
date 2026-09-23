@@ -1,0 +1,205 @@
+---
+// Cross-section of a galvanized stack: your code, a thin Zinc coat, net/http steel.
+---
+
+<section class="coat">
+  <div class="copy">
+    <p class="kicker">How it fits</p>
+    <h2>A thin coat, not a new engine.</h2>
+    <p>
+      Galvanizing protects steel without replacing it. Zinc does the same for <code>net/http</code>:
+      your app is still an <code>http.Handler</code>, and standard handlers, middleware, and servers
+      plug straight in.
+    </p>
+    <ul class="contracts">
+      <li><code>server.Handler = app</code><span>Run it on a server you configure</span></li>
+      <li><code>app.HandleHTTP("GET /metrics", h)</code><span>Mount any standard handler</span></li>
+      <li><code>app.UseHTTP(tracing)</code><span>Wrap the app in standard middleware</span></li>
+    </ul>
+    <a class="more" href="/guide/http-interoperability/">Zinc and net/http →</a>
+  </div>
+
+  <figure class="section-cut" aria-label="Cross-section: your application sits on a thin Zinc layer over net/http">
+    <div class="layer app">
+      <strong>Your application</strong>
+      <span>handlers · services · packages</span>
+    </div>
+    <div class="layer zn">
+      <strong>Zinc</strong>
+      <span>routing · binding · errors · middleware</span>
+    </div>
+    <div class="layer steel">
+      <strong>net/http</strong>
+      <span>server · request · response writer</span>
+    </div>
+    <figcaption>
+      <span>http.Handler in</span>
+      <span>http.Handler out</span>
+    </figcaption>
+  </figure>
+</section>
+
+<style>
+  .coat {
+    align-items: center;
+    display: grid;
+    gap: clamp(2.5rem, 6vw, 5rem);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .kicker {
+    color: var(--z-muted);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+    margin: 0 0 1rem;
+  }
+
+  h2 {
+    color: var(--z-text);
+    font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
+    letter-spacing: -0.035em;
+    margin: 0 0 1.1rem;
+    text-wrap: balance;
+  }
+
+  .copy > p:not(.kicker) {
+    color: var(--z-muted);
+    font-size: 1rem;
+    line-height: 1.65;
+    margin: 0 0 1.75rem;
+    max-width: 46ch;
+  }
+
+  .copy code {
+    background: var(--sl-color-bg-inline-code);
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: var(--z-radius-sm);
+    color: var(--z-text);
+    font: 400 0.84em var(--sl-font-mono);
+    padding: 0.05em 0.35em;
+  }
+
+  .contracts {
+    border-top: 1px solid var(--sl-color-hairline);
+    list-style: none;
+    margin: 0 0 1.5rem;
+    padding: 0;
+  }
+
+  .contracts li {
+    align-items: baseline;
+    border-bottom: 1px solid var(--sl-color-hairline);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    justify-content: space-between;
+    margin: 0;
+    padding: 0.8rem 0;
+  }
+
+  .contracts code {
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+
+  .contracts span {
+    color: var(--z-muted);
+    font-size: 0.85rem;
+  }
+
+  .more {
+    color: var(--z-text);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .more:hover {
+    color: var(--z-zn);
+  }
+
+  /* The cut: thick app, thin zinc coat, thick steel. */
+  .section-cut {
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 10px;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .layer {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    justify-content: space-between;
+    padding-inline: 1.25rem;
+  }
+
+  .layer strong {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .layer span {
+    font: 400 0.72rem/1.3 var(--sl-font-mono);
+  }
+
+  .app {
+    background:
+      repeating-linear-gradient(90deg, transparent 0 23px, var(--sl-color-hairline) 23px 24px),
+      var(--z-panel);
+    color: var(--z-text);
+    min-height: 8.5rem;
+  }
+
+  .app span {
+    color: var(--z-muted);
+  }
+
+  .zn {
+    background: #c9ced3 url("/zn-spangle.png") center / 180px auto repeat;
+    border-block: 1px solid rgba(0, 0, 0, 0.35);
+    color: #16191c;
+    min-height: 3rem;
+  }
+
+  .zn strong {
+    font: 400 0.82rem/1 var(--z-font-display);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  .zn span {
+    color: #2d3238;
+  }
+
+  /* Brushed steel: fine horizontal grain, no highlights. */
+  .steel {
+    background:
+      repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, #2b3036, #1c2024);
+    color: #e2e6ea;
+    min-height: 8.5rem;
+  }
+
+  .steel span {
+    color: #9aa3ad;
+  }
+
+  figcaption {
+    background: var(--z-panel);
+    border-top: 1px solid var(--sl-color-hairline-light);
+    color: var(--z-muted);
+    display: flex;
+    font: 400 0.7rem/1 var(--sl-font-mono);
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+  }
+
+  @media (max-width: 60rem) {
+    .coat {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

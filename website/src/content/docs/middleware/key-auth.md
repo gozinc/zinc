@@ -3,13 +3,11 @@ title: Key Auth
 description: Validate API keys from headers, query values, or cookies.
 ---
 
-`KeyAuth` protects routes with an API key validator.
+`KeyAuth` protects routes with API keys: opaque strings you issue to clients. By default it reads `Authorization: Bearer <key>` and answers `401` when the key is missing or invalid.
 
 ```go
 app.Use(middleware.KeyAuth(middleware.KeyAuthStatic(os.Getenv("API_KEY"))))
 ```
-
-By default, Zinc reads `Authorization: Bearer <key>`.
 
 Use another extractor when keys live somewhere else.
 

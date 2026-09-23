@@ -1,14 +1,14 @@
 ---
 title: Installation
-description: Add Zinc to a Go module and confirm your first build.
+description: Add Zinc to a Go module, import its packages, and manage versions.
 ---
 
-Zinc is a normal Go module.
+Zinc is an ordinary Go module with no code generation or CLI. If you want a guided first run instead, start with the [Quickstart](/guide/quickstart/).
 
 ## Requirements
 
-- Go `1.25` or newer
-- An existing Go module, or a new one created with `go mod init`
+- Go **1.25** or newer
+- A Go module, created with `go mod init` if you do not have one yet
 
 ## Install
 
@@ -16,38 +16,37 @@ Zinc is a normal Go module.
 go get github.com/0mjs/zinc
 ```
 
-Most applications also use Zinc's first-party middleware package:
+## Import
+
+Zinc has two packages. Both come from the same module, so one `go get` installs both.
 
 ```go
 import (
-	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc"            // app, router, context, binding, responses
+	"github.com/0mjs/zinc/middleware" // first-party middleware
 )
 ```
 
-The middleware package is part of the same module, so no extra install command is needed.
+The core package depends only on the standard library plus encoders for YAML and TOML. The middleware package adds `golang-jwt` for the JWT middleware. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, stay in your code and plug in through `net/http`.
 
-## Create a module
-
-For a new project:
-
-```bash
-mkdir hello-zinc
-cd hello-zinc
-go mod init example.com/hello-zinc
-go get github.com/0mjs/zinc
-```
-
-Then create `main.go` and continue with the [Quickstart](/guide/quickstart/).
-
-## Check the version
-
-Use the normal Go tooling to inspect the selected version:
+## Check the installed version
 
 ```bash
 go list -m github.com/0mjs/zinc
 ```
 
-:::caution[Before upgrading]
-Zinc is currently pre-1.0. Read the release notes before upgrading a production service because minor releases may contain deliberate API changes.
+## Upgrade
+
+```bash
+go get github.com/0mjs/zinc@latest
+go mod tidy
+```
+
+:::caution[Zinc is pre-1.0]
+Minor releases can contain deliberate API changes. Pin a version in production and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading. Moving from 0.1? Follow [Migrating to 0.2](/extra/migration-0.2/).
 :::
+
+## Next steps
+
+- [Quickstart](/guide/quickstart/) runs your first server.
+- [Your First Route](/guide/first-route/) introduces handlers, input, and errors.

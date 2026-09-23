@@ -3,6 +3,8 @@ title: Reverse Proxy
 description: Forward one Zinc path prefix to an upstream service with explicit path rewriting and transport timeouts.
 ---
 
+Forward everything under `/api` to another service, with timeouts on the upstream connection. Zinc stays in front, so its middleware, such as logging, auth, and rate limits, still runs for proxied requests.
+
 ```go
 package main
 

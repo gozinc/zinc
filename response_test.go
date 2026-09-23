@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (

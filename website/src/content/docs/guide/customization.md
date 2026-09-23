@@ -1,46 +1,102 @@
 ---
 title: Customization
-description: Replace Zinc's binder, validator, renderer, JSON codec, error handler, routing policy, and server defaults.
+description: Replace Zinc's error handler, validator, renderer, JSON codec, or request binder with your own.
 ---
 
-Start from `zinc.DefaultConfig`, change only what your application owns, then construct the app with `NewWithConfig`.
+Each part of Zinc that makes a policy decision can be replaced through configuration: how errors are written, how input is validated, how JSON is encoded, how templates render. Each extension point is a small interface, so a replacement is usually a few lines.
 
 ```go
 cfg := zinc.DefaultConfig
-cfg.CaseSensitive = true
-cfg.StrictRouting = true
-cfg.BodyLimit = 8 << 20
-cfg.ReadTimeout = 10 * time.Second
-cfg.WriteTimeout = 20 * time.Second
+cfg.ErrorHandler = writeJSONError
+cfg.Validator = structValidator{v: validator.New()}
+cfg.JSONCodec = sonicCodec{}
+cfg.Renderer = zinc.NewHTMLTemplateRenderer(views)
 
 app := zinc.NewWithConfig(cfg)
 ```
 
-## Replace extension points
+## Error handler
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.RequestBinder = myBinder
-cfg.Validator = myValidator
-cfg.Renderer = myRenderer
-cfg.JSONCodec = myJSONCodec
-cfg.ErrorHandler = myErrorHandler
-
-app := zinc.NewWithConfig(cfg)
+type ErrorHandler func(c *zinc.Context, err error)
 ```
 
-Each extension point is a small interface or function type. Implement only the behavior you need.
+Called once for every error that reaches the top of the chain. [Errors](/guide/errors/#a-custom-error-handler) has a complete JSON example, including mapping binding errors to `400`.
 
-## Standard HTTP middleware
-
-`UseHTTP` accepts the normal `func(http.Handler) http.Handler` shape:
+## Validator
 
 ```go
-app.UseHTTP(requestTracing, compression)
+type Validator interface {
+	Validate(any) error
+}
 ```
 
-You can also wrap the entire application because `*zinc.App` implements `http.Handler`.
+Runs after every successful bind. An adapter for go-playground/validator is three lines, shown in [Binding](/guide/binding/#validation).
 
-## Server ownership
+## JSON codec
 
-For complete control over listeners and lifecycle, use `app.Handler()` with your own `http.Server`, or pass an existing listener to `app.Serve(listener)`.
+```go
+type JSONCodec interface {
+	Encode(w io.Writer, v any, indent string) error
+	Decode(r io.Reader, v any) error
+}
+```
+
+Used by `c.JSON`, `c.JSONPretty`, and JSON binding. Swap in a faster library, or tune `encoding/json`:
+
+```go
+type strictJSON struct{}
+
+func (strictJSON) Encode(w io.Writer, v any, indent string) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", indent)
+	return enc.Encode(v)
+}
+
+func (strictJSON) Decode(r io.Reader, v any) error {
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields() // reject fields the struct does not declare
+	return dec.Decode(v)
+}
+```
+
+## Renderer
+
+```go
+type Renderer interface {
+	Render(w io.Writer, name string, data any, c *zinc.Context) error
+}
+```
+
+Zinc's template renderers cover `html/template`, `text/template`, and any engine with an `ExecuteTemplate` method. See [Templates](/guide/templates/).
+
+## Request binder
+
+```go
+type RequestBinder interface {
+	Bind(*zinc.Context, any) error
+	BindBody(*zinc.Context, any) error
+	BindQuery(*zinc.Context, any) error
+	BindForm(*zinc.Context, any) error
+	BindHeader(*zinc.Context, any) error
+	BindPath(*zinc.Context, any) error
+}
+```
+
+Replacing the binder changes how every `c.Bind()` method decodes. Most apps never need this; a custom `JSONCodec` or `Validator` usually covers the requirement.
+
+## Owning the server
+
+For listeners, TLS, and lifecycle, you do not need configuration at all. The app is an `http.Handler`:
+
+```go
+server := &http.Server{Addr: ":8443", Handler: app, TLSConfig: tlsConfig}
+log.Fatal(server.ListenAndServeTLS("", ""))
+```
+
+`app.Serve(listener)` runs the app on a listener you created, such as a systemd socket or a Unix socket.
+
+## Next steps
+
+- [Configuration](/guide/configuration/) for every setting and its default.
+- [Zinc and net/http](/guide/http-interoperability/) for standard middleware and handlers.

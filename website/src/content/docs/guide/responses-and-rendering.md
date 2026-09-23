@@ -1,165 +1,134 @@
 ---
 title: Responses and Rendering
-description: Return JSON, XML, YAML, TOML, HTML, templates, files, downloads, streams, and redirects.
+description: Send JSON, text, HTML, templates, files, downloads, streams, and server-sent events, with the right status and headers.
 ---
 
-Zinc provides response helpers for common API and web application flows.
-
-## At a glance
+Response helpers on `*zinc.Context` write the body, set `Content-Type`, and return an error you pass straight back. Set the status and headers first, then call exactly one body helper.
 
 ```go
 return c.
 	Status(zinc.StatusCreated).
 	SetHeader(zinc.HeaderLocation, "/users/42").
-	JSON(zinc.Map{"id": 42})
+	JSON(user)
 ```
 
-Set status and headers before writing the body. Once a response helper writes, treat the response as complete.
+## Quick reference
 
-## Plain responses
+| To send | Use |
+|---|---|
+| JSON | `c.JSON(v)`, or `c.JSONPretty(v, "  ")` |
+| XML, YAML, TOML | `c.XML(v)`, `c.YAML(v)`, `c.TOML(v)` |
+| Text or HTML | `c.String(s)`, `c.HTML(s)` |
+| Nothing | `c.NoContent()` (204) |
+| Pre-encoded bytes | `c.JSONBlob`, `c.XMLBlob`, `c.HTMLBlob`, `c.Blob` |
+| A template | `c.Render(name, data)` |
+| A file | `c.File(path)`, `c.FileFS(name, fsys)` |
+| A download | `c.Download(path, filename)`, `c.Inline(path)` |
+| A stream | `c.Stream(contentType, reader)` |
+| An event stream | `c.SSE(event)` |
+| A redirect | `c.Redirect(code, url)` |
 
-```go
-return c.String("ok")
-return c.HTML("<strong>ok</strong>")
-return c.NoContent()
-```
-
-## Structured responses
-
-```go
-return c.JSON(zinc.Map{"ok": true})
-return c.XML(payload)
-return c.YAML(payload)
-return c.TOML(payload)
-```
-
-For pretty JSON:
-
-```go
-return c.JSONPretty(payload, "  ")
-```
-
-If you already have encoded bytes:
-
-```go
-return c.JSONBlob(zinc.StatusOK, rawJSON)
-return c.XMLBlob(zinc.StatusOK, rawXML)
-return c.HTMLBlob(zinc.StatusOK, rawHTML)
-return c.Blob(zinc.StatusOK, "application/custom", payload)
-```
-
-Blob helpers write the bytes you pass in. They do not re-encode the payload.
+The status defaults to `200 OK`.
 
 ## Status and headers
 
-Use the response builder style when you want to set headers or status before writing the body.
-
 ```go
-return c.
-	Status(zinc.StatusCreated).
-	SetHeader(zinc.HeaderLocation, "/users/42").
-	JSON(zinc.Map{"id": 42})
+c.Status(zinc.StatusAccepted)
+c.SetHeader("Cache-Control", "no-store")
+c.AppendHeader("Vary", "Accept-Language")
+c.Location("/jobs/81")
 ```
 
-Useful helpers include:
+These methods return the context, so they chain into the body helper. Once a body helper runs, the response is committed. Changing headers afterwards has no effect.
 
-- `Status(code)`
-- `SetHeader(key, value)`
-- `AppendHeader(key, values...)`
-- `Type(ext)`
-- `Location(url)`
-- `Vary(fields...)`
-- `SetSameSite(mode)`
-
-For cookies:
+## Structured data
 
 ```go
-c.SetSameSite(http.SameSiteLaxMode)
-c.SetCookie(&http.Cookie{Name: "session", Value: token, Path: "/"})
+return c.JSON(zinc.Map{"ok": true})
+return c.XML(invoice)
+return c.YAML(config)
 ```
 
-## Redirects
+`zinc.Map` is shorthand for `map[string]any`. For bytes that are already encoded, the blob helpers write them unchanged:
 
 ```go
-return c.Redirect(zinc.StatusTemporaryRedirect, "/login")
+return c.JSONBlob(zinc.StatusOK, cachedJSON)
+return c.Blob(zinc.StatusOK, "application/vnd.api+json", payload)
 ```
 
 ## Templates
 
-Configure a renderer in `Config` and then call `Render`.
+Configure a renderer once, then render by name:
 
 ```go
-views := template.Must(template.ParseGlob("templates/*.html"))
+views := template.Must(template.ParseGlob("views/*.html"))
 
-app := zinc.NewWithConfig(zinc.Config{
-	Renderer: zinc.NewHTMLTemplateRenderer(views),
-})
+cfg := zinc.DefaultConfig
+cfg.Renderer = zinc.NewHTMLTemplateRenderer(views)
+app := zinc.NewWithConfig(cfg)
 
 app.Get("/dashboard", func(c *zinc.Context) error {
 	return c.Render("dashboard.html", zinc.Map{"Title": "Overview"})
 })
 ```
 
+[Templates](/guide/templates/) covers `text/template`, custom engines, and Templ.
+
 ## Files and downloads
 
-Serve files directly from disk or an `fs.FS`.
-
 ```go
-return c.File("./public/report.pdf")
-return c.FileFS("report.pdf", embeddedFiles)
+return c.File("./public/report.pdf")          // served with a detected content type
+return c.FileFS("report.pdf", embeddedFiles)  // from any fs.FS
+return c.Download("./exports/users.csv", "users-2026-09.csv") // "Save as" with a filename
+return c.Inline("./public/report.pdf")        // display in the browser
 ```
 
-For downloads and attachments:
+:::caution[Paths from users]
+Never build a file path from request input without validating it. The [File Download](/cookbook/file-download/) recipe shows a safe pattern.
+:::
+
+## Streams and server-sent events
+
+`c.Stream` copies from any `io.Reader` without buffering the whole body:
 
 ```go
-return c.Download("./exports/users.csv", "users-latest.csv")
-return c.Inline("./public/report.pdf")
+return c.Stream("text/csv", exportReader)
 ```
 
-## Streams
-
-```go
-reader := strings.NewReader("streamed content")
-return c.Stream("text/plain; charset=utf-8", reader)
-```
-
-For server-sent events, write one event at a time:
+For server-sent events, write one event at a time and flush after each:
 
 ```go
 app.Get("/events", func(c *zinc.Context) error {
-	for _, msg := range messages {
-		if err := c.SSE(zinc.SSEvent{
-			Event: "message",
-			Data:  zinc.Map{"text": msg},
-		}); err != nil {
+	for msg := range updates(c.Context()) {
+		if err := c.SSE(zinc.SSEvent{Event: "update", Data: msg}); err != nil {
 			return err
 		}
-		if flusher, ok := c.Writer().(http.Flusher); ok {
-			flusher.Flush()
+		if f, ok := c.Writer().(http.Flusher); ok {
+			f.Flush()
 		}
 	}
 	return nil
 })
 ```
 
-`SSE` writes one event and leaves streaming control with the handler.
+The loop ends when the client disconnects and `c.Context()` is cancelled. See the [Server-Sent Events](/cookbook/sse/) recipe for a complete program.
 
 ## Content negotiation
 
-Use `Accepts` when the handler needs to branch before writing.
+Branch on what the client accepts:
 
 ```go
 switch c.Accepts("application/json", "text/html") {
 case "application/json":
-	return c.JSON(payload)
+	return c.JSON(user)
 case "text/html":
-	return c.Render("users/show", payload)
+	return c.Render("user.html", user)
 default:
 	return zinc.ErrNotAcceptable
 }
 ```
 
-Use `Negotiate` when the response body can be offered in multiple content types.
+`Accepts` honours quality values and wildcards in the `Accept` header, and returns the first offer when the header is missing. When each type has a ready-made body, `Negotiate` picks and sends it in one call:
 
 ```go
 return c.Negotiate(zinc.StatusOK, zinc.Map{
@@ -168,54 +137,17 @@ return c.Negotiate(zinc.StatusOK, zinc.Map{
 })
 ```
 
-`Accepts` follows the request `Accept` header, including quality values and `type/*` or `*/*` wildcards. When no `Accept` header is present, Zinc picks the first offered type.
-
-## Response writer wrapping
-
-Middleware that needs response status or byte counts can wrap the underlying writer.
+## Cookies and redirects
 
 ```go
-base := c.Writer()
-rw := zinc.WrapResponseWriter(base)
-c.SetWriter(rw)
-defer c.SetWriter(base)
+c.SetCookie(&http.Cookie{Name: "theme", Value: "dark", Path: "/"})
+return c.Redirect(zinc.StatusSeeOther, "/dashboard")
 ```
 
-`WrapResponseWriter` returns `zinc.ResponseWriter`.
+[Cookies](/guide/cookies/) covers reading, clearing, and secure defaults.
 
-```go
-type ResponseWriter interface {
-	http.ResponseWriter
-	Status() int
-	BytesWritten() int
-	Written() bool
-}
-```
+## Next steps
 
-It preserves common optional writer behavior such as flushing, hijacking, `io.ReaderFrom`, server push, and unwrapping when the underlying writer supports it.
-
-## Good API pattern
-
-For API handlers, prefer one clear return path: validate input, run application logic, then return one response helper or one error.
-
-```go
-app.Post("/users", func(c *zinc.Context) error {
-	var input CreateUserInput
-	if err := c.Bind().JSON(&input); err != nil {
-		return err
-	}
-
-	user, err := createUser(input)
-	if err != nil {
-		return err
-	}
-
-	return c.Status(zinc.StatusCreated).JSON(user)
-})
-```
-
-## See also
-
-- [Errors](/guide/errors/) for error responses.
-- [Configuration](/guide/configuration/) for custom renderers and JSON codecs.
-- [Context API](/api/context/) for response helper details.
+- [Errors](/guide/errors/) for failure responses.
+- [Static Files](/guide/static-files/) for serving whole directories.
+- [Response Writer](/api/response-writer/) for middleware that inspects responses.

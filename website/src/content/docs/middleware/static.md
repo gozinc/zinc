@@ -3,7 +3,7 @@ title: Static
 description: Serve static files from middleware.
 ---
 
-Zinc already has app-level static helpers. `Static` is the middleware-shaped version for stacks that prefer `app.Use(...)`.
+`Static` serves files from `app.Use`, and falls through to your routes when a requested file does not exist. For a dedicated asset prefix, the [app-level helpers](/guide/static-files/) are usually simpler.
 
 ```go
 app.Use(middleware.Static("./public"))

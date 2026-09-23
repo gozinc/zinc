@@ -1,131 +1,95 @@
 ---
 title: Binding
-description: Use `c.Bind()` to decode path, query, headers, body formats, forms, and multipart files into Go types.
+description: Decode path parameters, query strings, headers, and request bodies into typed Go structs, then validate them.
 ---
 
-Zinc's primary binding API is `c.Bind()`.
-
-## At a glance
+Binding turns request data into a typed struct in one call. Struct tags say where each field comes from, and Zinc converts strings to the field types for you.
 
 ```go
-type CreateUserInput struct {
-	TeamID int    `path:"teamID"`
-	Page   int    `query:"page"`
-	Name   string `json:"name"`
+type ListOrders struct {
+	Customer int    `path:"customer"`
+	Status   string `query:"status"`
+	Page     int    `query:"page"`
 }
 
-app.Post("/teams/{teamID}/users", func(c *zinc.Context) error {
-	var input CreateUserInput
-	if err := c.Bind().All(&input); err != nil {
-		return err
+app.Get("/customers/{customer}/orders", func(c *zinc.Context) error {
+	var in ListOrders
+	if err := c.Bind().All(&in); err != nil {
+		return zinc.ErrBadRequest.WithMessage("invalid request").WithCause(err)
 	}
-	return c.Status(zinc.StatusCreated).JSON(input)
+	return c.JSON(in)
 })
 ```
 
-Use `All` for normal API handlers and the source-specific methods when a handler needs stricter control.
+`GET /customers/7/orders?status=open&page=2` fills `Customer: 7`, `Status: "open"`, and `Page: 2`.
 
-## Bind the whole request
+## Where values come from
 
-Use `c.Bind().All(&dst)` when you want Zinc to bind the request using its configured binder.
+| Tag | Source | Bind method |
+|---|---|---|
+| `path:"id"` | Route parameters | `Path` |
+| `query:"page"` | Query string | `Query` |
+| `header:"x-tenant"` | Request headers | `Header` |
+| `form:"name"` | URL-encoded or multipart form | `Form` |
+| `json`, `xml`, `yaml`, `toml` | Request body | `JSON`, `XML`, `YAML`, `TOML` |
 
-```go
-type CreateUserInput struct {
-	TeamID int      `path:"teamID"`
-	Page   int      `query:"page"`
-	Name   string   `json:"name"`
-	Auth   string   `header:"x-auth"`
-	Roles  []string `json:"roles"`
-}
+## Bind everything at once
 
-app.Post("/teams/{teamID}/users", func(c *zinc.Context) error {
-	var input CreateUserInput
-	if err := c.Bind().All(&input); err != nil {
-		return err
-	}
-	return c.Status(zinc.StatusCreated).JSON(input)
-})
-```
+`c.Bind().All(&in)` is the usual choice for API handlers. It binds, in order:
 
-This is the normal path for conventional API handlers.
+1. route parameters,
+2. query values,
+3. the body, choosing JSON, XML, YAML, TOML, text, or form decoding from `Content-Type`,
 
-`All(...)` binds in Zinc's normal order:
-
-1. route params
-2. query values
-3. request body or form data, based on `Content-Type`
-4. validation, if a validator is configured
-
-## Bind a specific source
-
-Use `c.Bind()` when you want to be precise about the source you are decoding.
+and then runs your [validator](#validation), if one is configured.
 
 ```go
-var pathInput PathInput
-var queryInput QueryInput
-var bodyInput BodyInput
-
-if err := c.Bind().Path(&pathInput); err != nil {
-	return err
-}
-if err := c.Bind().Query(&queryInput); err != nil {
-	return err
-}
-if err := c.Bind().JSON(&bodyInput); err != nil {
-	return err
+type CreateOrder struct {
+	Customer int      `path:"customer"`
+	DryRun   bool     `query:"dry_run"`
+	Items    []string `json:"items"`
+	Note     string   `json:"note"`
 }
 ```
 
-Available `c.Bind()` methods:
+:::note[Headers are separate]
+`All` does not read headers. Bind them explicitly with `c.Bind().Header(&in)`.
+:::
 
-- `All`
-- `Body`
-- `JSON`
-- `XML`
-- `YAML`
-- `TOML`
-- `Text`
-- `Form`
-- `Query`
-- `Header`
-- `Path`
+## Bind one source
 
-## Supported request formats
-
-Out of the box, Zinc supports:
-
-- JSON
-- XML
-- YAML
-- TOML
-- plain text
-- URL-encoded forms
-- multipart forms
-
-## Multipart file binding
-
-Zinc can bind file fields directly into structs.
-
-Supported multipart targets include:
-
-- `multipart.FileHeader`
-- `*multipart.FileHeader`
-- `[]multipart.FileHeader`
-- `[]*multipart.FileHeader`
-
-Example:
+When a handler should accept input from exactly one place, name it:
 
 ```go
-type UploadInput struct {
-	Name   string                  `form:"name"`
-	Avatar *multipart.FileHeader   `form:"avatar"`
-	Files  []*multipart.FileHeader `form:"files"`
+var in CreateOrder
+if err := c.Bind().Path(&in); err != nil {
+	return zinc.ErrBadRequest.WithCause(err)
+}
+if err := c.Bind().JSON(&in); err != nil {
+	return zinc.ErrBadRequest.WithCause(err)
 }
 ```
+
+The available methods are `All`, `Path`, `Query`, `Header`, `Form`, `Body` (chosen by `Content-Type`), and the explicit body formats `JSON`, `XML`, `YAML`, `TOML`, and `Text`.
+
+## Handle binding errors
+
+A failed bind returns a `*zinc.BindError` that names the source and field:
+
+```go
+var be *zinc.BindError
+if errors.As(err, &be) {
+	// be.Source is "path", "query", "header", "form", or "body"; be.Field is the struct field.
+}
+```
+
+:::caution[Return 400, not 500]
+A `BindError` is not an HTTP error, so returning it unchanged gives the client `500 Internal Server Error`. Wrap it with `zinc.ErrBadRequest.WithCause(err)` in the handler, or map it once in a [custom error handler](/guide/errors/#map-binding-errors-to-400). Oversized bodies are the exception: they already return `413 Request Entity Too Large`.
+:::
 
 ## Validation
 
-If you provide a custom `Validator` in `Config`, Zinc validates after binding.
+Zinc does not ship a validator. Plug in any library by implementing one method:
 
 ```go
 type Validator interface {
@@ -133,14 +97,49 @@ type Validator interface {
 }
 ```
 
-That means both `c.Bind().All(&dst)` and `c.Bind().JSON(&dst)` participate in the same validation story.
+For example, with [go-playground/validator](https://github.com/go-playground/validator):
 
-## Bind errors
+```go
+type structValidator struct{ v *validator.Validate }
 
-Binding errors keep source information so your error handler can explain whether a failure came from path params, query values, headers, forms, or the request body.
+func (s structValidator) Validate(target any) error {
+	return s.v.Struct(target)
+}
 
-## See also
+cfg := zinc.DefaultConfig
+cfg.Validator = structValidator{v: validator.New()}
+app := zinc.NewWithConfig(cfg)
+```
 
-- [Your First Route](/guide/first-route/) for a smaller binding example.
-- [Configuration](/guide/configuration/) for custom binders and validators.
-- [Bind API](/api/binding/) for interfaces and error types.
+```go
+type SignUp struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=12"`
+}
+```
+
+Every bind method runs the validator after decoding, so handlers stay short. Validation errors come back from the bind call; wrap or map them the same way as binding errors, often as `422 Unprocessable Entity`.
+
+## File uploads
+
+Multipart file fields bind directly:
+
+```go
+type UploadInput struct {
+	Title  string                  `form:"title"`
+	Avatar *multipart.FileHeader   `form:"avatar"`
+	Files  []*multipart.FileHeader `form:"files"`
+}
+```
+
+Both `multipart.FileHeader` and `*multipart.FileHeader` work, as single values or slices.
+
+## Body size limit
+
+Binding reads at most `Config.BodyLimit` bytes, 4 MB by default. Larger bodies return `413 Request Entity Too Large`. Raise or lower the limit in [configuration](/guide/configuration/), or per route with the [Body Limit](/middleware/body-limit/) middleware.
+
+## Next steps
+
+- [Errors](/guide/errors/) turns binding and validation failures into consistent responses.
+- [Request Data](/guide/request/) reads single values without a struct.
+- [Binding API](/api/binding/) documents `RequestBinder` for replacing the decoder.

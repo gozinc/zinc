@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -7,6 +10,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// TrailingSlashConfig controls path normalization or redirect behavior.
 type TrailingSlashConfig struct {
 	Skipper    func(*zinc.Context) bool
 	Add        bool
@@ -14,18 +18,22 @@ type TrailingSlashConfig struct {
 	StatusCode int
 }
 
+// TrailingSlash removes trailing slashes without redirecting.
 func TrailingSlash() zinc.Middleware {
 	return RemoveTrailingSlash()
 }
 
+// RemoveTrailingSlash removes trailing slashes without redirecting.
 func RemoveTrailingSlash() zinc.Middleware {
 	return TrailingSlashWithConfig(TrailingSlashConfig{})
 }
 
+// AddTrailingSlash adds a trailing slash without redirecting.
 func AddTrailingSlash() zinc.Middleware {
 	return TrailingSlashWithConfig(TrailingSlashConfig{Add: true})
 }
 
+// TrailingSlashWithConfig normalizes only the URL path and preserves raw query.
 func TrailingSlashWithConfig(config TrailingSlashConfig) zinc.Middleware {
 	cfg := resolveTrailingSlashConfig(config)
 

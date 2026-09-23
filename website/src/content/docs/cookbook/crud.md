@@ -67,7 +67,7 @@ func main() {
 	widgets.Post("/", func(c *zinc.Context) error {
 		var input WidgetInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return err
+			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
 		}
 		if input.Name == "" {
 			return zinc.ErrBadRequest.WithMessage("name is required")
@@ -105,7 +105,7 @@ func main() {
 
 		var input WidgetInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return err
+			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
 		}
 		if input.Name == "" {
 			return zinc.ErrBadRequest.WithMessage("name is required")

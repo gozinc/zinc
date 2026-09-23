@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -12,21 +15,28 @@ import (
 )
 
 var (
+	// JWT errors separate absent, malformed, and cryptographically invalid input.
 	ErrJWTTokenMissing   = errors.New("zincjwt: token missing")
 	ErrJWTTokenMalformed = errors.New("zincjwt: token malformed")
 	ErrJWTTokenInvalid   = errors.New("zincjwt: token invalid")
 )
 
+// JWTExtractor retrieves a serialized token from a request.
 type JWTExtractor func(*zinc.Context) (string, error)
 
+// JWTKeyFunc resolves the verification key for a parsed token.
 type JWTKeyFunc func(*zinc.Context, *jwtgo.Token) (any, error)
 
+// JWTParseTokenFunc parses and cryptographically verifies a serialized token.
 type JWTParseTokenFunc func(*zinc.Context, string) (*jwtgo.Token, error)
 
+// JWTValidateFunc applies application-specific validation after verification.
 type JWTValidateFunc func(*zinc.Context, *jwtgo.Token) error
 
+// JWTErrorHandler maps extraction and verification failures.
 type JWTErrorHandler func(*zinc.Context, error) error
 
+// JWTConfig controls extraction, parsing, validation, and error handling.
 type JWTConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Extractor      JWTExtractor
@@ -48,6 +58,7 @@ const (
 	jwtTokenStringContextKey
 )
 
+// DefaultJWTConfig extracts Bearer tokens from Authorization.
 func DefaultJWTConfig() JWTConfig {
 	return JWTConfig{
 		Extractor: JWTFromAuthHeader("Bearer"),
@@ -57,10 +68,13 @@ func DefaultJWTConfig() JWTConfig {
 	}
 }
 
+// JWT verifies Bearer tokens using keyFunc.
 func JWT(keyFunc JWTKeyFunc) zinc.Middleware {
 	return JWTWithConfig(JWTConfig{KeyFunc: keyFunc})
 }
 
+// JWTWithConfig accepts only tokens marked valid by golang-jwt and then applies
+// any additional application validation before publishing claims.
 func JWTWithConfig(config JWTConfig) zinc.Middleware {
 	cfg := resolveJWTConfig(config)
 
@@ -95,6 +109,7 @@ func JWTWithConfig(config JWTConfig) zinc.Middleware {
 	}
 }
 
+// JWTFromAuthHeader extracts a token using an authorization scheme.
 func JWTFromAuthHeader(scheme string) JWTExtractor {
 	scheme = strings.TrimSpace(scheme)
 	if scheme == "" {
@@ -103,6 +118,7 @@ func JWTFromAuthHeader(scheme string) JWTExtractor {
 	return JWTFromHeaderPrefix(zinc.HeaderAuthorization, scheme+" ")
 }
 
+// JWTFromHeader extracts an unprefixed token from header.
 func JWTFromHeader(header string) JWTExtractor {
 	header = textproto.CanonicalMIMEHeaderKey(header)
 
@@ -115,6 +131,7 @@ func JWTFromHeader(header string) JWTExtractor {
 	}
 }
 
+// JWTFromHeaderPrefix extracts a token after a case-insensitive prefix.
 func JWTFromHeaderPrefix(header, prefix string) JWTExtractor {
 	header = textproto.CanonicalMIMEHeaderKey(header)
 	if prefix == "" {
@@ -137,6 +154,7 @@ func JWTFromHeaderPrefix(header, prefix string) JWTExtractor {
 	}
 }
 
+// JWTFromCookie extracts a token from a cookie.
 func JWTFromCookie(name string) JWTExtractor {
 	return func(c *zinc.Context) (string, error) {
 		cookie, err := c.Cookie(name)
@@ -153,6 +171,7 @@ func JWTFromCookie(name string) JWTExtractor {
 	}
 }
 
+// JWTFromQuery extracts a token from a query parameter.
 func JWTFromQuery(name string) JWTExtractor {
 	return func(c *zinc.Context) (string, error) {
 		value := c.Query(name)
@@ -163,6 +182,7 @@ func JWTFromQuery(name string) JWTExtractor {
 	}
 }
 
+// JWTFromFirst falls back only for missing tokens; malformed tokens stop lookup.
 func JWTFromFirst(extractors ...JWTExtractor) JWTExtractor {
 	list := append([]JWTExtractor(nil), extractors...)
 
@@ -189,6 +209,7 @@ func JWTFromFirst(extractors ...JWTExtractor) JWTExtractor {
 	}
 }
 
+// JWTToken returns the verified token for the current request.
 func JWTToken(c *zinc.Context) (*jwtgo.Token, bool) {
 	if c == nil {
 		return nil, false
@@ -201,6 +222,7 @@ func JWTToken(c *zinc.Context) (*jwtgo.Token, bool) {
 	return token, ok
 }
 
+// MustJWTToken returns the verified token or panics when absent.
 func MustJWTToken(c *zinc.Context) *jwtgo.Token {
 	token, ok := JWTToken(c)
 	if !ok {
@@ -209,6 +231,7 @@ func MustJWTToken(c *zinc.Context) *jwtgo.Token {
 	return token
 }
 
+// JWTTokenString returns the original serialized token.
 func JWTTokenString(c *zinc.Context) (string, bool) {
 	if c == nil {
 		return "", false
@@ -221,6 +244,7 @@ func JWTTokenString(c *zinc.Context) (string, bool) {
 	return token, ok
 }
 
+// MustJWTTokenString returns the serialized token or panics when absent.
 func MustJWTTokenString(c *zinc.Context) string {
 	token, ok := JWTTokenString(c)
 	if !ok {
@@ -229,6 +253,7 @@ func MustJWTTokenString(c *zinc.Context) string {
 	return token
 }
 
+// JWTClaims returns verified claims as T.
 func JWTClaims[T any](c *zinc.Context) (T, bool) {
 	var zero T
 	if c == nil {
@@ -245,6 +270,7 @@ func JWTClaims[T any](c *zinc.Context) (T, bool) {
 	return claims, true
 }
 
+// MustJWTClaims returns verified claims as T or panics on absence or mismatch.
 func MustJWTClaims[T any](c *zinc.Context) T {
 	claims, ok := JWTClaims[T](c)
 	if !ok {

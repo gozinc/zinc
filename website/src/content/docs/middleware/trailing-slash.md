@@ -3,7 +3,7 @@ title: Trailing Slash
 description: Add, remove, or redirect trailing slash variants.
 ---
 
-`TrailingSlash` removes trailing slashes before route dispatch.
+Zinc already treats `/users` and `/users/` as the same route unless `StrictRouting` is on. `TrailingSlash` is for strict apps, or when clients should be sent to one canonical URL. By default it removes the trailing slash before routing.
 
 ```go
 app.Use(middleware.TrailingSlash())

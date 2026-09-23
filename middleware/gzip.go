@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -14,16 +17,20 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// GzipConfig controls response compression level and minimum body size.
 type GzipConfig struct {
 	Skipper   func(*zinc.Context) bool
 	Level     int
 	MinLength int
 }
 
+// Gzip compresses eligible responses at the default level.
 func Gzip() zinc.Middleware {
 	return GzipWithConfig(GzipConfig{})
 }
 
+// GzipWithConfig negotiates gzip and preserves optional ResponseWriter
+// interfaces used by streaming and connection upgrades.
 func GzipWithConfig(config GzipConfig) zinc.Middleware {
 	level := config.Level
 	if level == 0 {
@@ -132,6 +139,8 @@ func (w *gzipResponseWriter) Write(p []byte) (int, error) {
 		return w.ResponseWriter.Write(p)
 	}
 	if w.minLength > 0 && w.writer == nil {
+		// Delay the header decision until the response crosses MinLength. Once
+		// committed as gzip, net/http cannot safely switch representation.
 		if w.buffer.Len()+len(p) < w.minLength {
 			return w.buffer.Write(p)
 		}

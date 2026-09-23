@@ -1,37 +1,52 @@
 ---
 title: FAQ
-description: Common Zinc questions about performance, compatibility, and framework shape.
+description: Answers to common questions about Zinc, including how it compares, stability, performance, and compatibility.
 ---
 
-## Is Zinc just a router?
+## What is Zinc?
 
-No. Zinc is a full API framework with routing, binding, responses, rendering, static serving, lifecycle control, route introspection, and first-party middleware.
+A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 29 first-party middleware. It does not replace the standard HTTP server, request, or response writer.
 
-## Why Zinc instead of a plain `net/http` stack?
+## How does it compare with Gin, Echo, and Chi?
 
-Zinc gives you:
+| | Zinc | Gin, Echo | Chi |
+|---|---|---|---|
+| Handler signature | `func(*zinc.Context) error` | Custom context | Standard `http.HandlerFunc` |
+| Route syntax | Go 1.22 braces: `/users/{id}` | Colons: `/users/:id` | Braces |
+| An `http.Handler`? | Yes | Yes | Yes |
+| Standard handlers on routes | Yes, with `r.PathValue` | Through adapters | Yes |
+| Binding, responses, middleware | Built in | Built in | Bring your own |
 
-- cleaner route registration
-- explicit binding helpers
-- richer response helpers
-- route groups and prefix middleware
-- named routes and reverse URL generation
-- a more coherent API framework surface
+Zinc sits between the two styles: the ergonomics of Gin and Echo, with Chi's commitment to the standard library. If you like `net/http` but are tired of writing the same decoding, error, and response code in every handler, Zinc is aimed at you.
 
-while still staying close to `net/http`.
+## Is Zinc production-ready?
 
-## Is Zinc compatible with stdlib handlers?
+Zinc is **pre-1.0**. Its behavior is covered by tests, and the security-relevant middleware is documented with its limits. The public API can still change between minor versions. Pin a version, and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading.
 
-Yes. Use `HandleHTTP` for one route, `Mount` for a subtree, or `Wrap` and `WrapFunc` inside a Zinc handler chain.
+## Why does a handler return an error?
 
-## Does Zinc support uploads and multipart forms?
+Returning an error lets one [error handler](/guide/errors/) decide how every failure looks to clients, instead of each handler writing its own error response. Handlers stay short, and error responses stay consistent.
 
-Yes. Zinc supports multipart binding and direct multipart helpers such as `FormFile`, `FormFiles`, `MultipartForm`, and `SaveFile`.
+## Can I use my existing net/http code?
 
-## Can Zinc generate URLs from route names?
+Yes. Standard handlers can serve routes through `HandleHTTP` or own subtrees through `Mount`. Standard middleware wraps the app through `UseHTTP`. The app itself is an `http.Handler`. See [Zinc and net/http](/guide/http-interoperability/) and [Adopt Zinc in net/http](/cookbook/existing-net-http-service/).
 
-Yes. Register routes with `RouteSpec` and then use `RouteByName` and `URL`.
+## How fast is it?
 
-## Is Zinc optimized for performance?
+On the latest published run, Zinc had the lowest latency in 62 of 77 comparable benchmarks against Gin, Echo, and Chi, and static, parameter, and not-found routing allocate nothing per request. See [Benchmarks](/extra/benchmarks/) for the environment, the cases Gin and Chi win, and how to run the suite yourself.
 
-Yes. In the current in-process suite, Zinc records the lowest latency in 62 of 77 comparable rows against Gin, Echo, and Chi. See the [benchmark report](/extra/benchmarks/) for the environment, command, and complete results.
+## Does Zinc validate input?
+
+Zinc calls any validator you configure after every bind, but does not ship one. A three-line adapter plugs in [go-playground/validator](/guide/binding/#validation) or any other library.
+
+## Does it support WebSockets, SSE, and HTTP/2?
+
+Yes. WebSocket libraries work unchanged because handlers get the real response writer ([recipe](/cookbook/websocket/)). `c.SSE` writes server-sent events ([recipe](/cookbook/sse/)). HTTP/2 comes from Go's server over TLS ([recipe](/cookbook/http2/)).
+
+## Why do invalid routes panic?
+
+Route patterns are written in source code, so a typo is a programming error. Panicking at startup surfaces it immediately instead of at the first request. When patterns come from configuration, use `TryHandle`, which returns an error.
+
+## Where do I report bugs or ask questions?
+
+Open an issue on [GitHub](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](https://github.com/0mjs/zinc/blob/dev/CONTRIBUTING.md) before opening a pull request.

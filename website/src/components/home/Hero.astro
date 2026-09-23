@@ -1,0 +1,479 @@
+---
+import { routes, presets, resolve, explain } from "./router";
+
+const initial = presets[0];
+const result = resolve(initial);
+---
+
+<section class="lead">
+  <div class="intro">
+    <p class="meta">
+      <span class="tile" aria-hidden="true"><b>30</b>Zn</span>
+      <span>v0.2.1</span><i></i><span>MIT</span><i></i><span>Go 1.25+</span>
+    </p>
+    <h1>Galvanize<br /><span>net/http.</span></h1>
+    <p class="lede">
+      The high-performance, minimalist web layer for Go. Routing, binding, errors, and 29 middleware,
+      applied as a thin coat over the standard library you already trust.
+    </p>
+    <div class="actions">
+      <a class="btn primary" href="/guide/quickstart/">Get started</a>
+      <a class="btn" href="https://github.com/0mjs/zinc">GitHub</a>
+    </div>
+    <button class="install" type="button" data-copy="go get github.com/0mjs/zinc">
+      <span class="prompt">$</span>
+      <code>go get github.com/0mjs/zinc</code>
+      <span class="copy" data-copy-label>Copy</span>
+    </button>
+  </div>
+
+  <div class="matcher" data-matcher>
+    <div class="m-head">
+      <span>Route matcher</span>
+      <span class="m-hint">Try a path</span>
+    </div>
+
+    <label class="m-input">
+      <span class="method">GET</span>
+      <input type="text" value={initial} spellcheck="false" autocomplete="off" aria-label="Request path" data-path />
+    </label>
+
+    <div class="m-presets" role="list">
+      {presets.map((p) => <button type="button" role="listitem" data-preset={p}>{p}</button>)}
+    </div>
+
+    <ol class="m-routes" aria-label="Registered routes">
+      {routes.map((r) => {
+        const state = result.winner?.route === r ? "win" : result.others.some((o) => o.route === r) ? "also" : "";
+        return (
+          <li data-pattern={r.pattern} data-state={state}>
+            <span class="r-method">GET</span>
+            <code>{r.pattern}</code>
+            <span class="r-handler">{r.handler}</span>
+          </li>
+        );
+      })}
+    </ol>
+
+    <div class="m-result" data-result aria-live="polite">
+      <p class="status" data-status data-ok={result.winner ? "true" : "false"}>
+        {result.winner ? `200 → ${result.winner.route.handler}` : "404 → not found"}
+      </p>
+      <dl data-params>
+        {result.winner?.params.map(([k, v]) => (
+          <div><dt>c.Param("{k}")</dt><dd>"{v}"</dd></div>
+        ))}
+      </dl>
+      <p class="why" data-why>{explain(result)}</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { resolve, explain } from "./router";
+
+  document.querySelectorAll<HTMLButtonElement>(".lead .install").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const label = button.querySelector("[data-copy-label]");
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy || "");
+        if (label) label.textContent = "Copied";
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(button.querySelector("code")!);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+        if (label) label.textContent = "Selected";
+      }
+      setTimeout(() => label && (label.textContent = "Copy"), 1400);
+    });
+  });
+
+  document.querySelectorAll<HTMLElement>("[data-matcher]").forEach((root) => {
+    const input = root.querySelector<HTMLInputElement>("[data-path]")!;
+    const status = root.querySelector<HTMLElement>("[data-status]")!;
+    const params = root.querySelector<HTMLElement>("[data-params]")!;
+    const why = root.querySelector<HTMLElement>("[data-why]")!;
+    const rows = [...root.querySelectorAll<HTMLElement>("[data-pattern]")];
+
+    const render = () => {
+      const result = resolve(input.value);
+      const w = result.winner;
+      status.textContent = w ? `200 → ${w.route.handler}` : "404 → not found";
+      status.dataset.ok = String(Boolean(w));
+      params.replaceChildren(
+        ...(w?.params ?? []).map(([k, v]) => {
+          const row = document.createElement("div");
+          const dt = document.createElement("dt");
+          const dd = document.createElement("dd");
+          dt.textContent = `c.Param("${k}")`;
+          dd.textContent = `"${v}"`;
+          row.append(dt, dd);
+          return row;
+        }),
+      );
+      why.textContent = explain(result);
+      rows.forEach((row) => {
+        const p = row.dataset.pattern;
+        row.dataset.state = w?.route.pattern === p ? "win" : result.others.some((o) => o.route.pattern === p) ? "also" : "";
+      });
+      root.querySelectorAll<HTMLElement>("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === input.value)));
+    };
+
+    input.addEventListener("input", render);
+    root.querySelectorAll<HTMLButtonElement>("[data-preset]").forEach((b) =>
+      b.addEventListener("click", () => {
+        input.value = b.dataset.preset || "/";
+        render();
+      }),
+    );
+    render();
+  });
+</script>
+
+<style>
+  .lead {
+    display: grid;
+    gap: clamp(2.5rem, 6vw, 5rem);
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    align-items: center;
+    padding-block: clamp(2rem, 6vw, 4.5rem) 1rem;
+  }
+
+  .meta {
+    align-items: center;
+    color: var(--z-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    gap: 0.7rem;
+    letter-spacing: 0.04em;
+    margin: 0 0 1.75rem;
+  }
+
+  .meta i {
+    background: var(--sl-color-hairline-light);
+    height: 0.9rem;
+    width: 1px;
+  }
+
+  .tile {
+    background: #c9ced3 url("/zn-spangle.png") center / cover;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 0 1px var(--sl-color-hairline-light);
+    color: #1e2226;
+    display: grid;
+    font: 400 0.95rem/1 var(--z-font-display);
+    height: 2.6rem;
+    margin-right: 0.35rem;
+    place-items: end center;
+    padding-bottom: 0.45rem;
+    position: relative;
+    width: 2.6rem;
+  }
+
+  .tile b {
+    font: 500 0.5rem/1 var(--sl-font-mono);
+    left: 0.3rem;
+    position: absolute;
+    top: 0.25rem;
+  }
+
+  h1 {
+    color: var(--z-text);
+    font: 600 clamp(3.2rem, 7.2vw, 6rem) / 0.94 var(--sl-font);
+    letter-spacing: -0.055em;
+    margin: 0;
+  }
+
+  h1 span {
+    color: var(--z-soft);
+  }
+
+  .lede {
+    color: var(--z-muted);
+    font-size: 1.1rem;
+    line-height: 1.6;
+    margin: 1.6rem 0 2rem;
+    max-width: 46ch;
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .btn {
+    align-items: center;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: var(--z-radius);
+    color: var(--z-text);
+    display: inline-flex;
+    font-size: 0.92rem;
+    font-weight: 600;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
+    text-decoration: none;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+
+  .btn:hover {
+    background: var(--z-zn-soft);
+    border-color: var(--z-muted);
+  }
+
+  .btn.primary {
+    background: var(--z-text);
+    border-color: var(--z-text);
+    color: var(--sl-color-bg);
+  }
+
+  .btn.primary:hover {
+    background: var(--z-zn);
+    border-color: var(--z-zn);
+  }
+
+  .install {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--sl-color-hairline);
+    color: var(--z-body);
+    cursor: pointer;
+    display: flex;
+    font: 400 0.82rem/1 var(--sl-font-mono);
+    gap: 0.7rem;
+    margin-top: 2rem;
+    max-width: 30rem;
+    padding: 1.1rem 0 0;
+    text-align: left;
+    width: 100%;
+  }
+
+  .install code {
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+  }
+
+  .install .prompt {
+    color: var(--z-soft);
+  }
+
+  .install .copy {
+    color: var(--z-soft);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    margin-left: auto;
+    text-transform: uppercase;
+  }
+
+  .install:hover .copy {
+    color: var(--z-text);
+  }
+
+  /* Matcher: a dark plate in both themes, like the code blocks. */
+  .matcher {
+    background: var(--z-plate);
+    border: 1px solid var(--z-plate-line);
+    border-radius: 10px;
+    color: var(--z-plate-ink);
+    font-family: var(--sl-font-mono);
+    overflow: hidden;
+  }
+
+  .m-head {
+    align-items: center;
+    background: var(--z-plate-bar);
+    border-bottom: 1px solid var(--z-plate-line);
+    color: var(--z-plate-ink);
+    display: flex;
+    font-size: 0.72rem;
+    justify-content: space-between;
+    padding: 0.7rem 1.1rem;
+  }
+
+  .m-hint {
+    color: var(--z-plate-mute);
+  }
+
+  .m-input {
+    align-items: center;
+    border-bottom: 1px solid var(--z-plate-line);
+    display: flex;
+    gap: 0.8rem;
+    padding: 0.9rem 1.1rem;
+  }
+
+  .method,
+  .r-method {
+    color: var(--z-code-kw);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .m-input input {
+    background: transparent;
+    border: 0;
+    caret-color: var(--z-code-fn);
+    color: #eceff4;
+    flex: 1;
+    font: 400 1rem/1.4 var(--sl-font-mono);
+    min-width: 0;
+    outline: none;
+  }
+
+  .m-input:focus-within {
+    box-shadow: inset 0 -1px 0 var(--z-code-fn);
+  }
+
+  .m-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.8rem 1.1rem 0.2rem;
+  }
+
+  .m-presets button {
+    background: transparent;
+    border: 1px solid var(--z-plate-line);
+    border-radius: 999px;
+    color: var(--z-plate-mute);
+    cursor: pointer;
+    font: 400 0.68rem/1 var(--sl-font-mono);
+    padding: 0.4rem 0.65rem;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+
+  .m-presets button:hover,
+  .m-presets button[aria-pressed="true"] {
+    border-color: #3a414b;
+    color: var(--z-plate-ink);
+  }
+
+  .m-routes {
+    display: grid;
+    gap: 0.15rem;
+    list-style: none;
+    margin: 0;
+    padding: 0.7rem 0.6rem;
+  }
+
+  .m-routes li {
+    align-items: center;
+    border-radius: 6px;
+    color: var(--z-plate-mute);
+    display: grid;
+    font-size: 0.78rem;
+    gap: 0.9rem;
+    grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+    margin: 0;
+    padding: 0.45rem 0.5rem;
+    transition: background 160ms ease, color 160ms ease;
+  }
+
+  .m-routes code {
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    overflow: hidden;
+    padding: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .m-routes .r-method {
+    opacity: 0.55;
+  }
+
+  .r-handler {
+    font-size: 0.7rem;
+  }
+
+  .m-routes li[data-state="also"] {
+    color: #9aa4b2;
+  }
+
+  .m-routes li[data-state="also"] code {
+    text-decoration: line-through;
+    text-decoration-color: #5b6470;
+  }
+
+  .m-routes li[data-state="win"] {
+    background: rgba(136, 192, 208, 0.1);
+    color: #eceff4;
+  }
+
+  .m-routes li[data-state="win"] .r-method {
+    opacity: 1;
+  }
+
+  .m-routes li[data-state="win"] .r-handler {
+    color: var(--z-code-fn);
+  }
+
+  .m-result {
+    border-top: 1px solid var(--z-plate-line);
+    display: grid;
+    gap: 0.6rem;
+    min-height: 9.5rem;
+    padding: 1rem 1.1rem 1.1rem;
+  }
+
+  .status {
+    color: var(--z-code-str);
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .status[data-ok="false"] {
+    color: #d08770;
+  }
+
+  /* Param rows are also created in the browser, so they need global selectors. */
+  dl {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+  }
+
+  dl :global(div) {
+    align-items: baseline;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.75rem;
+  }
+
+  dl :global(dt) {
+    color: var(--z-code-fn);
+    font-weight: 400;
+  }
+
+  dl :global(dd) {
+    color: var(--z-code-str);
+    margin: 0;
+  }
+
+  dl :global(dd)::before {
+    color: var(--z-plate-mute);
+    content: "→ ";
+  }
+
+  .why {
+    color: var(--z-plate-mute);
+    font: 400 0.8rem/1.5 var(--sl-font);
+    margin: 0;
+  }
+
+  @media (max-width: 60rem) {
+    .lead {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -7,14 +10,17 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// RequestIDGenerator creates an identifier when the request does not provide one.
 type RequestIDGenerator func(*zinc.Context) (string, error)
 
+// RequestIDConfig controls identifier reuse, generation, and header propagation.
 type RequestIDConfig struct {
 	Skipper   func(*zinc.Context) bool
 	Header    string
 	Generator RequestIDGenerator
 }
 
+// RequestIDState records the identifier and whether Zinc generated it.
 type RequestIDState struct {
 	ID        string
 	Header    string
@@ -25,6 +31,7 @@ type requestIDContextKey int
 
 const requestIDStateContextKey requestIDContextKey = iota
 
+// DefaultRequestIDConfig uses X-Request-ID and random 128-bit identifiers.
 func DefaultRequestIDConfig() RequestIDConfig {
 	return RequestIDConfig{
 		Header:    zinc.HeaderXRequestID,
@@ -32,10 +39,12 @@ func DefaultRequestIDConfig() RequestIDConfig {
 	}
 }
 
+// RequestID propagates or generates a request identifier.
 func RequestID() zinc.Middleware {
 	return RequestIDWithConfig(DefaultRequestIDConfig())
 }
 
+// RequestIDWithConfig mirrors one identifier into both request and response.
 func RequestIDWithConfig(config RequestIDConfig) zinc.Middleware {
 	cfg := resolveRequestIDConfig(config)
 
@@ -74,6 +83,7 @@ func RequestIDWithConfig(config RequestIDConfig) zinc.Middleware {
 	}
 }
 
+// RequestIDCurrent returns identifier state for this request.
 func RequestIDCurrent(c *zinc.Context) (RequestIDState, bool) {
 	if c == nil {
 		return RequestIDState{}, false
@@ -86,6 +96,7 @@ func RequestIDCurrent(c *zinc.Context) (RequestIDState, bool) {
 	return state, ok
 }
 
+// MustRequestIDCurrent returns identifier state or panics when absent.
 func MustRequestIDCurrent(c *zinc.Context) RequestIDState {
 	state, ok := RequestIDCurrent(c)
 	if !ok {
@@ -94,6 +105,7 @@ func MustRequestIDCurrent(c *zinc.Context) RequestIDState {
 	return state
 }
 
+// RequestIDValue returns middleware state, falling back to the request header.
 func RequestIDValue(c *zinc.Context) string {
 	state, ok := RequestIDCurrent(c)
 	if ok {
@@ -105,6 +117,7 @@ func RequestIDValue(c *zinc.Context) string {
 	return c.RequestID()
 }
 
+// RandomRequestID returns a 128-bit cryptographically random hexadecimal ID.
 func RandomRequestID(*zinc.Context) (string, error) {
 	var buf [16]byte
 	if _, err := rand.Read(buf[:]); err != nil {
@@ -113,6 +126,7 @@ func RandomRequestID(*zinc.Context) (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
+// StaticRequestID returns a deterministic generator, primarily for tests.
 func StaticRequestID(id string) RequestIDGenerator {
 	return func(*zinc.Context) (string, error) {
 		return id, nil

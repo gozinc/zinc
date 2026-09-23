@@ -1,39 +1,58 @@
 ---
-title: IP Address
-description: Read remote and forwarded client addresses safely behind trusted proxies.
+title: Client IP and Proxies
+description: Read the client's IP address correctly, both directly and behind load balancers and reverse proxies you trust.
 ---
 
-`c.RemoteIP()` reads the peer address from `Request.RemoteAddr`. It does not trust forwarding headers.
+Behind a load balancer, every request appears to come from the load balancer. The real client address travels in a forwarding header such as `X-Forwarded-For`, but any client can send that header too. Zinc reads it only when the request comes from a proxy you have said you trust.
 
-```go
-peer := c.RemoteIP()
-```
+## The two helpers
 
-`c.IP()` can resolve a forwarded client address when proxy trust is configured:
+| Helper | Returns | Trusts headers? |
+|---|---|---|
+| `c.RemoteIP()` | The address of the direct peer, from `Request.RemoteAddr` | Never |
+| `c.IP()` | The first address in the forwarding header when the peer is trusted, otherwise the peer address | Only from trusted proxies |
+
+`c.IPs()` returns the whole forwarded chain.
+
+## Configure trusted proxies
+
+List the addresses or CIDR ranges of the proxies in front of your app:
 
 ```go
 cfg := zinc.DefaultConfig
-cfg.ProxyHeader = "X-Forwarded-For"
+cfg.ProxyHeader = zinc.HeaderXForwardedFor // the default
 cfg.TrustedProxies = []string{
-    "10.0.0.0/8",
-    "192.168.0.0/16",
+	"10.0.0.0/8",     // internal load balancers
+	"192.168.0.0/16",
 }
-
 app := zinc.NewWithConfig(cfg)
-```
 
-```go
 app.Get("/whoami", func(c *zinc.Context) error {
-    return c.JSON(zinc.Map{
-        "client": c.IP(),
-        "chain":  c.IPs(),
-        "peer":   c.RemoteIP(),
-    })
+	return c.JSON(zinc.Map{
+		"client": c.IP(),
+		"chain":  c.IPs(),
+		"peer":   c.RemoteIP(),
+	})
 })
 ```
 
-:::danger[Trust boundary]
-Only list proxies you operate or explicitly trust. Trusting forwarded headers from arbitrary clients allows IP spoofing and can break rate limits, auditing, and access control.
+With no trusted proxies, the default, `c.IP()` and `c.RemoteIP()` return the same value.
+
+:::danger[Only trust proxies you control]
+Trusting forwarding headers from an address you do not operate lets any client choose its own IP. That silently breaks rate limits, audit logs, and IP allow lists.
 :::
 
-When no trusted proxy matches, Zinc falls back to the direct peer address.
+### Make sure the proxy overwrites the header
+
+`c.IP()` returns the **first**, leftmost address in the header. Many load balancers append to an `X-Forwarded-For` header the client already sent instead of replacing it. A client that sends `X-Forwarded-For: 203.0.113.9` then appears as `203.0.113.9`, even behind a trusted proxy.
+
+Configure the proxy at your edge to **replace** the header with the address it observed, or read a header that only the proxy sets:
+
+- nginx: `proxy_set_header X-Real-IP $remote_addr;` with `ProxyHeader = "X-Real-IP"`
+- Cloudflare: `ProxyHeader = "CF-Connecting-IP"`, trusting only Cloudflare's published ranges
+
+Whatever header you choose, trust only the addresses of the proxies that set it.
+
+## Where this matters
+
+[Rate Limiter](/middleware/rate-limiter/)'s per-IP mode and the [RealIP](/middleware/utility/#realip) middleware both use `c.IP()`. Configure proxies before relying on either.

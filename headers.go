@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
+// Common HTTP header names used by Zinc and its middleware.
 const (
 	HeaderAuthorization                   = "Authorization"
 	HeaderProxyAuthenticate               = "Proxy-Authenticate"

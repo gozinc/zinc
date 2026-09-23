@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -12,6 +15,8 @@ const (
 	legacyWildcardIdentifier = '*'
 )
 
+// collectedRouteParams keeps the ordinary one- or two-parameter route inline.
+// Registration allocates extra storage only for wider patterns.
 type collectedRouteParams struct {
 	count  int
 	inline [2]string
@@ -24,6 +29,8 @@ var pathBuilderPool = sync.Pool{
 	},
 }
 
+// normalizePath applies the sole unconditional normalization: every registered
+// route begins with '/'. Case and trailing-slash policy are handled separately.
 func (r *Router) normalizePath(path string) string {
 	if path == "" {
 		return "/"
@@ -40,6 +47,8 @@ func (r *Router) normalizePath(path string) string {
 	return result
 }
 
+// rejectLegacyRoutePattern reports the removed :name and *name grammar with an
+// actionable replacement while allowing literal punctuation inside segments.
 func rejectLegacyRoutePattern(path string) error {
 	if !strings.ContainsAny(path, ":*") {
 		return nil
@@ -70,6 +79,9 @@ func rejectLegacyRoutePattern(path string) error {
 	return nil
 }
 
+// collectBraceRouteParams validates Zinc's complete dynamic grammar:
+// {name} consumes one non-empty segment and {name...} consumes the final suffix.
+// Wildcards must occupy a complete segment and parameter names must be unique.
 func collectBraceRouteParams(path string) (collectedRouteParams, error) {
 	var names collectedRouteParams
 
@@ -109,6 +121,8 @@ func collectBraceRouteParams(path string) (collectedRouteParams, error) {
 	return names, nil
 }
 
+// validRouteParamName accepts Unicode letters and digits plus underscore, but a
+// digit cannot begin a name. This keeps names usable with Request.PathValue.
 func validRouteParamName(name string) bool {
 	if name == "" {
 		return false
@@ -168,6 +182,8 @@ func (c collectedRouteParams) slice() []string {
 	return out
 }
 
+// lowercasePath avoids strings.ToLower for already-normalized ASCII paths.
+// The boolean tells callers whether a second lookup can produce a new result.
 func lowercasePath(path string) (string, bool) {
 	for i := 0; i < len(path); i++ {
 		c := path[i]

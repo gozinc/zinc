@@ -3,7 +3,7 @@ title: Prometheus
 description: Expose dependency-free request metrics in Prometheus text format.
 ---
 
-`Prometheus` records request counts and request duration sums.
+`Prometheus` records a request counter and total duration for each route, method, and status, and serves them in Prometheus text format. It needs no dependencies. For histograms or the official client library, register `promhttp.Handler()` with [`HandleHTTP`](/guide/http-interoperability/) instead.
 
 ```go
 metrics := middleware.NewPrometheusMetrics()
@@ -26,4 +26,6 @@ Labels include:
 - `route`
 - `status`
 
-Use a dedicated metrics instance for tests or multi-app processes.
+Matched requests are labelled with the route pattern, such as `/users/{id}`, so one route is one series. Requests that match no route are labelled with their raw path, so scanners probing random URLs add a new series for each path. On public apps, attach the middleware to a [group](/guide/groups-and-middleware/) rather than `app.Use`. Group middleware only runs for matched routes, so only routed traffic is recorded.
+
+Create a separate `NewPrometheusMetrics()` for each app in tests or multi-app processes.

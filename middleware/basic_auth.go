@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -15,11 +18,13 @@ import (
 )
 
 var (
+	// Authentication errors are distinct so custom handlers can use errors.Is.
 	ErrBasicAuthCredentialsMissing   = errors.New("zincbasicauth: credentials missing")
 	ErrBasicAuthCredentialsMalformed = errors.New("zincbasicauth: credentials malformed")
 	ErrBasicAuthCredentialsInvalid   = errors.New("zincbasicauth: credentials invalid")
 )
 
+// BasicAuthSource identifies where credentials were extracted.
 type BasicAuthSource string
 
 const (
@@ -29,28 +34,35 @@ const (
 
 const basicAuthDefaultRealm = "Restricted"
 
+// BasicAuthCredentials contains credentials supplied for validation.
 type BasicAuthCredentials struct {
 	Username string
 	Password string
 	Source   BasicAuthSource
 }
 
+// BasicAuthIdentity is the authenticated identity stored on the context.
 type BasicAuthIdentity struct {
 	Username string
 	Source   BasicAuthSource
 }
 
+// BasicAuthExtractor reads Basic credentials from a request.
 type BasicAuthExtractor func(*zinc.Context) (BasicAuthCredentials, error)
 
+// BasicAuthValidator verifies extracted credentials.
 type BasicAuthValidator func(*zinc.Context, BasicAuthCredentials) (bool, error)
 
+// BasicAuthErrorHandler maps extraction and validation failures to responses.
 type BasicAuthErrorHandler func(*zinc.Context, error) error
 
+// BasicAuthPair configures one static username and password.
 type BasicAuthPair struct {
 	Username string
 	Password string
 }
 
+// BasicAuthConfig controls credential extraction, validation, and failure handling.
 type BasicAuthConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Extractor      BasicAuthExtractor
@@ -64,6 +76,7 @@ type basicAuthContextKey int
 
 const basicAuthIdentityContextKey basicAuthContextKey = iota
 
+// DefaultBasicAuthConfig returns header-based Basic authentication defaults.
 func DefaultBasicAuthConfig() BasicAuthConfig {
 	return BasicAuthConfig{
 		Extractor: BasicAuthFromAuthorizationHeader(),
@@ -74,10 +87,12 @@ func DefaultBasicAuthConfig() BasicAuthConfig {
 	}
 }
 
+// BasicAuth authenticates requests with validator.
 func BasicAuth(validator BasicAuthValidator) zinc.Middleware {
 	return BasicAuthWithConfig(BasicAuthConfig{Validator: validator})
 }
 
+// BasicAuthWithConfig authenticates requests using config.
 func BasicAuthWithConfig(config BasicAuthConfig) zinc.Middleware {
 	cfg := resolveBasicAuthConfig(config)
 
@@ -108,18 +123,23 @@ func BasicAuthWithConfig(config BasicAuthConfig) zinc.Middleware {
 	}
 }
 
+// BasicAuthFromAuthorizationHeader extracts RFC 7617 credentials.
 func BasicAuthFromAuthorizationHeader() BasicAuthExtractor {
 	return basicAuthFromHeader(zinc.HeaderAuthorization, "Basic ", BasicAuthSourceAuthorizationHeader)
 }
 
+// BasicAuthFromHeader extracts an unprefixed Basic value from header.
 func BasicAuthFromHeader(header string) BasicAuthExtractor {
 	return basicAuthFromHeader(header, "", BasicAuthSourceHeader)
 }
 
+// BasicAuthFromHeaderPrefix extracts credentials after a case-insensitive prefix.
 func BasicAuthFromHeaderPrefix(header, prefix string) BasicAuthExtractor {
 	return basicAuthFromHeader(header, prefix, BasicAuthSourceHeader)
 }
 
+// BasicAuthFromFirst tries extractors until credentials are found; malformed
+// credentials stop fallback so a bad stronger source cannot be bypassed.
 func BasicAuthFromFirst(extractors ...BasicAuthExtractor) BasicAuthExtractor {
 	list := append([]BasicAuthExtractor(nil), extractors...)
 
@@ -146,10 +166,13 @@ func BasicAuthFromFirst(extractors ...BasicAuthExtractor) BasicAuthExtractor {
 	}
 }
 
+// BasicAuthStatic returns a constant-time validator for one credential pair.
 func BasicAuthStatic(username, password string) BasicAuthValidator {
 	return BasicAuthStaticPairs(BasicAuthPair{Username: username, Password: password})
 }
 
+// BasicAuthStaticPairs returns a validator that compares every credential pair
+// in constant time after hashing both username and password.
 func BasicAuthStaticPairs(pairs ...BasicAuthPair) BasicAuthValidator {
 	list := append([]BasicAuthPair(nil), pairs...)
 	type hashedPair struct {
@@ -178,6 +201,7 @@ func BasicAuthStaticPairs(pairs ...BasicAuthPair) BasicAuthValidator {
 	}
 }
 
+// BasicAuthCurrent returns the authenticated identity for the current request.
 func BasicAuthCurrent(c *zinc.Context) (BasicAuthIdentity, bool) {
 	if c == nil {
 		return BasicAuthIdentity{}, false
@@ -190,6 +214,7 @@ func BasicAuthCurrent(c *zinc.Context) (BasicAuthIdentity, bool) {
 	return identity, ok
 }
 
+// MustBasicAuthCurrent returns the identity or panics when middleware did not set it.
 func MustBasicAuthCurrent(c *zinc.Context) BasicAuthIdentity {
 	identity, ok := BasicAuthCurrent(c)
 	if !ok {
@@ -198,6 +223,7 @@ func MustBasicAuthCurrent(c *zinc.Context) BasicAuthIdentity {
 	return identity
 }
 
+// BasicAuthUsername returns the authenticated username.
 func BasicAuthUsername(c *zinc.Context) (string, bool) {
 	identity, ok := BasicAuthCurrent(c)
 	if !ok {
@@ -206,6 +232,7 @@ func BasicAuthUsername(c *zinc.Context) (string, bool) {
 	return identity.Username, true
 }
 
+// MustBasicAuthUsername returns the username or panics when it is absent.
 func MustBasicAuthUsername(c *zinc.Context) string {
 	username, ok := BasicAuthUsername(c)
 	if !ok {

@@ -1,0 +1,191 @@
+---
+const year = new Date().getFullYear();
+---
+
+<section class="start">
+  <div class="cta">
+    <h2>Coat your first service.</h2>
+    <p>Start a new API in a few minutes, or add Zinc to a service you already run.</p>
+  </div>
+  <nav class="paths" aria-label="Ways to start with Zinc">
+    <a href="/guide/quickstart/">
+      <span class="label">New service</span>
+      <strong>Build your first Zinc API</strong>
+      <span class="desc">From <code>go mod init</code> to a running route.</span>
+    </a>
+    <a href="/cookbook/existing-net-http-service/">
+      <span class="label">Existing service</span>
+      <strong>Adopt Zinc inside net/http</strong>
+      <span class="desc">Keep your server, handlers, and middleware.</span>
+    </a>
+    <a href="/cookbook/">
+      <span class="label">Recipes</span>
+      <strong>Browse the cookbook</strong>
+      <span class="desc">CRUD, SSE, WebSockets, TLS, graceful shutdown.</span>
+    </a>
+  </nav>
+</section>
+
+<footer class="foot">
+  <div class="brand">
+    <span class="wordmark">Zinc</span>
+    <p>Zn · 30 · 65.38<br />Maintained by Carbon Software Ltd.<br />© 2024–{year} Matt J. Stevenson and contributors</p>
+  </div>
+  <div class="col">
+    <h3>Docs</h3>
+    <a href="/guide/quickstart/">Quickstart</a>
+    <a href="/guide/routing/">Routing</a>
+    <a href="/middleware/overview/">Middleware</a>
+    <a href="/cookbook/">Cookbook</a>
+  </div>
+  <div class="col">
+    <h3>Project</h3>
+    <a href="https://github.com/0mjs/zinc">GitHub</a>
+    <a href="https://github.com/0mjs/zinc/releases">Releases</a>
+    <a href="https://github.com/0mjs/zinc/issues">Issues</a>
+    <a href="https://github.com/0mjs/zinc/blob/dev/CONTRIBUTING.md">Contributing</a>
+  </div>
+  <div class="col">
+    <h3>Resources</h3>
+    <a href="https://pkg.go.dev/github.com/0mjs/zinc">API reference</a>
+    <a href="/extra/benchmarks/">Benchmarks</a>
+    <a href="https://github.com/0mjs/zinc/blob/dev/LICENSE">MIT License</a>
+  </div>
+</footer>
+
+<style>
+  .start {
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 12px;
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    padding: clamp(1.5rem, 4vw, 2.75rem);
+  }
+
+  h2 {
+    color: var(--z-text);
+    font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
+    letter-spacing: -0.035em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  .cta p {
+    color: var(--z-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 34ch;
+  }
+
+  .paths {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .paths a {
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 8px;
+    color: var(--z-text);
+    display: grid;
+    gap: 0.3rem;
+    padding: 1rem 1.15rem;
+    position: relative;
+    text-decoration: none;
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .paths a::after {
+    color: var(--z-soft);
+    content: "→";
+    position: absolute;
+    right: 1.15rem;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: transform 140ms ease, color 140ms ease;
+  }
+
+  .paths a:hover {
+    background: var(--z-zn-soft);
+    border-color: var(--sl-color-hairline-light);
+  }
+
+  .paths a:hover::after {
+    color: var(--z-text);
+    transform: translate(3px, -50%);
+  }
+
+  .label {
+    color: var(--z-muted);
+    font: 500 0.7rem/1 var(--sl-font-mono);
+  }
+
+  .paths strong {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .desc {
+    color: var(--z-muted);
+    font-size: 0.86rem;
+  }
+
+  .desc code {
+    font: 400 0.9em var(--sl-font-mono);
+  }
+
+  .foot {
+    border-top: 1px solid var(--sl-color-hairline);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem 4rem;
+    margin-top: 4.5rem;
+    padding-top: 2.25rem;
+  }
+
+  .brand {
+    flex: 1 1 14rem;
+  }
+
+  .wordmark {
+    color: var(--z-text);
+    font: 400 0.8rem/1 var(--z-font-display);
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+  }
+
+  .brand p {
+    color: var(--z-soft);
+    font: 400 0.74rem/1.7 var(--sl-font-mono);
+    margin: 0.9rem 0 0;
+  }
+
+  .col {
+    display: grid;
+    gap: 0.5rem;
+    align-content: start;
+  }
+
+  .col h3 {
+    color: var(--z-muted);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    margin: 0 0 0.3rem;
+  }
+
+  .col a {
+    color: var(--z-body);
+    font-size: 0.875rem;
+    text-decoration: none;
+  }
+
+  .col a:hover {
+    color: var(--z-text);
+  }
+
+  @media (max-width: 60rem) {
+    .start {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

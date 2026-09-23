@@ -28,7 +28,7 @@ function routeFor(filename, source) {
   if (explicit) return normalizeRoute(explicit.startsWith("/") ? explicit : `/${explicit}`);
 
   const relative = path.relative(docsRoot, filename).replace(/\\/g, "/").replace(/\.mdx?$/, "");
-  return normalizeRoute(`/${relative.replace(/\/index$/, "")}`);
+  return normalizeRoute(`/${relative.replace(/(^|\/)index$/, "")}`);
 }
 
 function normalizeRoute(route) {

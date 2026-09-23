@@ -1,5 +1,19 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import { ExpressiveCodeTheme } from "@astrojs/starlight/expressive-code";
+import { readFileSync } from "node:fs";
+
+const zincFrost = ExpressiveCodeTheme.fromJSONString(
+  readFileSync(new URL("./src/themes/zinc-frost.json", import.meta.url), "utf-8"),
+);
+
+// Code frames are dark plates in both site themes.
+const plate = {
+  bg: "#14171b",
+  bar: "#181b20",
+  line: "#252a31",
+  mute: "#7d889a",
+};
 
 const page = (label, link) => ({ label, link });
 
@@ -21,11 +35,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Zinc",
-      logo: {
-        src: "./public/zinc.png",
-        replacesTitle: true,
-      },
-      favicon: "/zinc.png?v=20260804",
+      favicon: "/favicon.png?v=20260923",
       customCss: ["./src/styles/zinc.css"],
       editLink: {
         baseUrl: "https://github.com/0mjs/zinc/edit/dev/website/",
@@ -40,6 +50,8 @@ export default defineConfig({
       ],
       components: {
         Footer: "./src/components/Footer.astro",
+        SiteTitle: "./src/components/SiteTitle.astro",
+        PageTitle: "./src/components/PageTitle.astro",
       },
       head: [
         {
@@ -53,6 +65,10 @@ export default defineConfig({
         },
         {
           tag: "link",
+          attrs: { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+        },
+        {
+          tag: "link",
           attrs: {
             rel: "preconnect",
             href: "https://fonts.gstatic.com",
@@ -63,7 +79,7 @@ export default defineConfig({
           tag: "link",
           attrs: {
             rel: "stylesheet",
-            href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap",
+            href: "https://fonts.googleapis.com/css2?family=Michroma&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap",
           },
         },
       ],
@@ -168,14 +184,52 @@ export default defineConfig({
             page("Server-Sent Events", "/cookbook/sse/"),
             page("Streaming Response", "/cookbook/streaming-response/"),
             page("WebSocket", "/cookbook/websocket/"),
-            page("Scheduled Jobs", "/cookbook/scheduled-jobs/"),
             page("JWT", "/cookbook/jwt/"),
             page("Custom Middleware", "/cookbook/middleware/"),
           ],
         },
       ],
       expressiveCode: {
-        themes: ["tokyo-night", "catppuccin-latte"],
+        themes: [zincFrost],
+        useStarlightDarkModeSwitch: false,
+        useStarlightUiThemeColors: false,
+        styleOverrides: {
+          borderRadius: "6px",
+          borderColor: plate.line,
+          codeFontFamily: "var(--sl-font-mono)",
+          codeFontSize: "0.8rem",
+          codeLineHeight: "1.7",
+          codePaddingBlock: "1rem",
+          codePaddingInline: "1.15rem",
+          uiFontFamily: "var(--sl-font-mono)",
+          scrollbarThumbColor: "#2c323a",
+          scrollbarThumbHoverColor: "#3a414b",
+          frames: {
+            frameBoxShadowCssValue: "none",
+            editorBackground: plate.bg,
+            editorTabBarBackground: plate.bar,
+            editorTabBarBorderColor: "transparent",
+            editorTabBarBorderBottomColor: plate.line,
+            editorActiveTabBackground: plate.bar,
+            editorActiveTabForeground: "#aeb8c6",
+            editorActiveTabBorderColor: "transparent",
+            editorActiveTabIndicatorTopColor: "transparent",
+            editorActiveTabIndicatorBottomColor: "transparent",
+            editorTabBorderRadius: "0",
+            terminalBackground: plate.bg,
+            terminalTitlebarBackground: plate.bar,
+            terminalTitlebarForeground: plate.mute,
+            terminalTitlebarBorderBottomColor: plate.line,
+            terminalTitlebarDotsForeground: "#aeb8c6",
+            terminalTitlebarDotsOpacity: "1",
+            inlineButtonBackground: "#d8dee9",
+            inlineButtonForeground: "#aeb8c6",
+            inlineButtonBorder: plate.line,
+            inlineButtonBorderOpacity: "1",
+            tooltipSuccessBackground: "#d8dee9",
+            tooltipSuccessForeground: plate.bg,
+          },
+        },
       },
     }),
   ],

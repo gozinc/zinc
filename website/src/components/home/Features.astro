@@ -1,0 +1,279 @@
+---
+import { Code } from "astro:components";
+import zincFrost from "../../themes/zinc-frost.json";
+
+const tabs = [
+  {
+    id: "routing",
+    name: "Routing",
+    blurb: "Go 1.22 brace patterns, groups, and scoped 404s. Static, param, and not-found dispatch allocate nothing.",
+    href: "/guide/routing/",
+    code: `api := app.Group("/api", requireAuth)
+
+api.Get("/users/{id}", func(c *zinc.Context) error {
+	return c.JSON(zinc.Map{"id": c.Param("id")})
+})
+
+api.Get("/files/{path...}", serveFile)
+
+app.RouteNotFound("/api/{tail...}", apiNotFound)`,
+  },
+  {
+    id: "binding",
+    name: "Binding",
+    blurb: "Path, query, header, JSON, XML, YAML, TOML, form, and multipart input into one struct.",
+    href: "/guide/binding/",
+    code: `type CreateUser struct {
+	Name  string \`json:"name"\`
+	Email string \`json:"email"\`
+}
+
+app.Post("/users", func(c *zinc.Context) error {
+	var in CreateUser
+	if err := c.Bind().JSON(&in); err != nil {
+		return zinc.ErrBadRequest.WithCause(err)
+	}
+	return c.Status(zinc.StatusCreated).JSON(in)
+})`,
+  },
+  {
+    id: "errors",
+    name: "Errors",
+    blurb: "Handlers return errors. One handler turns them into responses, so failure paths stay short.",
+    href: "/guide/errors/",
+    code: `cfg := zinc.DefaultConfig
+cfg.ErrorHandler = func(c *zinc.Context, err error) {
+	var he *zinc.HTTPError
+	if !errors.As(err, &he) {
+		he = zinc.ErrInternalServerError
+	}
+	_ = c.Status(he.Code).JSON(zinc.Map{"error": he.Error()})
+}
+
+app := zinc.NewWithConfig(cfg)`,
+  },
+  {
+    id: "middleware",
+    name: "Middleware",
+    blurb: "29 first-party middleware for security, observability, and transport, composed per app or per group.",
+    href: "/middleware/overview/",
+    code: `app.Use(
+	middleware.RequestID(),
+	middleware.RequestLogger(),
+	middleware.Recover(),
+	middleware.Secure(),
+)
+
+api := app.Group("/api", middleware.BodyLimit(1<<20))
+api.Use(middleware.ContextTimeout(5 * time.Second))`,
+  },
+];
+---
+
+<section class="features" data-tabs>
+  <div class="head">
+    <p class="kicker">What you get</p>
+    <h2>Everything a service needs. Nothing it doesn't.</h2>
+  </div>
+
+  <div class="body">
+    <div class="tablist" role="tablist" aria-label="Zinc features">
+      {tabs.map((t, i) => (
+        <button role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1} data-tab={t.id}>
+          <strong>{t.name}</strong>
+          <span>{t.blurb}</span>
+        </button>
+      ))}
+    </div>
+
+    <div class="panels">
+      {tabs.map((t, i) => (
+        <div role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={i !== 0} data-panel={t.id}>
+          <div class="plate">
+            <div class="plate-head">
+              <span>{t.name.toLowerCase()}.go</span>
+              <a href={t.href}>Read the guide →</a>
+            </div>
+            <Code code={t.code} lang="go" theme={zincFrost as any} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-tabs]").forEach((root) => {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+    const select = (tab: HTMLButtonElement, focus = false) => {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute("aria-selected", String(on));
+        t.tabIndex = on ? 0 : -1;
+        root.querySelector<HTMLElement>(`[data-panel="${t.dataset.tab}"]`)!.hidden = !on;
+      });
+      if (focus) tab.focus();
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => select(tab));
+      tab.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        select(tabs[(i + step + tabs.length) % tabs.length], true);
+      });
+    });
+  });
+</script>
+
+<style>
+  .kicker {
+    color: var(--z-muted);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+    margin: 0 0 1rem;
+  }
+
+  h2 {
+    color: var(--z-text);
+    font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
+    letter-spacing: -0.035em;
+    margin: 0 0 2.25rem;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+
+  .body {
+    align-items: start;
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .tablist {
+    border-top: 1px solid var(--sl-color-hairline);
+    display: grid;
+  }
+
+  [role="tab"] {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--sl-color-hairline);
+    color: var(--z-muted);
+    cursor: pointer;
+    display: grid;
+    font: inherit;
+    gap: 0.35rem;
+    padding: 1.05rem 1rem 1.05rem 1.1rem;
+    position: relative;
+    text-align: left;
+    transition: background 140ms ease;
+  }
+
+  [role="tab"] strong {
+    color: var(--z-body);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  [role="tab"] span {
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+
+  [role="tab"]:hover {
+    background: var(--z-zn-soft);
+  }
+
+  [role="tab"][aria-selected="true"] {
+    background: var(--z-panel);
+  }
+
+  [role="tab"][aria-selected="true"] strong {
+    color: var(--z-text);
+  }
+
+  [role="tab"][aria-selected="true"]::before {
+    background: var(--z-text);
+    border-radius: 1px;
+    bottom: 1rem;
+    content: "";
+    left: 0;
+    position: absolute;
+    top: 1rem;
+    width: 2px;
+  }
+
+  .plate {
+    background: var(--z-plate);
+    border: 1px solid var(--z-plate-line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .plate-head {
+    align-items: center;
+    background: var(--z-plate-bar);
+    border-bottom: 1px solid var(--z-plate-line);
+    display: flex;
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    justify-content: space-between;
+    padding: 0.75rem 1.2rem;
+  }
+
+  .plate-head span {
+    color: var(--z-plate-ink);
+  }
+
+  .plate-head a {
+    color: var(--z-plate-mute);
+    font-family: var(--sl-font);
+    font-size: 0.8rem;
+    text-decoration: none;
+  }
+
+  .plate-head a:hover {
+    color: var(--z-plate-ink);
+  }
+
+  .plate :global(.astro-code) {
+    background: var(--z-plate) !important;
+    border: 0;
+    border-radius: 0;
+    font-size: 0.8rem;
+    line-height: 1.75;
+    margin: 0;
+    min-height: 19rem;
+    overflow-x: auto;
+    padding: 1.25rem 1.3rem;
+  }
+
+  @media (max-width: 60rem) {
+    .body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tablist {
+      border-top: 0;
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+    }
+
+    [role="tab"] {
+      border: 1px solid var(--sl-color-hairline);
+      border-radius: 999px;
+      flex: none;
+      padding: 0.5rem 0.9rem;
+    }
+
+    [role="tab"] span,
+    [role="tab"][aria-selected="true"]::before {
+      display: none;
+    }
+
+    [role="tab"][aria-selected="true"] {
+      border-color: var(--z-muted);
+    }
+  }
+</style>

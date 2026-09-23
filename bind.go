@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -15,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RequestBinder controls how request data is mapped into application structs.
 type RequestBinder interface {
 	Bind(*Context, any) error
 	BindBody(*Context, any) error
@@ -24,24 +28,29 @@ type RequestBinder interface {
 	BindPath(*Context, any) error
 }
 
+// Validator validates a value after binding.
 type Validator interface {
 	Validate(any) error
 }
 
+// Renderer renders named templates into a response writer.
 type Renderer interface {
 	Render(w io.Writer, name string, data any, c *Context) error
 }
 
+// Bind exposes source-specific binding for a Context.
 type Bind struct {
 	c *Context
 }
 
+// BindError identifies the request source and struct field that failed.
 type BindError struct {
 	Source string
 	Field  string
 	Err    error
 }
 
+// Error formats the binding source, field, and underlying error.
 func (e *BindError) Error() string {
 	if e == nil {
 		return ""
@@ -52,6 +61,7 @@ func (e *BindError) Error() string {
 	return fmt.Sprintf("bind %s: %v", e.Source, e.Err)
 }
 
+// Unwrap exposes the underlying conversion or decoding error.
 func (e *BindError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -59,6 +69,7 @@ func (e *BindError) Unwrap() error {
 	return e.Err
 }
 
+// JSONCodec allows applications to replace Zinc's JSON encoder and decoder.
 type JSONCodec interface {
 	Encode(w io.Writer, v any, indent string) error
 	Decode(r io.Reader, v any) error
@@ -73,6 +84,9 @@ type jsonBytesDecoder interface {
 }
 
 func (b defaultBinder) Bind(c *Context, v any) error {
+	// General binding is intentionally deterministic: path values are applied
+	// first, then query values, then the body. Later sources may overwrite
+	// earlier fields before validation runs once at the end.
 	mediaType := requestMediaType(c.GetHeader(HeaderContentType))
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
@@ -246,18 +260,22 @@ func (b defaultBinder) BindPath(c *Context, v any) error {
 	return c.Validate(v)
 }
 
+// Bind returns the request binder facade for this context.
 func (c *Context) Bind() *Bind {
 	return &Bind{c: c}
 }
 
+// All binds path, query, and body data, then validates v.
 func (b *Bind) All(v any) error {
 	return b.c.app.config.RequestBinder.Bind(b.c, v)
 }
 
+// Body binds the request body according to its Content-Type.
 func (b *Bind) Body(v any) error {
 	return b.c.app.config.RequestBinder.BindBody(b.c, v)
 }
 
+// JSON decodes and validates a non-empty JSON request body.
 func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
@@ -276,6 +294,7 @@ func (b *Bind) JSON(v any) error {
 	return b.c.Validate(v)
 }
 
+// Text decodes and validates a non-empty plain-text request body.
 func (b *Bind) Text(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
@@ -283,6 +302,7 @@ func (b *Bind) Text(v any) error {
 	return bindPlainTextBody(b.c, v, true)
 }
 
+// YAML decodes and validates a non-empty YAML request body.
 func (b *Bind) YAML(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
@@ -290,6 +310,7 @@ func (b *Bind) YAML(v any) error {
 	return bindYAMLBody(b.c, v, true)
 }
 
+// TOML decodes and validates a non-empty TOML request body.
 func (b *Bind) TOML(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
@@ -297,6 +318,7 @@ func (b *Bind) TOML(v any) error {
 	return bindTOMLBody(b.c, v, true)
 }
 
+// XML decodes and validates a non-empty XML request body.
 func (b *Bind) XML(v any) error {
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
@@ -313,22 +335,27 @@ func (b *Bind) XML(v any) error {
 	return b.c.Validate(v)
 }
 
+// Form binds URL-encoded or multipart form values, then validates v.
 func (b *Bind) Form(v any) error {
 	return b.c.app.config.RequestBinder.BindForm(b.c, v)
 }
 
+// Query binds query values, then validates v.
 func (b *Bind) Query(v any) error {
 	return b.c.app.config.RequestBinder.BindQuery(b.c, v)
 }
 
+// Header binds request headers, then validates v.
 func (b *Bind) Header(v any) error {
 	return b.c.app.config.RequestBinder.BindHeader(b.c, v)
 }
 
+// Path binds route parameters, then validates v.
 func (b *Bind) Path(v any) error {
 	return b.c.app.config.RequestBinder.BindPath(b.c, v)
 }
 
+// Validate invokes the configured Validator, or succeeds when none is set.
 func (c *Context) Validate(v any) error {
 	if c.app == nil || c.app.config.Validator == nil {
 		return nil

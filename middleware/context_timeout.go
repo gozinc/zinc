@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -9,13 +12,16 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// ErrContextTimeout identifies a downstream context deadline.
 var ErrContextTimeout = errors.New("zinccontexttimeout: request context deadline exceeded")
 
+// ContextTimeoutInfo describes the request deadline installed by middleware.
 type ContextTimeoutInfo struct {
 	Timeout  time.Duration
 	Deadline time.Time
 }
 
+// ContextTimeoutError preserves deadline metadata and the underlying error.
 type ContextTimeoutError struct {
 	Info  ContextTimeoutInfo
 	Cause error
@@ -42,8 +48,10 @@ func (e *ContextTimeoutError) Is(target error) bool {
 	return target == ErrContextTimeout || target == context.DeadlineExceeded
 }
 
+// ContextTimeoutErrorHandler maps an elapsed deadline to a handler error.
 type ContextTimeoutErrorHandler func(*zinc.Context, *ContextTimeoutError) error
 
+// ContextTimeoutConfig controls request deadline installation and mapping.
 type ContextTimeoutConfig struct {
 	Skipper      func(*zinc.Context) bool
 	Timeout      time.Duration
@@ -54,10 +62,13 @@ type contextTimeoutContextKey int
 
 const contextTimeoutInfoContextKey contextTimeoutContextKey = iota
 
+// ContextTimeout installs timeout as the downstream request deadline.
 func ContextTimeout(timeout time.Duration) zinc.Middleware {
 	return ContextTimeoutWithConfig(ContextTimeoutConfig{Timeout: timeout})
 }
 
+// ContextTimeoutWithConfig derives a timed context for downstream work. It does
+// not run the handler in a detached goroutine, so cancellation remains idiomatic.
 func ContextTimeoutWithConfig(config ContextTimeoutConfig) zinc.Middleware {
 	cfg := resolveContextTimeoutConfig(config)
 
@@ -94,6 +105,7 @@ func ContextTimeoutWithConfig(config ContextTimeoutConfig) zinc.Middleware {
 	}
 }
 
+// ContextTimeoutCurrent returns installed deadline metadata.
 func ContextTimeoutCurrent(c *zinc.Context) (ContextTimeoutInfo, bool) {
 	if c == nil {
 		return ContextTimeoutInfo{}, false
@@ -106,6 +118,7 @@ func ContextTimeoutCurrent(c *zinc.Context) (ContextTimeoutInfo, bool) {
 	return info, ok
 }
 
+// MustContextTimeoutCurrent returns deadline metadata or panics when absent.
 func MustContextTimeoutCurrent(c *zinc.Context) ContextTimeoutInfo {
 	info, ok := ContextTimeoutCurrent(c)
 	if !ok {
@@ -114,6 +127,7 @@ func MustContextTimeoutCurrent(c *zinc.Context) ContextTimeoutInfo {
 	return info
 }
 
+// ContextTimeoutRemaining returns time until the installed deadline.
 func ContextTimeoutRemaining(c *zinc.Context) (time.Duration, bool) {
 	info, ok := ContextTimeoutCurrent(c)
 	if !ok || info.Deadline.IsZero() {

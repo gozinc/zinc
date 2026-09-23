@@ -3,7 +3,7 @@ title: Context Timeout
 description: Attach per-request deadlines to the handler chain.
 ---
 
-`ContextTimeout` wraps the request context with a deadline before the rest of the chain runs.
+`ContextTimeout` gives each request a deadline. Database calls, HTTP clients, and anything else that honours `c.Context()` stop when it passes, and the request fails with `503 Service Unavailable`.
 
 ## Quick start
 
@@ -30,6 +30,8 @@ remaining, ok := middleware.ContextTimeoutRemaining(c)
 
 - `Timeout`
 - `Deadline`
+
+The deadline only helps if downstream work uses the request context. Code that ignores `c.Context()` keeps running.
 
 ## Error behavior
 

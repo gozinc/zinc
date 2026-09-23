@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -10,12 +13,15 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// PrometheusConfig controls request metric collection.
 type PrometheusConfig struct {
 	Skipper func(*zinc.Context) bool
 	Metrics *PrometheusMetrics
 	Now     func() time.Time
 }
 
+// PrometheusMetrics stores in-process counters and duration sums. Route labels
+// use registered patterns to avoid cardinality growth from path parameters.
 type PrometheusMetrics struct {
 	mu       sync.Mutex
 	requests map[prometheusRequestKey]*prometheusRequestValue
@@ -34,12 +40,14 @@ type prometheusRequestValue struct {
 
 var defaultPrometheusMetrics = NewPrometheusMetrics()
 
+// NewPrometheusMetrics creates an isolated metrics registry.
 func NewPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
 		requests: make(map[prometheusRequestKey]*prometheusRequestValue),
 	}
 }
 
+// Prometheus records requests in the supplied registry or the package default.
 func Prometheus(metrics ...*PrometheusMetrics) zinc.Middleware {
 	cfg := PrometheusConfig{Metrics: defaultPrometheusMetrics}
 	if len(metrics) > 0 {
@@ -48,6 +56,7 @@ func Prometheus(metrics ...*PrometheusMetrics) zinc.Middleware {
 	return PrometheusWithConfig(cfg)
 }
 
+// PrometheusWithConfig records request counts and durations after downstream work.
 func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 	cfg := resolvePrometheusConfig(config)
 	now := cfg.Now
@@ -79,6 +88,7 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 	}
 }
 
+// PrometheusHandler serves the registry in Prometheus text format.
 func PrometheusHandler(metrics ...*PrometheusMetrics) zinc.HandlerFunc {
 	m := defaultPrometheusMetrics
 	if len(metrics) > 0 && metrics[0] != nil {
@@ -89,6 +99,7 @@ func PrometheusHandler(metrics ...*PrometheusMetrics) zinc.HandlerFunc {
 	}
 }
 
+// Observe records one completed request.
 func (m *PrometheusMetrics) Observe(method, route string, status int, duration time.Duration) {
 	if m == nil {
 		return
@@ -114,6 +125,7 @@ func (m *PrometheusMetrics) Observe(method, route string, status int, duration t
 	value.DurationSum += duration.Seconds()
 }
 
+// Text returns a consistent snapshot in Prometheus exposition format.
 func (m *PrometheusMetrics) Text() string {
 	if m == nil {
 		return ""

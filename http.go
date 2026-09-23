@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
-// HTTP methods
+// Standard HTTP method names supported by the dedicated router fast paths.
 const (
 	MethodGet     = "GET"     // RFC 7231, 4.3.1
 	MethodHead    = "HEAD"    // RFC 7231, 4.3.2
@@ -14,7 +17,7 @@ const (
 	methodUse     = "USE"
 )
 
-// HTTP status codes
+// HTTP status codes, including commonly used WebDAV and extension statuses.
 const (
 	StatusContinue                      = 100 // RFC 7231, 6.2.1
 	StatusSwitchingProtocols            = 101 // RFC 7231, 6.2.2

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -6,19 +9,24 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// RewriteConfig maps incoming paths to internal paths.
 type RewriteConfig struct {
 	Skipper func(*zinc.Context) bool
 	Rules   map[string]string
 }
 
+// Rewrite internally maps one path to another.
 func Rewrite(from, to string) zinc.Middleware {
 	return RewriteWithRules(map[string]string{from: to})
 }
 
+// RewriteWithRules internally maps exact and terminal-wildcard paths.
 func RewriteWithRules(rules map[string]string) zinc.Middleware {
 	return RewriteWithConfig(RewriteConfig{Rules: rules})
 }
 
+// RewriteWithConfig changes routing state without issuing a redirect. Query
+// parameters remain untouched.
 func RewriteWithConfig(config RewriteConfig) zinc.Middleware {
 	rules := cloneRewriteRules(config.Rules)
 

@@ -1,31 +1,24 @@
 ---
 title: Response Writer
-description: Wrap response writers in middleware to track status, bytes written, and write state.
+description: Reference for zinc.WrapResponseWriter, which lets middleware observe the status and size of a response.
 ---
 
-`WrapResponseWriter` is for middleware authors.
-
-Use it when middleware needs to inspect the response after the next handler runs.
+Middleware sometimes needs to know what a handler sent: the status for metrics, or the byte count for logs. `zinc.WrapResponseWriter` wraps the current writer and records both.
 
 ```go
-func measure() zinc.Middleware {
-	return func(c *zinc.Context) error {
-		base := c.Writer()
-		rw := zinc.WrapResponseWriter(base)
-		c.SetWriter(rw)
-		defer c.SetWriter(base)
+func metrics(c *zinc.Context) error {
+	base := c.Writer()
+	rw := zinc.WrapResponseWriter(base)
+	c.SetWriter(rw)
+	defer c.SetWriter(base) // always restore the original writer
 
-		err := c.Next()
+	start := time.Now()
+	err := c.Next()
 
-		status := rw.Status()
-		bytes := rw.BytesWritten()
-		written := rw.Written()
-
-		_ = status
-		_ = bytes
-		_ = written
-		return err
-	}
+	requestDuration.
+		WithLabelValues(c.FullPath(), strconv.Itoa(rw.Status())).
+		Observe(time.Since(start).Seconds())
+	return err
 }
 ```
 
@@ -34,29 +27,27 @@ func measure() zinc.Middleware {
 ```go
 type ResponseWriter interface {
 	http.ResponseWriter
-	Status() int
-	BytesWritten() int
-	Written() bool
+	Status() int       // 200 until another status is written
+	BytesWritten() int // body bytes written so far
+	Written() bool     // whether headers or body have been sent
 }
 ```
 
-`Status()` returns `200 OK` until another status is written. `Written()` tells you whether headers or body bytes have been sent.
+## Errors returned by the chain
 
-## Optional behavior
-
-The wrapper preserves common optional writer behavior when the underlying writer supports it:
-
-- `http.Flusher`
-- `http.Hijacker`
-- `io.ReaderFrom`
-- `http.Pusher`
-- `Unwrap() http.ResponseWriter`
-
-Use a narrow assertion when integration code needs the original writer.
+When a handler returns an error, the error handler writes the response after your middleware has already returned, so `rw.Status()` still reports `200`. To measure the final response, send the error to the error handler first:
 
 ```go
-if unwrapper, ok := rw.(interface{ Unwrap() http.ResponseWriter }); ok {
-	base := unwrapper.Unwrap()
-	_ = base
+err := c.Next()
+if err != nil {
+	c.Error(err) // writes the error response through rw now
 }
+record(rw.Status(), rw.BytesWritten())
+return err
 ```
+
+The [Custom Middleware](/cookbook/middleware/) recipe uses this pattern in a complete program.
+
+## Optional interfaces
+
+The wrapper keeps the optional interfaces of the writer it wraps: `http.Flusher`, `http.Hijacker`, `io.ReaderFrom`, and `http.Pusher`. It also implements `Unwrap() http.ResponseWriter`, so `http.ResponseController` reaches the original writer.

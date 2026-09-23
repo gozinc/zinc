@@ -87,7 +87,7 @@ func main() {
 	app.Post("/todos", func(c *zinc.Context) error {
 		var input CreateTodoInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return err
+			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
 		}
 		if input.Title == "" {
 			return zinc.ErrBadRequest.WithMessage("title is required")

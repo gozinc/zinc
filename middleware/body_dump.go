@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -12,14 +15,19 @@ import (
 )
 
 const (
+	// BodyDumpDefaultMaxRequestBytes and BodyDumpDefaultMaxResponseBytes bound
+	// captured payloads while preserving total byte counts.
 	BodyDumpDefaultMaxRequestBytes  int64 = 1 << 20
 	BodyDumpDefaultMaxResponseBytes int64 = 1 << 20
 )
 
+// BodyDumpObserver receives one completed request snapshot.
 type BodyDumpObserver func(*zinc.Context, BodyDumpSnapshot)
 
+// BodyDumpRedactor removes sensitive data before observation.
 type BodyDumpRedactor func(*zinc.Context, *BodyDumpSnapshot)
 
+// BodyDumpConfig controls capture limits, redaction, and observation.
 type BodyDumpConfig struct {
 	Skipper          func(*zinc.Context) bool
 	Observe          BodyDumpObserver
@@ -28,6 +36,7 @@ type BodyDumpConfig struct {
 	MaxResponseBytes int64
 }
 
+// BodyDumpSnapshot contains bounded request and response captures.
 type BodyDumpSnapshot struct {
 	Method            string
 	Path              string
@@ -42,6 +51,7 @@ type BodyDumpSnapshot struct {
 	Error             error
 }
 
+// DefaultBodyDumpConfig returns bounded one-megabyte capture defaults.
 func DefaultBodyDumpConfig() BodyDumpConfig {
 	return BodyDumpConfig{
 		MaxRequestBytes:  BodyDumpDefaultMaxRequestBytes,
@@ -49,10 +59,13 @@ func DefaultBodyDumpConfig() BodyDumpConfig {
 	}
 }
 
+// BodyDump captures request and response bodies for observer.
 func BodyDump(observer BodyDumpObserver) zinc.Middleware {
 	return BodyDumpWithConfig(BodyDumpConfig{Observe: observer})
 }
 
+// BodyDumpWithConfig captures bodies without replacing the bytes visible to
+// downstream handlers. Configure Redact before exporting snapshots.
 func BodyDumpWithConfig(config BodyDumpConfig) zinc.Middleware {
 	cfg := resolveBodyDumpConfig(config)
 
@@ -185,6 +198,8 @@ func (w *bodyDumpCaptureResponseWriter) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
+	// Account only for bytes accepted by the underlying writer; observers must
+	// see transport reality rather than the attempted payload length.
 	n, err := w.ResponseWriter.Write(p)
 	w.size += int64(n)
 	w.capture(p[:n])

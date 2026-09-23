@@ -1,88 +1,74 @@
 ---
 title: Configuration
-description: Understand Zinc’s routing, server, proxy, and extensibility settings.
+description: Every Zinc setting, its default, and the safe way to change it.
 ---
 
-Use `NewWithConfig` when you need more than the defaults.
+`zinc.New()` uses `zinc.DefaultConfig`, which suits most applications. To change a setting, copy the defaults, adjust what you need, and build the app with `NewWithConfig`.
 
 ```go
-app := zinc.NewWithConfig(zinc.Config{
-	CaseSensitive:          true,
-	StrictRouting:          true,
-	AutoHead:               true,
-	AutoOptions:            true,
-	HandleMethodNotAllowed: true,
-	BodyLimit:              8 << 20,
-	ProxyHeader:            zinc.HeaderXForwardedFor,
-	TrustedProxies:         []string{"10.0.0.1"},
-	RouteCacheSize:         1000,
-})
+cfg := zinc.DefaultConfig
+cfg.BodyLimit = 16 << 20 // 16 MB
+cfg.TrustedProxies = []string{"10.0.0.0/8"}
+
+app := zinc.NewWithConfig(cfg)
 ```
 
-Most applications can start with `zinc.New()` and add config only when routing behavior, server timeouts, proxy trust, or extension points need to change.
+:::caution[Always start from DefaultConfig]
+Several defaults are `true`. A bare `zinc.Config{BodyLimit: 16 << 20}` literal switches off automatic `HEAD` and `OPTIONS`, 405 responses, and the route cache, because Go fills omitted booleans with `false` and numbers with `0`. `NewWithConfig` restores defaults only for limits, timeouts, the proxy header, and the codec, binder, and error handler.
+:::
 
-## Routing behavior
+## Routing
 
-- `CaseSensitive`
-- `StrictRouting`
-- `AutoHead`
-- `AutoOptions`
-- `HandleMethodNotAllowed`
-- `RouteCacheSize`
+| Field | Default | Effect |
+|---|---|---|
+| `CaseSensitive` | `false` | When `true`, `/Users` and `/users` are different routes. |
+| `StrictRouting` | `false` | When `true`, `/users` and `/users/` are different routes. |
+| `AutoHead` | `true` | Answers `HEAD` with the matching `GET` route, without a body. |
+| `AutoOptions` | `true` | Answers `OPTIONS` with `204` and an `Allow` header. |
+| `HandleMethodNotAllowed` | `true` | Returns `405` with `Allow` when the path exists for other methods. When `false`, returns `404`. |
+| `RouteCacheSize` | `1000` | Number of concrete dynamic paths cached for faster matching. `0` disables the cache. |
 
-These control how Zinc matches and caches routes.
+## Server
 
-## Server behavior
+These apply when Zinc starts the server with `Listen`, `ListenTLS`, or `Serve`. When you run your own `http.Server`, set its fields directly instead.
 
-- `ServerHeader`
-- `BodyLimit`
-- `ReadTimeout`
-- `WriteTimeout`
-- `IdleTimeout`
+| Field | Default | Effect |
+|---|---|---|
+| `ReadTimeout` | `5s` | Maximum time to read the whole request, including the body. |
+| `WriteTimeout` | `10s` | Maximum time to write the response. |
+| `IdleTimeout` | `120s` | How long keep-alive connections stay open between requests. |
+| `ServerHeader` | `""` | When set, sent as the `Server` header on every response. |
 
-## Proxy awareness
+Streaming responses and long uploads may need a longer `ReadTimeout` or `WriteTimeout`.
 
-- `ProxyHeader`
-- `TrustedProxies`
+## Requests
 
-These affect how client IP helpers behave.
+| Field | Default | Effect |
+|---|---|---|
+| `BodyLimit` | `4 MB` | Largest body that binding reads. Larger bodies get `413`. |
 
-```go
-app := zinc.NewWithConfig(zinc.Config{
-	ProxyHeader:    zinc.HeaderXForwardedFor,
-	TrustedProxies: []string{"10.0.0.1"},
-})
-```
+## Proxies
 
-Use this only for proxies you control. If `TrustedProxies` does not trust the direct peer, Zinc ignores forwarded IP headers.
+| Field | Default | Effect |
+|---|---|---|
+| `ProxyHeader` | `X-Forwarded-For` | Header that `c.IP()` reads for the client address. |
+| `TrustedProxies` | none | Peers allowed to set that header. With none, forwarding headers are ignored. |
+
+[Client IP and Proxies](/guide/ip-address/) explains how to set these safely.
 
 ## Extension points
 
-Plug in application-specific behavior with:
+| Field | Replaces |
+|---|---|
+| `ErrorHandler` | How returned errors become responses |
+| `Validator` | Validation after every bind (none by default) |
+| `Renderer` | Template rendering for `c.Render` (none by default) |
+| `JSONCodec` | JSON encoding and decoding |
+| `RequestBinder` | Request decoding for `c.Bind()` |
 
-- `RequestBinder`
-- `Validator`
-- `Renderer`
-- `JSONCodec`
-- `ErrorHandler`
+[Customization](/guide/customization/) shows each one in use.
 
-Use these when you need custom serialization, validation, rendering, or error-envelope policies without replacing the rest of Zinc.
+## Next steps
 
-Example:
-
-```go
-app := zinc.NewWithConfig(zinc.Config{
-	Validator: validator,
-	ErrorHandler: func(c *zinc.Context, err error) {
-		_ = c.Status(zinc.StatusInternalServerError).JSON(zinc.Map{
-			"error": err.Error(),
-		})
-	},
-})
-```
-
-## See also
-
-- [Config API](/api/config/) for the field-level reference.
-- [Errors](/guide/errors/) for custom error handlers.
-- [Binding](/guide/binding/) for validators and request binders.
+- [Customization](/guide/customization/) for plugging in your own validator, codec, and error handler.
+- [Config API](/api/config/) for the type definition.

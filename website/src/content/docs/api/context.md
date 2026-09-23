@@ -1,122 +1,122 @@
 ---
 title: Context
-description: The request-scoped API surface for handlers and middleware.
+description: Reference for zinc.Context, grouped by task, with every request, response, and state method.
 ---
 
-`*zinc.Context` is the primary object you work with inside handlers.
+`*zinc.Context` is passed to every handler and middleware. It is pooled, and is valid only until the handler returns. See [Context](/guide/context/) for lifetime rules.
 
-## Request access
+## Request
+
+| Method | Returns |
+|---|---|
+| `Request()` | The underlying `*http.Request` |
+| `Context()` | The request's `context.Context` |
+| `Method()` | The HTTP method |
+| `Path()` | The request path |
+| `OriginalURL()` | The original request URI, before any rewrite |
+| `FullPath()` | The matched route pattern, such as `/users/{id}` |
+| `Route()` | The matched `RouteInfo` |
+| `Scheme()` | `"http"` or `"https"`, honoring forwarded protocol headers from trusted proxies |
+| `Secure()` | Whether `Scheme()` is `"https"` |
+| `ContentType()` | The request media type, without parameters |
+| `GetHeader(name)` | A request header |
+| `IsWebSocket()` | Whether this is a WebSocket upgrade |
+| `IsPreflight()` | Whether this is a CORS preflight |
+| `RequestID()` | The `X-Request-ID` request header |
+
+## Parameters, query, and forms
+
+| Method | Returns |
+|---|---|
+| `Param(name)`, `ParamOr(name, fallback)` | A route parameter |
+| `Query(name)`, `QueryOr(name, fallback)` | A query value |
+| `QueryArray(name)` | Every value for a repeated query key |
+| `QueryMap(name)` | Bracket keys, such as `filter[status]`, as a map |
+| `QueryValues()` | The full `url.Values` |
+| `PostForm(name)`, `PostFormOr`, `PostFormArray`, `PostFormMap` | Body form values |
+| `FormValue(name)` | A form value from the body or the query, like `http.Request.FormValue` |
+| `FormFile(name)`, `FormFiles(name)` | Uploaded files |
+| `MultipartForm()` | The parsed multipart form |
+| `SaveFile(file, dst)` | Saves an uploaded file to disk |
+| `Cookie(name)`, `Cookies()` | Request cookies |
+| `BodyBytes()`, `BodyString()` | The raw body, cached for later reads |
+
+## Binding and validation
 
 | Method | Purpose |
 |---|---|
-| `Request()` | Get the underlying `*http.Request` |
-| `Writer()` | Get the response writer |
-| `SetWriter(writer)` | Replace the response writer for middleware |
-| `Method()` | Current request method |
-| `Path()` | Current request path |
-| `SetPath(path)` | Rewrite the current path before continuing |
-| `OriginalURL()` | Original request URI |
-| `Route()` | Matched `RouteInfo` |
-| `Context()` | Underlying request context |
-| `SetContext(ctx)` | Replace the underlying request context |
+| `Bind()` | The binder: `All`, `Path`, `Query`, `Header`, `Form`, `Body`, `JSON`, `XML`, `YAML`, `TOML`, `Text` |
+| `Validate(v)` | Runs the configured `Validator` directly |
 
-## Route and query helpers
+See [Binding](/guide/binding/).
+
+## Response headers and status
+
+These return the context, so they chain into a body method.
+
+| Method | Sets |
+|---|---|
+| `Status(code)` | The status code |
+| `SetHeader(key, value)`, `AppendHeader(key, values...)` | Response headers |
+| `Type(ext)` | `Content-Type` from a file extension, such as `"json"` |
+| `Location(url)` | The `Location` header |
+| `Vary(fields...)` | The `Vary` header |
+| `SetSameSite(mode)` | The default `SameSite` for cookies set afterwards |
+
+`SetCookie(cookie)` and `ClearCookie(names...)` write cookies.
+
+## Response bodies
+
+| Method | Sends |
+|---|---|
+| `JSON(v)`, `JSONPretty(v, indent)` | JSON |
+| `XML(v)`, `YAML(v)`, `TOML(v)` | Other structured formats |
+| `String(s)`, `HTML(s)` | Text or HTML |
+| `Send(v)` | A string as text, `[]byte` as `application/octet-stream`, anything else as JSON |
+| `Data(contentType, b)` | Bytes with a content type |
+| `Blob(status, contentType, b)`, `JSONBlob`, `XMLBlob`, `HTMLBlob` | Pre-encoded bytes with a status |
+| `NoContent()` | `204 No Content` |
+| `Render(name, data)` | A template, through the configured `Renderer` |
+| `File(path)`, `FileFS(name, fsys)` | A file |
+| `Attachment(path, name...)`, `Download(path, name...)` | A file as a download |
+| `Inline(path, name...)` | A file for display in the browser |
+| `Stream(contentType, reader)` | Data copied from a reader |
+| `SSE(event)` | One server-sent event |
+| `Redirect(code, url)` | A redirect |
+| `Accepts(types...)` | The best match for the `Accept` header |
+| `Negotiate(status, offers)` | The offer that best matches `Accept` |
+
+## Middleware and errors
 
 | Method | Purpose |
 |---|---|
-| `Param(name)` | Read a route param |
-| `ParamOr(name, fallback)` | Route param with fallback |
-| `Query(name)` | Read a query value |
-| `QueryOr(name, fallback)` | Query value with fallback |
-| `QueryArray(name)` | Repeated query values |
-| `QueryMap(name)` | Bracket-style query map |
-| `QueryValues()` | Full query map |
-| `PostForm(name)` | Read a body form value |
-| `PostFormOr(name, fallback)` | Body form value with fallback |
-| `PostFormArray(name)` | Repeated body form values |
-| `PostFormMap(name)` | Bracket-style body form map |
-| `ContentType()` | Request content type without parameters |
-| `IsWebSocket()` | Whether the request is a websocket upgrade |
-| `GetHeader(key)` | Read a request header |
-| `Cookie(name)` | Read a request cookie |
-| `Cookies()` | Read all request cookies |
-| `BodyBytes()` | Read and cache the request body |
-| `BodyString()` | Read and cache the request body as a string |
+| `Next()` | Runs the rest of the chain |
+| `AbortWithStatus(code)` | Returns an HTTP error with that status |
+| `AbortWithJSON(code, v)` | Writes JSON with that status |
+| `Error(err)` | Sends an error to the error handler immediately |
+| `LastError()` | The most recent error passed to the error handler |
+| `Fail(err)` | Returns `err` unchanged |
 
-## Request-local state
+## Request-local values
 
-| Method | Purpose |
+| Method | Returns |
 |---|---|
-| `Set(key, value)` | Store request-local data |
-| `Get(key)` | Retrieve request-local data |
-| `MustGet(key)` | Retrieve request-local data or panic |
-| `GetString(key)` | Retrieve a stored string |
-| `GetBool(key)` | Retrieve a stored bool |
-| `GetInt(key)` | Retrieve a stored int |
-| `GetInt64(key)` | Retrieve a stored int64 |
-| `GetFloat64(key)` | Retrieve a stored float64 |
-| `GetStringSlice(key)` | Retrieve a stored string slice |
-| `GetStringMap(key)` | Retrieve a stored string-to-any map |
-| `GetStringMapString(key)` | Retrieve a stored string-to-string map |
-| `GetStringMapStringSlice(key)` | Retrieve a stored string-to-string-slice map |
+| `Set(key, value)` | Stores a value for this request |
+| `Get(key)` | `(any, bool)` |
+| `MustGet(key)` | The value, or panics |
+| `GetString`, `GetBool`, `GetInt`, `GetInt64`, `GetFloat64` | A typed value, or its zero value |
+| `GetStringSlice`, `GetStringMap`, `GetStringMapString`, `GetStringMapStringSlice` | A typed collection, or `nil` |
 
-## Binding
+## Client address
 
-Primary binding entry point:
+| Method | Returns |
+|---|---|
+| `IP()` | The client address, honoring trusted proxies |
+| `IPs()` | The forwarded address chain from a trusted proxy |
+| `RemoteIP()` | The direct peer address, ignoring headers |
 
-- `Bind().All(...)`
-- `Bind().JSON(...)`, `Bind().Query(...)`, and related explicit helpers
+See [Client IP and Proxies](/guide/ip-address/).
 
-## Responses
+## Replacing request parts
 
-The response helpers live on `Context` too:
-
-- `Status`
-- `String`
-- `JSON`
-- `XML`
-- `YAML`
-- `TOML`
-- `HTML`
-- `Render`
-- `Redirect`
-- `File`
-- `FileFS`
-- `Attachment`
-- `Download`
-- `Inline`
-- `Stream`
-- `Blob`
-- `JSONBlob`
-- `XMLBlob`
-- `HTMLBlob`
-- `SSE`
-- `Accepts`
-- `Negotiate`
-- `SetSameSite`
-- `SetCookie`
-- `ClearCookie`
-- `NoContent`
-
-## Multipart helpers
-
-- `FormFile`
-- `FormFiles`
-- `MultipartForm`
-- `SaveFile`
-
-## Client helpers
-
-- `IP()`
-- `IPs()`
-- `RemoteIP()`
-- `Scheme()`
-- `Secure()`
-- `IsPreflight()`
-- `RequestID()`
-
-`IP()` and `IPs()` use `Config.ProxyHeader` only when `TrustedProxies` allows the direct peer.
-
-## Safety
-
-`*Context` is pooled and valid only while its handler is running. Do not store it or pass it to another goroutine. Extract the exact values background work needs; use `c.Request().Context()` only for work that shares the request lifetime.
+For middleware that rewrites or wraps a request: `SetRequest(r)`, `SetContext(ctx)`, `SetPath(path)`, and `SetWriter(w)`. Middleware that wraps the writer should restore the original afterwards, as shown in [Response Writer](/api/response-writer/).

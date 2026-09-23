@@ -1,97 +1,85 @@
 ---
-title: net/http Interoperability
-description: Use standard Go handlers and middleware directly inside Zinc.
+title: Zinc and net/http
+description: Run Zinc on your own http.Server, serve routes with standard handlers, wrap the app in standard middleware, and mount existing muxes.
 ---
 
-Zinc is an `http.Handler`. Standard handlers and middleware can remain standard
-handlers and middleware, including when they need route parameters.
+Zinc is built on `net/http`, not beside it. A Zinc app is an `http.Handler`, standard handlers can serve Zinc routes, and standard middleware wraps Zinc apps without adapters. You can adopt Zinc one route at a time and leave working code alone.
 
-## Register a standard handler
+## Run Zinc on your own server
 
-Use `HandleHTTP` with a `METHOD /pattern` string:
-
-```go
-app.HandleHTTP("GET /native/{id}", http.HandlerFunc(
-	func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		fmt.Fprintf(w, "user %s", id)
-	},
-))
-```
-
-The handler receives the request and response writer used for the Zinc request.
-Zinc does not clone the request or translate it to another HTTP representation.
-Matched parameters are copied into `PathValue` immediately before the standard
-handler runs. Zinc-native handlers use `c.Param`, so they do not pay this
-interoperability cost when it is not needed.
-
-Groups support the same API:
+`app.Listen` is a shortcut. For full control over timeouts, TLS, and lifecycle, give the app to an `http.Server`:
 
 ```go
-api := app.Group("/api", requireAPIKey)
-api.HandleHTTP("GET /metrics", metricsHandler)
-```
-
-Group and application Zinc middleware still run around the standard handler.
-
-## Register standard middleware
-
-Use `UseHTTP` for middleware with the usual Go signature:
-
-```go
-func requestTracing(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add tracing data to r.Context() here.
-		next.ServeHTTP(w, r)
-	})
+server := &http.Server{
+	Addr:              ":8080",
+	Handler:           app,
+	ReadHeaderTimeout: 5 * time.Second,
 }
-
-app.UseHTTP(requestTracing)
+log.Fatal(server.ListenAndServe())
 ```
 
-Standard middleware wraps the complete application. The first registered HTTP
-middleware is outermost:
+Because the app is a handler, it also works anywhere a handler is accepted: `httptest.NewServer(app)`, another router, or a serverless adapter.
 
-```text
-HTTP middleware
-  -> Zinc application middleware
-    -> Zinc group and route middleware
-      -> route handler
-```
+## Serve a route with a standard handler
 
-`UseHTTP` is deliberately application-wide. Use Zinc middleware when behavior
-belongs to a particular group or route.
-
-## Prometheus
-
-Register a Prometheus exporter without an adapter:
+`HandleHTTP` takes a `METHOD /pattern` string, the same shape as `http.ServeMux`, and any `http.Handler`:
 
 ```go
-import "github.com/prometheus/client_golang/prometheus/promhttp"
-
 app.HandleHTTP("GET /metrics", promhttp.Handler())
+
+app.HandleHTTP("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "user %s", r.PathValue("id"))
+}))
 ```
 
-## OpenTelemetry
+The standard handler receives the real request and response writer. Zinc does not copy or translate them. Route parameters are copied into `r.PathValue` just before the handler runs, so Zinc handlers, which use `c.Param`, never pay that cost.
 
-OpenTelemetry's standard HTTP instrumentation can wrap the whole app:
+Groups support `HandleHTTP` too, and group middleware still runs around the handler:
 
 ```go
-import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+admin := app.Group("/admin", requireAdmin)
+admin.HandleHTTP("GET /debug/vars", expvar.Handler())
+```
 
+To use a standard handler inside a Zinc middleware chain, convert it with `zinc.Wrap(handler)` or `zinc.WrapFunc(fn)`.
+
+## Mount a whole subtree
+
+When an existing handler owns every path below a prefix, mount it:
+
+```go
+app.Mount("/legacy", legacyMux)
+```
+
+`Mount` removes the prefix before calling the handler, so `GET /legacy/orders` reaches `legacyMux` as `GET /orders`. Do not add `http.StripPrefix` as well. Use `HandleHTTP` for one endpoint and `Mount` for a subtree.
+
+## Wrap the app in standard middleware
+
+`UseHTTP` accepts ordinary `func(http.Handler) http.Handler` middleware:
+
+```go
 app.UseHTTP(func(next http.Handler) http.Handler {
-	return otelhttp.NewHandler(next, "zinc")
+	return otelhttp.NewHandler(next, "api")
 })
 ```
 
-The instrumented request context is the same context available through
-`c.Request().Context()` and `c.Context()` inside Zinc handlers.
+Standard middleware wraps the entire application and runs before any Zinc middleware. When you register several, the first is outermost:
 
-## Response writer capabilities
+```text
+UseHTTP middleware
+  → Zinc app middleware
+    → group and route middleware
+      → handler
+```
 
-Standard handlers receive the original response writer. Capabilities such as
-`http.Flusher`, `http.Hijacker`, `io.ReaderFrom`, `http.Pusher`, and `Unwrap` are
-therefore retained when the server's writer supports them.
+Values that standard middleware adds to the request context, such as a trace span, are visible in Zinc handlers through `c.Context()`.
 
-Use `Mount` when an existing handler owns a whole path subtree. Use `HandleHTTP`
-when it owns one routed endpoint.
+## Writer capabilities are preserved
+
+Handlers receive the server's own response writer, so `http.Flusher`, `http.Hijacker`, `io.ReaderFrom`, and `Unwrap` keep working. WebSocket libraries, streaming, and `http.ResponseController` behave exactly as they do without Zinc.
+
+## Next steps
+
+- [Adopt Zinc in net/http](/cookbook/existing-net-http-service/) adds Zinc to an existing service step by step.
+- [OpenTelemetry](/middleware/open-telemetry/) traces a Zinc app with the official instrumentation.
+- [Testing](/guide/testing/) uses `httptest` directly against the app.

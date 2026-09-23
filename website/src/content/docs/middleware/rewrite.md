@@ -3,7 +3,7 @@ title: Rewrite
 description: Rewrite exact or wildcard paths before route dispatch.
 ---
 
-`Rewrite` changes the request path before Zinc dispatches the route.
+`Rewrite` changes the request path before routing, without telling the client. Use it to serve old URLs from new handlers, or to alias one path to another.
 
 ```go
 app.Use(middleware.Rewrite("/old", "/new"))

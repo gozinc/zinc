@@ -9,35 +9,35 @@ Zinc exposes a standard `http.Handler`, so Go's `autocert` package can own certi
 package main
 
 import (
-    "log"
-    "net/http"
+	"log"
+	"net/http"
 
-    "github.com/0mjs/zinc"
-    "golang.org/x/crypto/acme/autocert"
+	"github.com/0mjs/zinc"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 func main() {
-    app := zinc.New()
-    app.Get("/", func(c *zinc.Context) error {
-        return c.String("secure")
-    })
+	app := zinc.New()
+	app.Get("/", func(c *zinc.Context) error {
+		return c.String("secure")
+	})
 
-    manager := &autocert.Manager{
-        Prompt:     autocert.AcceptTOS,
-        HostPolicy: autocert.HostWhitelist("api.example.com"),
-        Cache:      autocert.DirCache("./certs"),
-    }
+	manager := &autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist("api.example.com"),
+		Cache:      autocert.DirCache("./certs"),
+	}
 
-    go func() {
-        log.Fatal(http.ListenAndServe(":80", manager.HTTPHandler(nil)))
-    }()
+	go func() {
+		log.Fatal(http.ListenAndServe(":80", manager.HTTPHandler(nil)))
+	}()
 
-    server := &http.Server{
-        Addr:      ":443",
-        Handler:   app,
-        TLSConfig: manager.TLSConfig(),
-    }
-    log.Fatal(server.ListenAndServeTLS("", ""))
+	server := &http.Server{
+		Addr:      ":443",
+		Handler:   app,
+		TLSConfig: manager.TLSConfig(),
+	}
+	log.Fatal(server.ListenAndServeTLS("", ""))
 }
 ```
 

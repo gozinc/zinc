@@ -1,77 +1,67 @@
 ---
-title: Bind
-description: The request binding interfaces, `c.Bind()` helper, supported formats, and validation flow.
+title: Binding
+description: Reference for c.Bind(), struct tags, BindError, Validator, and RequestBinder.
 ---
 
-Zinc’s binding story is centered around three pieces:
+`c.Bind()` returns a binder for the current request. Each method decodes into a pointer to a struct, then runs the configured `Validator`. See the [Binding guide](/guide/binding/) for examples.
 
-- `RequestBinder`
-- `Validator`
-- the `Bind` helper returned by `c.Bind()`
+## Methods
 
-## RequestBinder interface
-
-```go
-type RequestBinder interface {
-	Bind(*Context, any) error
-	BindBody(*Context, any) error
-	BindQuery(*Context, any) error
-	BindForm(*Context, any) error
-	BindHeader(*Context, any) error
-	BindPath(*Context, any) error
-}
-```
-
-Provide a custom request binder in `Config` if you need different decoding behavior.
-
-## `c.Bind()` helper
-
-`c.Bind()` is Zinc's primary binding API.
-
-```go
-if err := c.Bind().All(&input); err != nil {
-	return err
-}
-```
-
-Use it when you want either:
-
-- the inferred all-source bind path with `All(...)`
-- an explicit source path like `JSON(...)` or `Query(...)`
-
-| Method | Purpose |
+| Method | Reads |
 |---|---|
-| `All` | Use the configured request binder across supported request sources |
-| `Body` | Decode request body only |
-| `JSON`, `XML`, `YAML`, `TOML`, `Text` | Decode a specific body format |
-| `Form` | Bind form or multipart form data |
-| `Query` | Bind query values |
-| `Header` | Bind request headers |
-| `Path` | Bind route params |
+| `All(&v)` | Route parameters, then query values, then the body |
+| `Path(&v)` | Route parameters (`path` tags) |
+| `Query(&v)` | The query string (`query` tags) |
+| `Header(&v)` | Request headers (`header` tags) |
+| `Form(&v)` | URL-encoded or multipart forms (`form` tags) |
+| `Body(&v)` | The body, decoded according to `Content-Type` |
+| `JSON(&v)`, `XML(&v)`, `YAML(&v)`, `TOML(&v)`, `Text(&v)` | The body in one format, regardless of `Content-Type`. An empty body is an error. |
 
-Common struct tags:
+## Struct tags
 
-- `path:"id"`
-- `query:"page"`
-- `header:"x-request-id"`
-- `form:"name"`
-- `json:"name"`
-- `xml:"name"`
-- `yaml:"name"`
-- `toml:"name"`
+| Tag | Example |
+|---|---|
+| `path` | `` ID int `path:"id"` `` |
+| `query` | `` Page int `query:"page"` `` |
+| `header` | `` Tenant string `header:"X-Tenant"` `` |
+| `form` | `` Avatar *multipart.FileHeader `form:"avatar"` `` |
+| `json`, `xml`, `yaml`, `toml` | Standard encoding tags for the body |
 
-## Validation
-
-If `Config.Validator` is set, Zinc validates after binding.
-
-This lets you centralize struct validation without changing individual handlers.
+Values convert to strings, booleans, signed and unsigned integers, floats, pointers to those, and slices. Multipart fields accept `multipart.FileHeader`, `*multipart.FileHeader`, and slices of either.
 
 ## BindError
 
-`BindError` includes:
+```go
+type BindError struct {
+	Source string // "path", "query", "header", "form", or "body"
+	Field  string // the struct field, when known
+	Err    error  // the underlying decode or conversion error
+}
+```
 
-- `Source`
-- `Field`
-- `Err`
+`BindError` unwraps to `Err`. It is not an HTTP error, so return it as `zinc.ErrBadRequest.WithCause(err)` or map it in the [error handler](/guide/errors/#map-binding-errors-to-400). A body over `Config.BodyLimit` produces a `BindError` that wraps `zinc.ErrRequestEntityTooLarge`.
 
-This is especially useful for APIs that want structured bad-request responses.
+## Validator
+
+```go
+type Validator interface {
+	Validate(any) error
+}
+```
+
+Set `Config.Validator` to run validation after every bind. `c.Validate(v)` calls it directly.
+
+## RequestBinder
+
+```go
+type RequestBinder interface {
+	Bind(*zinc.Context, any) error
+	BindBody(*zinc.Context, any) error
+	BindQuery(*zinc.Context, any) error
+	BindForm(*zinc.Context, any) error
+	BindHeader(*zinc.Context, any) error
+	BindPath(*zinc.Context, any) error
+}
+```
+
+Set `Config.RequestBinder` to replace decoding entirely. The format-specific methods (`JSON`, `XML`, and so on) use the configured `JSONCodec` or the standard decoders directly.

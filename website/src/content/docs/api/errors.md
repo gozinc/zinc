@@ -1,49 +1,61 @@
 ---
 title: Errors
-description: HTTPError, predefined status errors, and custom error handling hooks.
+description: Reference for zinc.HTTPError, the predefined status errors, and the ErrorHandler type.
 ---
 
-Zinc uses `HTTPError` for structured HTTP failures.
+Return an `*HTTPError` from a handler to send a specific status. See the [Errors guide](/guide/errors/) for patterns.
 
 ## HTTPError
 
 ```go
 type HTTPError struct {
-	Code    int
-	Message string
-	Cause   error
-	Meta    zinc.Map
-	Headers http.Header
+	Code    int         // HTTP status code
+	Message string      // client-facing message; defaults to the status text
+	Cause   error       // underlying error, for logs; never sent by default
+	Meta    zinc.Map    // extra data for custom error handlers
+	Headers http.Header // headers added to the response
 }
 ```
 
-Useful methods:
+| Method | Returns |
+|---|---|
+| `WithMessage(msg)` | A copy with a client-facing message |
+| `WithCause(err)` | A copy that wraps `err`, so `errors.Is` and `errors.As` see it |
+| `WithMeta(key, value)` | A copy with one metadata value |
+| `WithHeader(key, value)` | A copy that adds a response header |
+| `Error()` | The message, or the status text when there is none |
 
-- `WithMessage`
-- `WithCause`
-- `WithMeta`
-- `WithHeader`
+Builders always return copies, so the predefined errors below are safe to share.
 
-## Create errors
+## Constructors
 
 ```go
-return zinc.NewError(zinc.StatusBadRequest).WithMessage("invalid payload")
+err := zinc.NewError(zinc.StatusTeapot)
 ```
 
 ## Predefined errors
 
-Zinc includes ready-made errors for common HTTP statuses, including:
+There is one `Err` value for each standard 4xx and 5xx status, named after it:
 
-- `ErrBadRequest`
-- `ErrUnauthorized`
-- `ErrForbidden`
-- `ErrNotFound`
-- `ErrMethodNotAllowed`
-- `ErrTooManyRequests`
-- `ErrInternalServerError`
+| Common | |
+|---|---|
+| `ErrBadRequest` | 400 |
+| `ErrUnauthorized` | 401 |
+| `ErrForbidden` | 403 |
+| `ErrNotFound` | 404 |
+| `ErrMethodNotAllowed` | 405 |
+| `ErrConflict` | 409 |
+| `ErrRequestEntityTooLarge` | 413 |
+| `ErrUnsupportedMediaType` | 415 |
+| `ErrUnprocessableEntity` | 422 |
+| `ErrTooManyRequests` | 429 |
+| `ErrInternalServerError` | 500 |
+| `ErrServiceUnavailable` | 503 |
 
-## Error handling hook
+## ErrorHandler
 
-Set `Config.ErrorHandler` to control how returned errors are rendered.
+```go
+type ErrorHandler func(c *zinc.Context, err error)
+```
 
-That is the right place to implement a project-wide JSON error envelope.
+Set `Config.ErrorHandler` to control how every returned error becomes a response. The default writes `HTTPError`s as plain text with their status, and every other error as `500 Internal Server Error`.

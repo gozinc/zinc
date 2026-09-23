@@ -3,32 +3,34 @@ title: Embed Resources
 description: Compile static assets into a Zinc binary with embed.FS.
 ---
 
+Ship a single binary that contains its own HTML, CSS, and images. Go's `embed` package compiles the files in, and `app.StaticFS` serves them. Nothing needs to be copied next to the executable at deploy time.
+
 ```go
 package main
 
 import (
-    "embed"
-    "io/fs"
-    "log"
+	"embed"
+	"io/fs"
+	"log"
 
-    "github.com/0mjs/zinc"
+	"github.com/0mjs/zinc"
 )
 
 //go:embed public
 var assets embed.FS
 
 func main() {
-    public, err := fs.Sub(assets, "public")
-    if err != nil {
-        log.Fatal(err)
-    }
+	public, err := fs.Sub(assets, "public")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    app := zinc.New()
-    if err := app.StaticFS("/", public); err != nil {
-        log.Fatal(err)
-    }
+	app := zinc.New()
+	if err := app.StaticFS("/", public); err != nil {
+		log.Fatal(err)
+	}
 
-    log.Fatal(app.Listen())
+	log.Fatal(app.Listen())
 }
 ```
 

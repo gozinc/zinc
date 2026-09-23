@@ -3,7 +3,7 @@ title: Method Override
 description: Override POST methods from headers or custom getters.
 ---
 
-`MethodOverride` lets clients tunnel `PUT`, `PATCH`, or `DELETE` through `POST`.
+HTML forms can only send `GET` and `POST`. `MethodOverride` lets a `POST` request say which method it really means, so forms can reach `PUT`, `PATCH`, and `DELETE` routes. It runs before routing.
 
 ```go
 app.Use(middleware.MethodOverride())

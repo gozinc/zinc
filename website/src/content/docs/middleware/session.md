@@ -3,7 +3,7 @@ title: Session
 description: Store signed cookie-backed string session values.
 ---
 
-`SessionCookie` stores small string session values in a signed cookie.
+`SessionCookie` keeps small string values, such as a user ID or a flash message, in a signed cookie, so the server stores nothing.
 
 ```go
 app.Use(middleware.SessionCookie("sid", os.Getenv("SESSION_SECRET")))
@@ -31,4 +31,8 @@ app.Use(middleware.SessionWithConfig(middleware.SessionConfig{
 }))
 ```
 
-This middleware is for small cookie-backed values. Store large or sensitive session state server-side and keep only an opaque ID in the cookie.
+:::caution[Signed, not encrypted]
+The signature stops clients from changing values, but the cookie is base64-encoded JSON that anyone can decode and read. Never store secrets or personal data in it. For larger or sensitive state, store it server-side and keep only an opaque ID in the cookie.
+:::
+
+Keep the secret long and random, and rotate it by deploying a new one. Existing sessions end when it changes.

@@ -1,214 +1,86 @@
 ---
 title: Context
-description: Work with request data, response state, route metadata, and request-scoped values.
+description: Understand the request-scoped Context, share values between middleware and handlers, and keep background work safe.
 ---
 
-`*zinc.Context` is Zinc’s request-scoped object.
-
-It gives you access to:
-
-- the request and response writer
-- route params and query values
-- request-scoped values
-- binding and response helpers
-- route metadata and client/network helpers
-
-## At a glance
+Every handler and middleware receives a `*zinc.Context`. It is the one object you need for a request: it reads input, writes the response, carries values between middleware and handlers, and exposes the underlying `http.Request` and `http.ResponseWriter`.
 
 ```go
 app.Get("/users/{id}", func(c *zinc.Context) error {
 	return c.JSON(zinc.Map{
-		"id":      c.Param("id"),
-		"verbose": c.QueryOr("verbose", "false"),
-		"route":   c.FullPath(),
+		"id":    c.Param("id"),        // request data
+		"route": c.FullPath(),         // "/users/{id}", the matched pattern
+		"agent": c.GetHeader("User-Agent"),
 	})
 })
 ```
 
-Treat the context as short-lived. Read what you need during the request, and never send `*zinc.Context` to another goroutine.
+The guides cover each area in depth: [Request Data](/guide/request/) for reading input, [Binding](/guide/binding/) for structs, and [Responses](/guide/responses-and-rendering/) for writing output. This page covers what is specific to the context itself.
 
-## Basic request data
+## Share values between middleware and handlers
 
-```go
-app.Get("/users/{id}", func(c *zinc.Context) error {
-	method := c.Method()
-	path := c.Path()
-	id := c.Param("id")
-	search := c.Query("search")
-
-	_ = method
-	_ = path
-	_ = id
-	_ = search
-
-	return c.NoContent()
-})
-```
-
-Useful helpers include:
-
-- `Method()`
-- `Path()`
-- `Request()`
-- `Writer()`
-- `Param(name)`
-- `ParamOr(name, fallback)`
-- `Query(name)`
-- `QueryOr(name, fallback)`
-- `QueryArray(name)`
-- `QueryMap(name)`
-- `QueryValues()`
-- `PostForm(name)`
-- `PostFormOr(name, fallback)`
-- `PostFormArray(name)`
-- `PostFormMap(name)`
-- `ContentType()`
-- `IsWebSocket()`
-
-For repeated query values:
-
-```go
-app.Get("/search", func(c *zinc.Context) error {
-	tags := c.QueryArray("tag")
-	return c.JSON(zinc.Map{"tags": tags})
-})
-```
-
-For form posts:
-
-```go
-app.Post("/profile", func(c *zinc.Context) error {
-	name := c.PostForm("name")
-	roles := c.PostFormArray("roles")
-	return c.JSON(zinc.Map{"name": name, "roles": roles})
-})
-```
-
-For bracket-style query or form maps:
-
-```go
-app.Get("/search", func(c *zinc.Context) error {
-	filters := c.QueryMap("filter")
-	return c.JSON(filters)
-})
-```
-
-For request shape checks:
-
-```go
-app.Post("/events", func(c *zinc.Context) error {
-	if c.ContentType() != "application/json" {
-		return zinc.ErrUnsupportedMediaType
-	}
-	return c.NoContent()
-})
-```
-
-## Request-scoped values
-
-Use `Set` and `Get` for request-local state.
+Middleware often discovers something that later handlers need, such as the current user. Store it with `Set` and read it with a typed getter.
 
 ```go
 func loadUser(c *zinc.Context) error {
-	c.Set("userID", "42")
+	user, err := sessions.User(c.Context(), c.GetHeader("Authorization"))
+	if err != nil {
+		return zinc.ErrUnauthorized
+	}
+	c.Set("user", user)
 	return c.Next()
 }
 
-func handler(c *zinc.Context) error {
-	if userID := c.GetString("userID"); userID != "" {
-		return c.String(userID)
-	}
-	return zinc.ErrUnauthorized
-}
-```
-
-Use `Get` when you want the raw value and `MustGet` when missing state should be treated as a programmer error.
-
-## Files and multipart form data
-
-Zinc exposes direct multipart helpers on the context:
-
-- `FormFile(name)`
-- `FormFiles(name)`
-- `MultipartForm()`
-- `SaveFile(file, dst)`
-
-These are useful when you want lower-level control instead of binding multipart fields into a struct.
-
-## Route metadata
-
-Use `Route()` when you need the matched route’s metadata inside a handler.
-
-```go
-app.Get("/users/{id}", func(c *zinc.Context) error {
-	route := c.Route()
-	return c.JSON(route)
+app.Get("/me", loadUser, func(c *zinc.Context) error {
+	user := c.MustGet("user").(*User)
+	return c.JSON(user)
 })
 ```
 
-`RouteInfo` includes:
+| Getter | Returns |
+|---|---|
+| `Get(key)` | `(any, bool)` |
+| `MustGet(key)` | `any`, and panics when missing. Use it only when a missing value is a bug. |
+| `GetString`, `GetBool`, `GetInt`, `GetInt64`, `GetFloat64` | The typed value, or its zero value |
+| `GetStringSlice`, `GetStringMap`, `GetStringMapString` | The typed collection, or `nil` |
 
-- `Name`
-- `Method`
-- `Path`
-- `Params`
-- `Mounted`
-- `Handler`
+Values live only for the current request.
 
-## IP and request identity helpers
+## Route information
 
-Zinc exposes client IP helpers and request identity access:
+`c.FullPath()` returns the matched pattern, such as `/users/{id}`. It is better than the raw path for metrics and logs because it does not explode into one label per ID. `c.Route()` returns the full `RouteInfo`, including the route's name.
 
-- `IP()`
-- `IPs()`
-- `RequestID()`
+## Lifetime and goroutines
 
-`IP()` respects the configured proxy header and trusted proxy settings.
+Zinc pools contexts, so a `*zinc.Context` is valid only until its handler returns. After that, the same object serves another request.
 
-## Background work
+:::danger[Never keep the context]
+Do not store `*zinc.Context`, pass it to a goroutine, or use it after the handler returns. The same applies to its response writer and request body.
+:::
 
-Treat `*zinc.Context` as request-scoped and short-lived.
-
-Extract the exact values a background task needs before the handler returns:
+Copy what background work needs, then pass the copies:
 
 ```go
-app.Get("/jobs/{id}", func(c *zinc.Context) error {
-	job := AuditJob{
+app.Post("/reports/{id}", func(c *zinc.Context) error {
+	job := ReportJob{
 		ID:        c.Param("id"),
 		RequestID: c.RequestID(),
 	}
-	jobs <- job
-	return c.NoContent()
+	go reports.Build(context.WithoutCancel(c.Context()), job)
+	return c.Status(zinc.StatusAccepted).JSON(zinc.Map{"queued": job.ID})
 })
 ```
 
-For work that should stop when the request is cancelled, pass the standard request context:
+Choose the context deliberately:
 
-```go
-requestContext := c.Request().Context()
-```
+- `c.Context()` is cancelled when the request ends. Use it for work that should stop if the client goes away.
+- `context.WithoutCancel(c.Context())` keeps request values such as trace IDs but ignores cancellation. Use it for work that must finish after the response is sent.
 
-If work must deliberately outlive the request while retaining standard context values, detach cancellation explicitly with `context.WithoutCancel(requestContext)`. Do not pass Zinc's pooled context or response writer.
+## Using Zinc from existing handlers
 
-:::danger[Context lifetime]
-Do not retain `*zinc.Context`, its response writer, request body, or mutable values after the handler returns.
-:::
+`app.AcquireContext(w, r)` and `app.ReleaseContext(c)` let adapter code create a context around a `ResponseWriter` and `*http.Request` it already owns. Applications almost never need them.
 
-## Advanced: manual acquire and release
+## Next steps
 
-Most applications do not need manual context management. Use `AcquireContext` and `ReleaseContext` only when integrating Zinc with code that already owns an `http.ResponseWriter` and `*http.Request`.
-
-## See also
-
-- [Binding](/guide/binding/) for decoding requests into structs.
-- [Responses and Rendering](/guide/responses-and-rendering/) for writing responses.
-- [Context API](/api/context/) for the full helper list.
-
-Most applications should let Zinc manage context lifecycle automatically.
-
-Advanced integrations can use:
-
-- `app.AcquireContext(w, r)`
-- `app.ReleaseContext(c)`
-
-These are primarily useful for framework internals, adapters, and low-level testing.
+- [Context API](/api/context/) for every method, grouped by purpose.
+- [Groups and Middleware](/guide/groups-and-middleware/) for how `c.Next()` runs the chain.

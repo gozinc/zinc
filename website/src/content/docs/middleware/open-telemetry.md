@@ -12,8 +12,8 @@ app.Get("/users/{id}", showUser)
 traced := otelhttp.NewHandler(app, "zinc")
 
 server := &http.Server{
-    Addr:    ":8080",
-    Handler: traced,
+	Addr:    ":8080",
+	Handler: traced,
 }
 
 log.Fatal(server.ListenAndServe())

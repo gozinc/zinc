@@ -5,18 +5,22 @@ description: Choose and compose Zinc's first-party middleware.
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Zinc middleware is ordinary `func(*zinc.Context) error` code. Apply it to the
-whole app, a route group, or one endpoint.
+Zinc ships 29 middleware in one package, `github.com/0mjs/zinc/middleware`. Each is an ordinary `func(*zinc.Context) error`, so you can attach it to the whole app, a group, or a single route. Standard `net/http` middleware works too, through [`app.UseHTTP`](/guide/http-interoperability/).
+
+## A good default stack
+
+Most JSON APIs start here. Order matters: each entry wraps everything after it.
 
 ```go
-import "github.com/0mjs/zinc/middleware"
-
 app.Use(
-    middleware.RequestID(),
-    middleware.RequestLogger(),
-    middleware.Recover(),
+	middleware.RequestID(),     // 1. tag the request first, so everything can log the ID
+	middleware.RequestLogger(), // 2. log every request, including failures below
+	middleware.Recover(),       // 3. turn panics into 500s that the logger records
+	middleware.Secure(),        // 4. browser security headers
 )
 ```
+
+Add [CORS](/middleware/cors/) when browsers on other origins call the API, [Context Timeout](/middleware/context-timeout/) to bound slow requests, and an auth middleware on the groups that need it.
 
 ## Start with the request path
 

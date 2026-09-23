@@ -9,18 +9,18 @@ Go enables HTTP/2 automatically for normal TLS servers when the runtime and clie
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/0mjs/zinc"
+	"github.com/0mjs/zinc"
 )
 
 func main() {
-    app := zinc.New()
-    app.Get("/", func(c *zinc.Context) error {
-        return c.JSON(zinc.Map{"protocol": c.Request().Proto})
-    })
+	app := zinc.New()
+	app.Get("/", func(c *zinc.Context) error {
+		return c.JSON(zinc.Map{"protocol": c.Request().Proto})
+	})
 
-    log.Fatal(app.ListenTLS(":8443", "cert.pem", "key.pem"))
+	log.Fatal(app.ListenTLS(":8443", "cert.pem", "key.pem"))
 }
 ```
 

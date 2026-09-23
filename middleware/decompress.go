@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -11,19 +14,24 @@ import (
 )
 
 var (
+	// Decompression errors distinguish unsupported encodings from corrupt input.
 	ErrDecompressUnsupportedEncoding = errors.New("zincdecompress: unsupported content encoding")
 	ErrDecompressInvalidBody         = errors.New("zincdecompress: invalid compressed body")
 )
 
+// DecompressConfig controls request decompression and expansion limits.
 type DecompressConfig struct {
 	Skipper             func(*zinc.Context) bool
 	MaxDecompressedSize int64
 }
 
+// Decompress accepts gzip request bodies without an expansion limit.
 func Decompress() zinc.Middleware {
 	return DecompressWithConfig(DecompressConfig{})
 }
 
+// DecompressWithConfig transparently exposes gzip input to downstream handlers.
+// MaxDecompressedSize should be set for untrusted input to bound expansion.
 func DecompressWithConfig(config DecompressConfig) zinc.Middleware {
 	if config.MaxDecompressedSize < 0 {
 		panic("zincdecompress: MaxDecompressedSize must be greater than or equal to zero")

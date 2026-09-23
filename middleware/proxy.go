@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -16,15 +19,18 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// ProxyTarget names an absolute upstream URL.
 type ProxyTarget struct {
 	Name string
 	URL  *url.URL
 }
 
+// ProxyBalancer selects an upstream for each request.
 type ProxyBalancer interface {
 	Next(*zinc.Context) (*ProxyTarget, error)
 }
 
+// ProxyConfig controls upstream selection, rewriting, retries, and transport.
 type ProxyConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Target         string
@@ -41,10 +47,13 @@ type ProxyConfig struct {
 	Transport      http.RoundTripper
 }
 
+// Proxy forwards requests to one absolute target URL.
 func Proxy(target string) zinc.Middleware {
 	return ProxyWithConfig(ProxyConfig{Target: target})
 }
 
+// ProxyWithConfig terminates matching requests at an httputil.ReverseProxy.
+// Custom directors and transports run with the same trust as application code.
 func ProxyWithConfig(config ProxyConfig) zinc.Middleware {
 	proxy, balancer := newReverseProxy(config)
 
@@ -67,10 +76,12 @@ func ProxyWithConfig(config ProxyConfig) zinc.Middleware {
 	}
 }
 
+// NewRoundRobinBalancer returns a concurrency-safe round-robin balancer.
 func NewRoundRobinBalancer(targets []*ProxyTarget) ProxyBalancer {
 	return &roundRobinProxyBalancer{targets: normalizeProxyTargets(targets)}
 }
 
+// NewRandomBalancer returns a concurrency-safe pseudo-random balancer.
 func NewRandomBalancer(targets []*ProxyTarget) ProxyBalancer {
 	return &randomProxyBalancer{
 		targets: normalizeProxyTargets(targets),
@@ -193,6 +204,8 @@ func normalizeProxyTargets(targets []*ProxyTarget) []*ProxyTarget {
 }
 
 func normalizeOptionalProxyTargets(targets []*ProxyTarget) []*ProxyTarget {
+	// Clone caller-owned URLs: reverse proxy directors mutate requests and must
+	// not make target configuration vulnerable to later external mutation.
 	out := make([]*ProxyTarget, 0, len(targets))
 	for _, target := range targets {
 		if target == nil || target.URL == nil || target.URL.Scheme == "" || target.URL.Host == "" {
@@ -299,6 +312,8 @@ func (t *proxyRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	canReplayBody := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
 
 	var lastErr error
+	// Never retry a consumed body without GetBody. Replaying a partial request
+	// would silently change application semantics at the upstream.
 	for attempt := 0; attempt <= t.retries; attempt++ {
 		if attempt > 0 && req.GetBody != nil {
 			body, err := req.GetBody()

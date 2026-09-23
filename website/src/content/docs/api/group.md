@@ -1,65 +1,44 @@
 ---
-title: Group
-description: Group routes by prefix, middleware chain, and route subtree.
+title: Groups
+description: Reference for zinc.Group, a set of routes that share a path prefix and middleware.
 ---
 
-`Group` is Zinc’s route subtree type.
-
-Create one with:
-
-```go
-api := app.Group("/api", requireAPIKey)
-```
-
-## What groups do
-
-Groups let you:
-
-- apply a common path prefix
-- apply a shared middleware chain
-- build nested APIs without repeating paths
-
-## Common methods
-
-| Method | Purpose |
-|---|---|
-| `Use` | Add group-local middleware |
-| `Group`, `Route` | Create nested route trees |
-| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Register routes under the group prefix |
-| `Add`, `Match`, `All`, `Any` | Register more general route sets |
-| `Handle`, `TryHandle` | Register a named source or runtime-defined route |
-| `HandleHTTP` | Register a standard `http.Handler` using `METHOD /pattern` |
-| `RouteNotFound` | Register a prefix-scoped not-found route |
-| `Mount`, `Static`, `StaticFS`, `File`, `FileFS` | Mount handlers or serve files below the group prefix |
-
-## Example
+A `*zinc.Group` registers routes below a prefix and runs its middleware before theirs. Create one from the app or from another group.
 
 ```go
 api := app.Group("/api", requireAPIKey)
 v1 := api.Group("/v1")
 
-v1.Get("/users/{id}", showUser)
-v1.Post("/users", createUser)
-
-v1.Handle(zinc.RouteSpec{
-	Name:    "users.show",
-	Method:  zinc.MethodGet,
-	Path:    "/users/{id}",
-	Handler: showUser,
-})
+v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 ```
 
-Group route registration inherits the group prefix and middleware stack automatically.
-Use `v1.TryHandle(spec)` instead when the route declaration comes from runtime input and must return an error.
+## Methods
 
-Standard handlers inherit them too:
+| Method | Purpose |
+|---|---|
+| `Use(middleware...) *Group` | Adds middleware for routes registered on this group and its subgroups |
+| `Group(prefix, middleware...) *Group` | A nested group |
+| `Route(prefix, fn func(*Group), middleware...) *Group` | A nested group declared in a block |
+| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Routes below the prefix |
+| `Add`, `Match`, `All`, `Any` | Routes for custom or multiple methods |
+| `Handle(spec)`, `TryHandle(spec) error` | Routes described by a `RouteSpec` |
+| `HandleHTTP(pattern, http.Handler)` | A standard handler below the prefix |
+| `Mount(prefix, http.Handler)` | A handler that owns a subtree below the prefix |
+| `Static`, `StaticFS`, `File`, `FileFS` | Files below the prefix |
+| `RouteNotFound(pattern, handlers...)` | A `404` handler below the prefix |
+
+The methods behave like their [Application](/api/app/) counterparts, with the group's prefix and middleware applied.
+
+## Middleware order
+
+Group middleware runs after app middleware and before route middleware. A nested group runs its parent's middleware first:
 
 ```go
-v1.HandleHTTP("GET /metrics", promhttp.Handler())
+api := app.Group("/api", authenticate)
+admin := api.Group("/admin", requireAdmin)
+
+admin.Delete("/users/{id}", audit, deleteUser)
+// authenticate → requireAdmin → audit → deleteUser
 ```
 
-Route-local middleware still works inside groups.
-
-```go
-v1.Post("/posts", requireRole("editor"), createPost)
-```
+Group middleware runs only when one of the group's routes matches. Use `app.UsePrefix` for middleware that must also run for unmatched paths under a prefix.

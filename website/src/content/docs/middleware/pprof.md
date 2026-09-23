@@ -1,20 +1,33 @@
 ---
-title: Pprof
-description: Mount standard library pprof handlers behind Zinc middleware.
+title: pprof
+description: Expose Go's runtime profiler behind authentication for CPU, memory, and goroutine analysis.
 ---
 
-`Pprof` mounts the standard library pprof handlers at `/debug/pprof`.
+`Pprof` serves the standard `net/http/pprof` handlers, so `go tool pprof` can profile a running service. It answers requests below `/debug/pprof` and passes everything else through.
+
+Profiles reveal internals and can slow a server down, so always put authentication in front:
 
 ```go
-app.Use(middleware.Pprof())
+app.UsePrefix("/debug/pprof",
+	middleware.BasicAuth(middleware.BasicAuthStatic("ops", os.Getenv("PPROF_PASSWORD"))),
+	middleware.Pprof(),
+)
 ```
 
-Use a custom prefix when profiling should live somewhere else.
+`UsePrefix` runs before routing, in order, so every profiling request is authenticated first.
+
+Then, from your machine:
+
+```bash
+go tool pprof -http=:0 "https://ops:$PPROF_PASSWORD@api.example.com/debug/pprof/profile?seconds=30"
+```
+
+## Use another path
 
 ```go
-app.Use(middleware.PprofWithPrefix("/internal/pprof"))
+app.UsePrefix("/internal/pprof", requireAdmin, middleware.PprofWithPrefix("/internal/pprof"))
 ```
 
-:::danger[Keep profiling private]
-Do not expose pprof publicly. Protect it with authentication, network restrictions, or both.
+:::danger[Never expose pprof publicly]
+Do not register `Pprof` with plain `app.Use` on an internet-facing app. Protect it with authentication, a private network, or both.
 :::

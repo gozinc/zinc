@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -5,6 +8,8 @@ import (
 	"strings"
 )
 
+// ServeHTTP implements http.Handler. Standard HTTP middleware wraps the
+// application here; Zinc middleware and routing continue through serveHTTP.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if a.httpHandler != nil {
 		a.httpHandler.ServeHTTP(w, r)
@@ -13,6 +18,8 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.serveHTTP(w, r)
 }
 
+// serveHTTP owns the pooled Context lifecycle. Every return path releases the
+// Context only after handler errors have reached the configured error handler.
 func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(a.serverHeader) > 0 {
 		w.Header()[HeaderServer] = a.serverHeader
@@ -48,6 +55,8 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.release()
 }
 
+// preHandlersForPath builds a per-request chain only when prefix middleware is
+// configured. Applications with global middleware use the prebuilt chain.
 func (a *App) preHandlersForPath(path string) []HandlerFunc {
 	count := len(a.middleware)
 	for _, entry := range a.prefixMiddleware {
@@ -69,6 +78,8 @@ func (a *App) preHandlersForPath(path string) []HandlerFunc {
 	return handlers
 }
 
+// dispatch applies protocol-level routing policy around the router: automatic
+// HEAD and OPTIONS, method mismatches, mounts, and route-specific 404 handlers.
 func (a *App) dispatch(ctx *Context) error {
 	method := ctx.Method()
 	path := ctx.Path()
@@ -140,6 +151,8 @@ func (a *App) dispatch(ctx *Context) error {
 	return ErrNotFound
 }
 
+// handleRouteNotFound checks scoped not-found routes before the application
+// fallback. The boolean distinguishes an executed handler from no match.
 func (a *App) handleRouteNotFound(ctx *Context) (bool, error) {
 	if a == nil || a.notFoundRoutes == nil || ctx == nil {
 		return false, nil
@@ -158,6 +171,8 @@ func (a *App) handleRouteNotFound(ctx *Context) (bool, error) {
 	return true, nil
 }
 
+// handleError is the single terminal path for handler failures. Error handlers
+// must not recursively return errors, so panics remain the recovery boundary.
 func (a *App) handleError(ctx *Context, err error) {
 	if err == nil {
 		return
@@ -175,6 +190,7 @@ func appDispatchHandler(c *Context) error {
 	return nil
 }
 
+// matchMount returns the first match from the longest-prefix-first mount list.
 func (a *App) matchMount(path string) *mountedHandler {
 	for i := range a.mounts {
 		mount := &a.mounts[i]
@@ -185,6 +201,8 @@ func (a *App) matchMount(path string) *mountedHandler {
 	return nil
 }
 
+// serve rewrites the request path for the mounted handler and restores it
+// afterwards so outer middleware continues to observe the original request.
 func (m *mountedHandler) serve(c *Context) {
 	if m == nil || m.handler == nil {
 		return

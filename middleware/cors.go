@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -9,6 +12,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// CORSConfig defines origins, methods, and headers accepted across origins.
 type CORSConfig struct {
 	AllowOrigins     []string
 	AllowMethods     []string
@@ -19,6 +23,7 @@ type CORSConfig struct {
 	Skipper          func(*zinc.Context) bool
 }
 
+// DefaultCORSConfig allows common methods and headers from any origin without credentials.
 func DefaultCORSConfig() CORSConfig {
 	return CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -42,8 +47,10 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
+// CORSOption mutates CORS configuration before middleware construction.
 type CORSOption func(*CORSConfig)
 
+// CORS creates middleware for the supplied origins, or defaults when omitted.
 func CORS(allowOrigins ...string) zinc.Middleware {
 	if len(allowOrigins) == 0 {
 		return CORSWithConfig(DefaultCORSConfig())
@@ -101,6 +108,7 @@ func CORSSkipper(skipper func(*zinc.Context) bool) CORSOption {
 	}
 }
 
+// CORSWithOptions applies functional options to the defaults.
 func CORSWithOptions(options ...CORSOption) zinc.Middleware {
 	config := DefaultCORSConfig()
 	for _, option := range options {
@@ -109,6 +117,8 @@ func CORSWithOptions(options ...CORSOption) zinc.Middleware {
 	return CORSWithConfig(config)
 }
 
+// CORSWithConfig applies CORS response headers and terminates valid preflight
+// requests. Vary is always set to keep shared caches origin-safe.
 func CORSWithConfig(config CORSConfig) zinc.Middleware {
 	allowOriginsMap := make(map[string]bool, len(config.AllowOrigins))
 	for _, origin := range config.AllowOrigins {

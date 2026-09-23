@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -16,6 +19,8 @@ import (
 	"sync"
 )
 
+// Context carries request-scoped state through Zinc handlers. Contexts are
+// pooled and must not be retained or used after the handler returns.
 type Context struct {
 	writer       http.ResponseWriter
 	request      *http.Request
@@ -72,6 +77,8 @@ var contextPool = sync.Pool{
 	},
 }
 
+// NewContext acquires a Context for w and r. Callers that construct contexts
+// directly must eventually return them through the application lifecycle.
 func NewContext(w http.ResponseWriter, r *http.Request) *Context {
 	c := contextPool.Get().(*Context)
 	c.reset(w, r)
@@ -120,18 +127,22 @@ func (c *Context) release() {
 	contextPool.Put(c)
 }
 
+// Writer returns the current response writer, including any middleware wrapper.
 func (c *Context) Writer() http.ResponseWriter {
 	return c.writer
 }
 
+// SetWriter replaces the response writer used by subsequent handlers.
 func (c *Context) SetWriter(w http.ResponseWriter) {
 	c.writer = w
 }
 
+// Request returns the current net/http request.
 func (c *Context) Request() *http.Request {
 	return c.request
 }
 
+// SetRequest replaces the request and invalidates request-derived caches.
 func (c *Context) SetRequest(r *http.Request) {
 	c.request = r
 	c.queryParams = nil
@@ -140,6 +151,7 @@ func (c *Context) SetRequest(r *http.Request) {
 	c.bodyErr = nil
 }
 
+// Context returns the request's standard-library context.
 func (c *Context) Context() stdctx.Context {
 	if c.request == nil {
 		return stdctx.Background()
@@ -147,12 +159,14 @@ func (c *Context) Context() stdctx.Context {
 	return c.request.Context()
 }
 
+// SetContext replaces the standard-library context carried by the request.
 func (c *Context) SetContext(ctx stdctx.Context) {
 	if c.request != nil {
 		c.request = c.request.WithContext(ctx)
 	}
 }
 
+// Method returns the request method.
 func (c *Context) Method() string {
 	if c.request == nil {
 		return ""
@@ -160,6 +174,7 @@ func (c *Context) Method() string {
 	return c.request.Method
 }
 
+// Path returns the current URL path.
 func (c *Context) Path() string {
 	if c.request == nil || c.request.URL == nil {
 		return ""
@@ -167,6 +182,7 @@ func (c *Context) Path() string {
 	return c.request.URL.Path
 }
 
+// SetPath rewrites URL.Path, URL.RawPath, and RequestURI together.
 func (c *Context) SetPath(path string) {
 	if c.request == nil || c.request.URL == nil {
 		return
@@ -176,6 +192,7 @@ func (c *Context) SetPath(path string) {
 	c.request.RequestURI = cloneRequestURI(c.request.URL)
 }
 
+// OriginalURL returns the request URI represented by the current URL.
 func (c *Context) OriginalURL() string {
 	if c.request == nil || c.request.URL == nil {
 		return ""
@@ -183,6 +200,8 @@ func (c *Context) OriginalURL() string {
 	return c.request.URL.RequestURI()
 }
 
+// Next advances the middleware chain by one handler. Middleware may perform
+// work before and after the call to wrap downstream execution.
 func (c *Context) Next() error {
 	c.index++
 	if c.index < len(c.handlers) {
@@ -196,6 +215,7 @@ func (c *Context) setHandlers(handlers []HandlerFunc) {
 	c.index = -1
 }
 
+// Set stores a request-scoped value.
 func (c *Context) Set(key any, value any) {
 	if c.store == nil {
 		c.store = make(map[any]any, 8)
@@ -203,11 +223,13 @@ func (c *Context) Set(key any, value any) {
 	c.store[key] = value
 }
 
+// Get retrieves a request-scoped value.
 func (c *Context) Get(key any) (any, bool) {
 	value, ok := c.store[key]
 	return value, ok
 }
 
+// MustGet retrieves a request-scoped value or panics when the key is absent.
 func (c *Context) MustGet(key any) any {
 	value, ok := c.Get(key)
 	if !ok {
@@ -216,42 +238,49 @@ func (c *Context) MustGet(key any) any {
 	return value
 }
 
+// GetString returns a stored string or its zero value.
 func (c *Context) GetString(key any) string {
 	value, _ := c.Get(key)
 	result, _ := value.(string)
 	return result
 }
 
+// GetBool returns a stored bool or its zero value.
 func (c *Context) GetBool(key any) bool {
 	value, _ := c.Get(key)
 	result, _ := value.(bool)
 	return result
 }
 
+// GetInt returns a stored int or its zero value.
 func (c *Context) GetInt(key any) int {
 	value, _ := c.Get(key)
 	result, _ := value.(int)
 	return result
 }
 
+// GetInt64 returns a stored int64 or its zero value.
 func (c *Context) GetInt64(key any) int64 {
 	value, _ := c.Get(key)
 	result, _ := value.(int64)
 	return result
 }
 
+// GetFloat64 returns a stored float64 or its zero value.
 func (c *Context) GetFloat64(key any) float64 {
 	value, _ := c.Get(key)
 	result, _ := value.(float64)
 	return result
 }
 
+// GetStringSlice returns a stored string slice or nil.
 func (c *Context) GetStringSlice(key any) []string {
 	value, _ := c.Get(key)
 	result, _ := value.([]string)
 	return result
 }
 
+// GetStringMap returns a stored map, accepting both map[string]any and Map.
 func (c *Context) GetStringMap(key any) map[string]any {
 	value, _ := c.Get(key)
 	switch result := value.(type) {
@@ -264,23 +293,28 @@ func (c *Context) GetStringMap(key any) map[string]any {
 	}
 }
 
+// GetStringMapString returns a stored string map or nil.
 func (c *Context) GetStringMapString(key any) map[string]string {
 	value, _ := c.Get(key)
 	result, _ := value.(map[string]string)
 	return result
 }
 
+// GetStringMapStringSlice returns a stored string-slice map or nil.
 func (c *Context) GetStringMapStringSlice(key any) map[string][]string {
 	value, _ := c.Get(key)
 	result, _ := value.(map[string][]string)
 	return result
 }
 
+// Status selects the status code for the next response write.
 func (c *Context) Status(code int) *Context {
 	c.status = code
 	return c
 }
 
+// Param returns a named route parameter. Values remain slices of the request
+// path until accessed so routing itself does not allocate parameter strings.
 func (c *Context) Param(name string) string {
 	if route := c.paramRoute; route != nil {
 		if c.paramPath != "" && c.paramCount > 1 && len(route.paramIndices) > 0 {
@@ -311,6 +345,7 @@ func (c *Context) Param(name string) string {
 	return ""
 }
 
+// ParamOr returns a route parameter or fallback when it is empty.
 func (c *Context) ParamOr(name, fallback string) string {
 	if value := c.Param(name); value != "" {
 		return value
@@ -318,10 +353,12 @@ func (c *Context) ParamOr(name, fallback string) string {
 	return fallback
 }
 
+// Query returns the first query value for name.
 func (c *Context) Query(name string) string {
 	return c.QueryValues().Get(name)
 }
 
+// QueryOr returns the first query value or fallback when it is empty.
 func (c *Context) QueryOr(name, fallback string) string {
 	if value := c.Query(name); value != "" {
 		return value
@@ -329,6 +366,7 @@ func (c *Context) QueryOr(name, fallback string) string {
 	return fallback
 }
 
+// QueryArray returns a copy of all query values for name.
 func (c *Context) QueryArray(name string) []string {
 	values := c.QueryValues()[name]
 	if len(values) == 0 {
@@ -337,10 +375,12 @@ func (c *Context) QueryArray(name string) []string {
 	return append([]string(nil), values...)
 }
 
+// QueryMap collects bracketed query keys such as filter[name].
 func (c *Context) QueryMap(name string) map[string]string {
 	return valuesMap(c.QueryValues(), name)
 }
 
+// QueryValues parses and caches the request query values.
 func (c *Context) QueryValues() url.Values {
 	if c.queryParams == nil {
 		if c.request == nil || c.request.URL == nil {
@@ -351,10 +391,12 @@ func (c *Context) QueryValues() url.Values {
 	return c.queryParams
 }
 
+// PostForm returns the first body form value for name.
 func (c *Context) PostForm(name string) string {
 	return c.postFormValues().Get(name)
 }
 
+// PostFormOr returns a body form value or fallback when it is empty.
 func (c *Context) PostFormOr(name, fallback string) string {
 	if value := c.PostForm(name); value != "" {
 		return value
@@ -362,6 +404,7 @@ func (c *Context) PostFormOr(name, fallback string) string {
 	return fallback
 }
 
+// PostFormArray returns a copy of all body form values for name.
 func (c *Context) PostFormArray(name string) []string {
 	values := c.postFormValues()[name]
 	if len(values) == 0 {
@@ -370,10 +413,12 @@ func (c *Context) PostFormArray(name string) []string {
 	return append([]string(nil), values...)
 }
 
+// PostFormMap collects bracketed body form keys such as user[name].
 func (c *Context) PostFormMap(name string) map[string]string {
 	return valuesMap(c.postFormValues(), name)
 }
 
+// FormValue returns the first form value using net/http form parsing semantics.
 func (c *Context) FormValue(name string) string {
 	if c.request == nil {
 		return ""
@@ -381,6 +426,7 @@ func (c *Context) FormValue(name string) string {
 	return c.request.FormValue(name)
 }
 
+// FormFile returns the first uploaded file header and closes the opened part.
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
 	if c.request == nil {
 		return nil, errors.New("request is nil")
@@ -393,6 +439,7 @@ func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
 	return header, nil
 }
 
+// FormFiles returns all uploaded file headers for name.
 func (c *Context) FormFiles(name string) ([]*multipart.FileHeader, error) {
 	form, err := c.MultipartForm()
 	if err != nil {
@@ -405,6 +452,8 @@ func (c *Context) FormFiles(name string) ([]*multipart.FileHeader, error) {
 	return files, nil
 }
 
+// MultipartForm parses multipart input with net/http's 32 MiB in-memory
+// threshold; larger file parts may be stored in temporary files.
 func (c *Context) MultipartForm() (*multipart.Form, error) {
 	if c.request == nil {
 		return nil, errors.New("request is nil")
@@ -418,6 +467,7 @@ func (c *Context) MultipartForm() (*multipart.Form, error) {
 	return c.request.MultipartForm, nil
 }
 
+// SaveFile copies an uploaded file to dst, creating parent directories.
 func (c *Context) SaveFile(file *multipart.FileHeader, dst string) error {
 	src, err := file.Open()
 	if err != nil {
@@ -437,6 +487,7 @@ func (c *Context) SaveFile(file *multipart.FileHeader, dst string) error {
 	return err
 }
 
+// GetHeader returns the first request header value for key.
 func (c *Context) GetHeader(key string) string {
 	if c.request == nil {
 		return ""
@@ -444,15 +495,18 @@ func (c *Context) GetHeader(key string) string {
 	return c.request.Header.Get(key)
 }
 
+// ContentType returns the normalized media type without parameters.
 func (c *Context) ContentType() string {
 	return mediaTypeOnly(c.GetHeader(HeaderContentType))
 }
 
+// IsWebSocket reports whether the request asks to upgrade to WebSocket.
 func (c *Context) IsWebSocket() bool {
 	return headerHasToken(c.GetHeader(HeaderConnection), "upgrade") &&
 		strings.EqualFold(strings.TrimSpace(c.GetHeader(HeaderUpgrade)), "websocket")
 }
 
+// Cookie returns the named request cookie.
 func (c *Context) Cookie(name string) (*http.Cookie, error) {
 	if c.request == nil {
 		return nil, http.ErrNoCookie
@@ -460,6 +514,7 @@ func (c *Context) Cookie(name string) (*http.Cookie, error) {
 	return c.request.Cookie(name)
 }
 
+// Cookies returns all request cookies.
 func (c *Context) Cookies() []*http.Cookie {
 	if c.request == nil {
 		return nil
@@ -467,6 +522,8 @@ func (c *Context) Cookies() []*http.Cookie {
 	return c.request.Cookies()
 }
 
+// BodyBytes reads and caches the request body, returning a copy owned by the
+// caller. The configured application body limit is enforced.
 func (c *Context) BodyBytes() ([]byte, error) {
 	body, err := c.bodyBytes()
 	if err != nil {
@@ -475,6 +532,7 @@ func (c *Context) BodyBytes() ([]byte, error) {
 	return append([]byte(nil), body...), nil
 }
 
+// BodyString reads and caches the request body as a string.
 func (c *Context) BodyString() (string, error) {
 	body, err := c.bodyBytes()
 	if err != nil {
@@ -708,6 +766,8 @@ func (r *bodyCaptureReader) Bytes() []byte {
 	return r.buffer.Bytes()
 }
 
+// Scheme returns http or https. Forwarded protocol headers are trusted only
+// when the direct peer matches Config.TrustedProxies.
 func (c *Context) Scheme() string {
 	if c.request == nil {
 		return "http"
@@ -726,6 +786,7 @@ func (c *Context) Scheme() string {
 	return "http"
 }
 
+// IP returns the first client address from IPs.
 func (c *Context) IP() string {
 	ips := c.IPs()
 	if len(ips) == 0 {
@@ -734,6 +795,8 @@ func (c *Context) IP() string {
 	return ips[0]
 }
 
+// IPs returns the forwarded address chain only for trusted proxy peers;
+// otherwise it returns the direct remote address.
 func (c *Context) IPs() []string {
 	remote := c.RemoteIP()
 	if remote == "" {
@@ -764,6 +827,7 @@ func (c *Context) IPs() []string {
 	return ips
 }
 
+// RemoteIP returns the direct network peer, independent of proxy headers.
 func (c *Context) RemoteIP() string {
 	if c.request == nil {
 		return ""
@@ -775,18 +839,22 @@ func (c *Context) RemoteIP() string {
 	return ip
 }
 
+// Secure reports whether Scheme resolves to https.
 func (c *Context) Secure() bool {
 	return c.Scheme() == "https"
 }
 
+// IsPreflight reports whether the request is a CORS preflight.
 func (c *Context) IsPreflight() bool {
 	return c.Method() == MethodOptions && c.GetHeader(HeaderAccessControlRequestMethod) != ""
 }
 
+// RequestID returns the X-Request-ID request header.
 func (c *Context) RequestID() string {
 	return c.GetHeader(HeaderXRequestID)
 }
 
+// FullPath returns the registered route pattern matched by this request.
 func (c *Context) FullPath() string {
 	if c.routeIndexed && c.app != nil && c.app.router != nil {
 		return c.app.router.routeMetaAt(uint32(c.routeIndex)).path
@@ -794,10 +862,13 @@ func (c *Context) FullPath() string {
 	return c.routeInfo.path
 }
 
+// LastError returns the most recent error passed to Error.
 func (c *Context) LastError() error {
 	return c.lastErr
 }
 
+// Error records err and immediately delegates it to the application's error
+// handler. Calling it is terminal only if the handler writes a response.
 func (c *Context) Error(err error) {
 	if err == nil {
 		return
@@ -808,18 +879,22 @@ func (c *Context) Error(err error) {
 	}
 }
 
+// AbortWithStatus returns an HTTP error for the handler chain to propagate.
 func (c *Context) AbortWithStatus(code int) error {
 	return NewError(code)
 }
 
+// AbortWithJSON writes v as JSON using code.
 func (c *Context) AbortWithJSON(code int, v any) error {
 	return c.Status(code).JSON(v)
 }
 
+// Fail returns err unchanged for concise handler returns.
 func (c *Context) Fail(err error) error {
 	return err
 }
 
+// Route returns metadata for the matched route.
 func (c *Context) Route() RouteInfo {
 	if c.routeIndexed && c.app != nil && c.app.router != nil {
 		return c.app.router.routeMetaAt(uint32(c.routeIndex)).export()

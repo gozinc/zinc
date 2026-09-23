@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -6,12 +9,14 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// RedirectConfig maps request paths to redirect targets.
 type RedirectConfig struct {
 	Skipper    func(*zinc.Context) bool
 	Rules      map[string]string
 	StatusCode int
 }
 
+// Redirect redirects one path, defaulting to 301.
 func Redirect(from, to string, statusCode ...int) zinc.Middleware {
 	code := http.StatusMovedPermanently
 	if len(statusCode) > 0 {
@@ -23,6 +28,7 @@ func Redirect(from, to string, statusCode ...int) zinc.Middleware {
 	})
 }
 
+// RedirectWithRules redirects exact and terminal-wildcard path rules.
 func RedirectWithRules(rules map[string]string, statusCode ...int) zinc.Middleware {
 	code := http.StatusMovedPermanently
 	if len(statusCode) > 0 {
@@ -34,6 +40,8 @@ func RedirectWithRules(rules map[string]string, statusCode ...int) zinc.Middlewa
 	})
 }
 
+// RedirectWithConfig redirects exact or terminal-wildcard rules while retaining
+// the original query string.
 func RedirectWithConfig(config RedirectConfig) zinc.Middleware {
 	rules := cloneRewriteRules(config.Rules)
 	statusCode := config.StatusCode

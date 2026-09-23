@@ -1,25 +1,23 @@
 ---
-title: Quick Start
-description: Install Go, create a module, and run your first Zinc API.
+title: Quickstart
+description: Go from an empty folder to a running Zinc API in about five minutes.
 ---
 
-This guide takes you from an empty folder to a running Zinc API in a few minutes.
+This guide takes you from an empty folder to a running JSON API. You need a terminal and about five minutes.
 
 ## Before you start
 
-Zinc requires **Go 1.25 or newer**.
-
-If Go is not installed, download it from [go.dev/dl](https://go.dev/dl/) and follow the installer for your operating system. Then open a new terminal and confirm the installed version:
+Zinc requires **Go 1.25 or newer**. Check your version:
 
 ```bash
 go version
 ```
 
-The output should report Go `1.25` or newer. Upgrade Go before continuing if it reports an older version.
+If Go is missing or older than 1.25, install the latest release from [go.dev/dl](https://go.dev/dl/), then open a new terminal.
 
-## Create a project
+## 1. Create a project
 
-Create a folder for the application and initialize a Go module inside it:
+Make a folder and initialize a Go module inside it:
 
 ```bash
 mkdir hello-zinc
@@ -27,21 +25,19 @@ cd hello-zinc
 go mod init example.com/hello-zinc
 ```
 
-The module path identifies your project. Replace `example.com/hello-zinc` with your repository path when you have one.
+The module path names your project. Use your repository path, such as `github.com/you/hello-zinc`, once you have one.
 
-## Add Zinc
-
-Install Zinc through the normal Go module tooling:
+## 2. Add Zinc
 
 ```bash
 go get github.com/0mjs/zinc
 ```
 
-This adds Zinc to `go.mod` and records the selected version in `go.sum`. The first-party middleware package is included in the same module.
+This records Zinc in `go.mod` and `go.sum`. The first-party middleware package ships in the same module, so there is nothing else to install.
 
-## Create `main.go`
+## 3. Write the server
 
-Create a file named `main.go` with the following application:
+Create `main.go`:
 
 ```go
 package main
@@ -62,56 +58,52 @@ func main() {
 	)
 
 	app.Get("/", func(c *zinc.Context) error {
-		return c.JSON(zinc.Map{
-			"message": "Hello from Zinc!",
-		})
+		return c.JSON(zinc.Map{"message": "Hello from Zinc!"})
+	})
+
+	app.Get("/hello/{name}", func(c *zinc.Context) error {
+		return c.JSON(zinc.Map{"message": "Hello, " + c.Param("name") + "!"})
 	})
 
 	log.Fatal(app.Listen(":8080"))
 }
 ```
 
-## Run the application
-
-Start the server from the project folder:
+## 4. Run it
 
 ```bash
 go run .
 ```
 
-Zinc is now listening at `http://localhost:8080`.
-
-## Make a request
-
-Open another terminal and call the route:
+The server is now listening on `http://localhost:8080`. In a second terminal, call both routes:
 
 ```bash
-curl -i http://localhost:8080/
+curl http://localhost:8080/
+curl http://localhost:8080/hello/gopher
 ```
-
-The response includes `HTTP/1.1 200 OK` and a JSON body:
 
 ```json
 {"message":"Hello from Zinc!"}
+{"message":"Hello, gopher!"}
 ```
 
-:::tip[You are still using standard Go]
-The application also satisfies `http.Handler`, and this static route dispatches with zero request-time heap allocations.
-:::
-
-Press `Ctrl+C` in the server terminal when you are finished.
+The first terminal shows one structured log line per request. Press `Ctrl+C` there to stop the server.
 
 ## What you just built
 
-- `zinc.New()` created an application that also satisfies `http.Handler`.
-- `app.Use(...)` installed request logging and panic recovery.
-- `app.Get(...)` registered a standard `GET /` route.
-- Returning an error keeps response and middleware failures in one error flow.
-- `c.JSON(...)` encoded the response and set its content type.
-- `app.Listen(":8080")` started the standard-library HTTP server.
+| Line | What it does |
+|---|---|
+| `zinc.New()` | Creates an app with sensible defaults. The app is an `http.Handler`. |
+| `app.Use(...)` | Adds middleware that runs on every request: logging and panic recovery. |
+| `app.Get("/", ...)` | Registers a handler for `GET /`. |
+| `{name}` | Captures one path segment, read with `c.Param("name")`. |
+| `c.JSON(...)` | Encodes the value and sets `Content-Type: application/json`. |
+| `app.Listen(":8080")` | Starts a standard-library `http.Server`. |
+
+Every handler has the same shape, `func(c *zinc.Context) error`. You write the response through `c`, or return an error and let Zinc turn it into a response. That one rule carries through everything else in these docs.
 
 ## Next steps
 
-- [Routing](/guide/routing/) — parameters, wildcards, route groups, and matching rules.
-- [Middleware](/middleware/overview/) — the complete first-party middleware catalogue.
-- [HTTP interoperability](/guide/http-interoperability/) — use Zinc with standard `net/http` handlers and servers.
+- [Your First Route](/guide/first-route/) builds a small endpoint that reads input, validates it, and returns errors.
+- [Routing](/guide/routing/) covers patterns, groups, and matching rules.
+- [Middleware](/middleware/overview/) lists every first-party middleware.

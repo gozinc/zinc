@@ -1,150 +1,66 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
 	"fmt"
 	"math/bits"
-	"reflect"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 )
 
+// RouteHandlerMap associates route patterns with handlers.
 type RouteHandlerMap map[string]HandlerFunc
 
+// RouteMap indexes static routes by method and normalized path.
 type RouteMap map[string]map[string]*Route
 
+// Route is the internal dispatch record for a registered static path.
 type Route struct {
 	handler   HandlerFunc
 	infoIndex uint32
 }
 
-type dynamicMethodTree struct {
-	method string
-	root   *radixNode
-}
-
-type dynamicMethodTrees []dynamicMethodTree
-
-type radixNodeKind uint8
-
-const (
-	radixRoot radixNodeKind = iota
-	radixStatic
-	radixParam
-	radixCatchAll
-)
-
-type radixRoute struct {
-	handler          HandlerFunc
-	extraParamNames  []string
-	inlineParamNames [2]string
-	paramIndices     map[string]uint8
-	infoIndex        uint32
-	paramCount       uint16
-}
-
-type radixNode struct {
-	kind          radixNodeKind
-	prefix        string
-	route         *radixRoute
-	indices       []byte
-	indexTable    *[256]uint16
-	children      []*radixNode
-	paramChild    *radixNode
-	catchAllChild *radixNode
-}
-
+// Router matches exact paths through per-method maps and parameterized paths
+// through compressed, per-method radix trees. Static lookup always runs first;
+// cache and tree traversal are paid only when an exact route does not match.
+//
+// Registration derives accepted case and trailing-slash variants, composes
+// route middleware, and appends stable metadata before serving begins. Router
+// mutation is not safe concurrently with request dispatch.
 type Router struct {
-	cache           *RouteCache
-	config          *Config
+	cache  *RouteCache
+	config *Config
+	// routes aliases the standard-method maps in staticRoutes and owns custom methods.
 	routes          RouteMap
 	namedRoutes     map[string]uint32
 	staticRoutes    [routeMethodCount]map[string]*Route
 	staticAllowed   map[string]allowedMethodSet
 	hasCustomStatic bool
-	// Dynamic routes are partitioned by method, so each leaf owns one route.
-	dynamicRoots      [routeMethodCount]*radixNode
-	dynamicTrees      dynamicMethodTrees
+	// Per-method trees keep leaves unambiguous and avoid a method branch during matching.
+	dynamicRoots [routeMethodCount]*radixNode
+	dynamicTrees dynamicMethodTrees
+	// Metadata is append-only; routes and cache entries retain stable indexes into it.
 	routeInfos        []routeMeta
 	dynamicRouteCount int
+	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
 	staticLongMethods methodMask
 }
 
-type paramRange struct {
-	start uint32
-	end   uint32
-}
-
-type allowedMethodSet struct {
-	mask  methodMask
-	extra []string
-}
-
-type paramRanges struct {
-	inline [inlineParamSlotCount]paramRange
-	extra  []paramRange
-}
-
-func (trees dynamicMethodTrees) get(method string) *radixNode {
-	for i := range trees {
-		if trees[i].method == method {
-			return trees[i].root
-		}
-	}
-	return nil
-}
-
-var handlerNameCache sync.Map
-
-var routeMethods = []string{
-	MethodGet,
-	MethodHead,
-	MethodPost,
-	MethodPut,
-	MethodPatch,
-	MethodDelete,
-	MethodOptions,
-	MethodConnect,
-	MethodTrace,
-}
-
-const routeMethodCount = 9
-const indexedParamThreshold = 10
-
-type methodMask uint16
-
-const (
-	methodMaskGet methodMask = 1 << iota
-	methodMaskHead
-	methodMaskPost
-	methodMaskPut
-	methodMaskPatch
-	methodMaskDelete
-	methodMaskOptions
-	methodMaskConnect
-	methodMaskTrace
-)
-
-const allowHeaderTableSize = 1 << 9
-
-var allowHeaderByMask [allowHeaderTableSize]string
-
-func init() {
-	for raw := 0; raw < len(allowHeaderByMask); raw++ {
-		allowHeaderByMask[raw] = buildAllowHeader(methodMask(raw))
-	}
-}
-
+// Add registers handlers for method and path.
 func (r *Router) Add(method, path string, handlers ...HandlerFunc) error {
 	return r.add(method, path, "", handlers...)
 }
 
+// AddNamed registers handlers and associates a name with the route.
 func (r *Router) AddNamed(method, path, name string, handlers ...HandlerFunc) error {
 	return r.add(method, path, name, handlers...)
 }
 
+// add validates first, then publishes either a static map entry or a radix leaf.
+// A failed registration must not consume a metadata index or invalidate caches.
 func (r *Router) add(method, path, name string, handlers ...HandlerFunc) error {
 	if len(handlers) == 0 {
 		return fmt.Errorf("no handler provided for %s %s", method, path)
@@ -176,6 +92,7 @@ func (r *Router) add(method, path, name string, handlers ...HandlerFunc) error {
 	finalHandler := handlers[len(handlers)-1]
 	precomposed := finalHandler
 	if len(handlers) > 1 {
+		// Compose once at registration so dispatch does not allocate a route-local chain.
 		chain := append([]HandlerFunc(nil), handlers...)
 		precomposed = func(c *Context) error {
 			c.setHandlers(chain)
@@ -232,6 +149,7 @@ func (r *Router) add(method, path, name string, handlers ...HandlerFunc) error {
 		if r.staticAllowed == nil {
 			r.staticAllowed = make(map[string]allowedMethodSet, routeCandidateCount)
 		}
+		// Store accepted spellings up front; request dispatch remains a direct map lookup.
 		for i := 0; i < routeCandidateCount; i++ {
 			candidate := routeCandidates[i]
 			methodRoutes[candidate] = route
@@ -246,6 +164,7 @@ func (r *Router) add(method, path, name string, handlers ...HandlerFunc) error {
 
 	route := newRadixRoute(precomposed, infoIndex, paramNames)
 	tree := r.ensureDynamicTree(method, mask)
+	// Publish metadata only after the tree accepts the route, preserving stable indexes on failure.
 	err = tree.addBrace(path, route, r.config != nil && !r.config.CaseSensitive)
 	if err != nil {
 		return err
@@ -265,6 +184,8 @@ func (r *Router) staticRoutesFor(method string, mask methodMask) map[string]*Rou
 }
 
 func (r *Router) recordStaticRouteLength(mask methodMask, path string) {
+	// One bit per length avoids a map probe when mixed static/dynamic trees make
+	// misses common. Paths of 64 bytes or more share the conservative long bit.
 	slot := singleBitIndex(mask)
 	if slot < 0 {
 		return
@@ -300,6 +221,7 @@ func (r *Router) invalidateCache() {
 	}
 }
 
+// Routes returns copies of registered route metadata in registration order.
 func (r *Router) Routes() []RouteInfo {
 	out := make([]RouteInfo, len(r.routeInfos))
 	for i, info := range r.routeInfos {
@@ -319,6 +241,25 @@ func (r *Router) routeMetaByName(name string) (routeMeta, bool) {
 	return r.routeMetaAt(index), true
 }
 
+type dynamicMethodTree struct {
+	method string
+	root   *radixNode
+}
+
+type dynamicMethodTrees []dynamicMethodTree
+
+func (trees dynamicMethodTrees) get(method string) *radixNode {
+	for i := range trees {
+		if trees[i].method == method {
+			return trees[i].root
+		}
+	}
+	return nil
+}
+
+// Find resolves a route without invoking it and returns a standalone Context
+// containing route metadata and parameters. Request dispatch reuses a pooled
+// Context instead and calls dispatchInto directly.
 func (r *Router) Find(method, path string) (HandlerFunc, *Context) {
 	ctx := &Context{}
 	handler := r.findInto(method, path, ctx)
@@ -332,6 +273,9 @@ func (r *Router) routeMetaAt(index uint32) routeMeta {
 	return r.routeInfos[index]
 }
 
+// findInto is the non-executing lookup path used by Find. It preserves the
+// original path because parameter ranges must always index the caller's input,
+// even when matching a normalized or case-folded candidate.
 func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 	originalPath := path
 	strictRouting := r.config != nil && r.config.StrictRouting
@@ -339,6 +283,7 @@ func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
 		path = path[:len(path)-1]
 	}
+	// Static routes are the common case and must not pay radix or cache overhead.
 	if routes, ok := r.routes[method]; ok {
 		if route := lookupStaticRouteExact(routes, originalPath, path); route != nil {
 			ctx.setRoute(r.routeMetaAt(route.infoIndex))
@@ -378,6 +323,13 @@ func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 	return nil
 }
 
+// dispatchInto resolves and invokes a route. needAllowed controls the more
+// expensive alternate-method search required for 405 and automatic OPTIONS;
+// ordinary not-found dispatch leaves it disabled.
+//
+// The lookup order is exact static, cached result, dynamic tree, case-folded
+// fallback, then alternate methods. A cache entry may represent a hit or a
+// known miss, but cache state never determines routing correctness.
 func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
 	originalPath := path
 	strictRouting := r.config != nil && r.config.StrictRouting
@@ -395,6 +347,7 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 	}
 	staticLengthPossible := true
 	if routes != nil && r.dynamicRouteCount != 0 && slot >= 0 {
+		// The bitset can only skip impossible map probes; it never establishes a match.
 		staticLengthPossible = r.hasStaticRouteLength(slot, mask, len(originalPath))
 		if !staticLengthPossible && path != originalPath {
 			staticLengthPossible = r.hasStaticRouteLength(slot, mask, len(path))
@@ -426,6 +379,7 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 			return true, allowedMethodSet{}, entry.route.handler(ctx)
 		}
 	}
+	// Capture offsets into the request path; materializing parameter strings would allocate.
 	captured := ctx.paramRangesScratch()
 	entry := r.lookupDynamicDispatch(method, mask, path, needAllowed, captured)
 	if path != originalPath && entry.route == nil && entry.allowed.empty() {
@@ -462,6 +416,7 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 	}
 	if dispatchCacheEnabled {
 		if entry.route != nil {
+			// Context scratch storage is request-owned; cached ranges require an independent copy.
 			entry.values = cloneParamRangesForCache(entry.values, int(entry.route.paramCount))
 		}
 		r.cache.setMissWithMask(routeCacheKey{method: method, path: originalPath}, mask, entry)
@@ -474,6 +429,9 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 	return true, allowedMethodSet{}, entry.route.handler(ctx)
 }
 
+// findDynamicInto resolves one concrete path against one method tree. Cached
+// parameter ranges are copied into the Context; uncached ranges use its scratch
+// storage and are cloned only when the result enters the cache.
 func (r *Router) findDynamicInto(method, path string, ctx *Context) HandlerFunc {
 	mask := methodMaskFor(method)
 	cacheEnabled := r.dynamicCacheEnabled()
@@ -514,6 +472,7 @@ func (r *Router) findDynamicInto(method, path string, ctx *Context) HandlerFunc 
 }
 
 func (r *Router) dynamicCacheEnabled() bool {
+	// Small trees are cheaper to walk than to synchronize through the cache.
 	return r.cache != nil && r.dynamicRouteCount >= routeCacheMinRoutes
 }
 
@@ -521,6 +480,8 @@ func (r *Router) dispatchCacheEnabled() bool {
 	return r.cache != nil
 }
 
+// lookupDynamicDispatch returns the same shape stored by RouteCache so the
+// caller can cache positive matches and method-aware misses without adapting it.
 func (r *Router) lookupDynamicDispatch(method string, mask methodMask, path string, needAllowed bool, captured *paramRanges) routeCacheEntry {
 	if r.dynamicRouteCount == 0 {
 		return routeCacheEntry{}
@@ -540,29 +501,6 @@ func (r *Router) lookupDynamicDispatch(method string, mask methodMask, path stri
 		return routeCacheEntry{}
 	}
 	return routeCacheEntry{allowed: r.lookupAllowedInDynamicTrees(path, method)}
-}
-
-func (r *Router) allowedMethods(path string, autoHead, autoOptions bool) []string {
-	return r.lookupAllowedMethods(path).methods(autoHead, autoOptions)
-}
-
-func (r *Router) allowedMethodHeader(path string, autoHead, autoOptions bool) string {
-	return r.lookupAllowedMethods(path).header(autoHead, autoOptions)
-}
-
-func (r *Router) lookupAllowedMethods(path string) allowedMethodSet {
-	originalPath := path
-	strictRouting := r.config != nil && r.config.StrictRouting
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-	caseSensitive := r.config != nil && r.config.CaseSensitive
-
-	allowed := r.lookupStaticAllowedMethods(originalPath, path, caseSensitive)
-	if r.hasDynamicTrees() {
-		allowed.merge(r.lookupAllowedDynamicMethods(originalPath, path, caseSensitive))
-	}
-	return allowed
 }
 
 func (r *Router) hasDynamicTrees() bool {
@@ -596,6 +534,78 @@ func lookupDynamicRoute(root *radixNode, path string, captured *paramRanges) *ra
 		return nil
 	}
 	return root.lookup(path, 0, captured, 0)
+}
+
+type allowedMethodSet struct {
+	// Standard methods use a mask; extension methods allocate only when present.
+	mask  methodMask
+	extra []string
+}
+
+var routeMethods = []string{
+	MethodGet,
+	MethodHead,
+	MethodPost,
+	MethodPut,
+	MethodPatch,
+	MethodDelete,
+	MethodOptions,
+	MethodConnect,
+	MethodTrace,
+}
+
+const routeMethodCount = 9
+const indexedParamThreshold = 10
+
+type methodMask uint16
+
+const (
+	methodMaskGet methodMask = 1 << iota
+	methodMaskHead
+	methodMaskPost
+	methodMaskPut
+	methodMaskPatch
+	methodMaskDelete
+	methodMaskOptions
+	methodMaskConnect
+	methodMaskTrace
+)
+
+const allowHeaderTableSize = 1 << 9
+
+var allowHeaderByMask [allowHeaderTableSize]string
+
+func init() {
+	// Every standard-method combination has a canonical, allocation-free Allow value.
+	for raw := 0; raw < len(allowHeaderByMask); raw++ {
+		allowHeaderByMask[raw] = buildAllowHeader(methodMask(raw))
+	}
+}
+
+func (r *Router) allowedMethods(path string, autoHead, autoOptions bool) []string {
+	return r.lookupAllowedMethods(path).methods(autoHead, autoOptions)
+}
+
+func (r *Router) allowedMethodHeader(path string, autoHead, autoOptions bool) string {
+	return r.lookupAllowedMethods(path).header(autoHead, autoOptions)
+}
+
+// lookupAllowedMethods merges static and dynamic matches for the same path.
+// Automatic HEAD and OPTIONS are applied later so the stored set reflects only
+// routes the application explicitly registered.
+func (r *Router) lookupAllowedMethods(path string) allowedMethodSet {
+	originalPath := path
+	strictRouting := r.config != nil && r.config.StrictRouting
+	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
+	}
+	caseSensitive := r.config != nil && r.config.CaseSensitive
+
+	allowed := r.lookupStaticAllowedMethods(originalPath, path, caseSensitive)
+	if r.hasDynamicTrees() {
+		allowed.merge(r.lookupAllowedDynamicMethods(originalPath, path, caseSensitive))
+	}
+	return allowed
 }
 
 func (r *Router) lookupAllowedDynamicMethods(originalPath, path string, caseSensitive bool) allowedMethodSet {
@@ -756,6 +766,8 @@ func lookupStaticAllowed(staticAllowed map[string]allowedMethodSet, originalPath
 	return allowedMethodSet{}
 }
 
+// lookupStaticAllowedByScan is the fallback for routes that have a single
+// registration candidate and therefore do not need entries in staticAllowed.
 func (r *Router) lookupStaticAllowedByScan(originalPath, path string, caseSensitive bool) allowedMethodSet {
 	if len(r.routes) == 0 {
 		return allowedMethodSet{}
@@ -803,6 +815,9 @@ func (r *Router) lookupStaticAllowedByScan(originalPath, path string, caseSensit
 	return allowed
 }
 
+// staticRouteCandidates expands configuration-dependent spellings during
+// registration. Four slots cover original, slash-normalized, case-folded, and
+// case-folded-plus-normalized forms without allocating a temporary slice.
 func staticRouteCandidates(path string, strictRouting, caseSensitive bool) ([4]string, int) {
 	var candidates [4]string
 	count := 0
@@ -858,82 +873,6 @@ func addAllowedMethod(allowed allowedMethodSet, method string, mask methodMask) 
 	}
 	allowed.addMethod(method)
 	return allowed
-}
-
-func commonPrefixLen(a, b string) int {
-	limit := len(a)
-	if len(b) < limit {
-		limit = len(b)
-	}
-	for i := 0; i < limit; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return limit
-}
-
-func nextSlash(path string) int {
-	return strings.IndexByte(path, '/')
-}
-
-func newRadixRoute(handler HandlerFunc, infoIndex uint32, names collectedRouteParams) *radixRoute {
-	route := &radixRoute{
-		handler:   handler,
-		infoIndex: infoIndex,
-	}
-	count := names.count
-	route.paramCount = uint16(count)
-	inlineCount := count
-	if inlineCount > len(route.inlineParamNames) {
-		inlineCount = len(route.inlineParamNames)
-	}
-	for i := 0; i < inlineCount; i++ {
-		route.inlineParamNames[i] = names.inline[i]
-	}
-	if len(names.extra) != 0 {
-		route.extraParamNames = names.extra
-	}
-	if count >= indexedParamThreshold {
-		route.paramIndices = make(map[string]uint8, count)
-		for i := 0; i < count; i++ {
-			route.paramIndices[route.paramNameAt(i)] = uint8(i)
-		}
-	}
-	return route
-}
-
-func (r *radixRoute) paramNameAt(index int) string {
-	if index < len(r.inlineParamNames) {
-		return r.inlineParamNames[index]
-	}
-	return r.extraParamNames[index-len(r.inlineParamNames)]
-}
-
-func (r *radixRoute) paramIndex(name string) (int, bool) {
-	if r == nil {
-		return 0, false
-	}
-	if len(r.paramIndices) != 0 {
-		index, ok := r.paramIndices[name]
-		return int(index), ok
-	}
-	count := int(r.paramCount)
-	if count == 0 {
-		return 0, false
-	}
-	if count > 0 && r.inlineParamNames[0] == name {
-		return 0, true
-	}
-	if count > 1 && r.inlineParamNames[1] == name {
-		return 1, true
-	}
-	for i := 2; i < count; i++ {
-		if r.extraParamNames[i-len(r.inlineParamNames)] == name {
-			return i, true
-		}
-	}
-	return 0, false
 }
 
 func singleBitIndex(mask methodMask) int {
@@ -1033,306 +972,6 @@ func (s allowedMethodSet) header(autoHead, autoOptions bool) string {
 	return buildAllowHeaderWithExtra(s.mask, s.extra)
 }
 
-func (p *paramRanges) set(index int, value paramRange) {
-	if index < len(p.inline) {
-		p.inline[index] = value
-		return
-	}
-	extraIndex := index - len(p.inline)
-	if extraIndex >= len(p.extra) {
-		grown := make([]paramRange, extraIndex+1)
-		copy(grown, p.extra)
-		p.extra = grown
-	}
-	p.extra[extraIndex] = value
-}
-
-func (p paramRanges) at(index int) paramRange {
-	if index < len(p.inline) {
-		return p.inline[index]
-	}
-	return p.extra[index-len(p.inline)]
-}
-
-func (p *paramRanges) cloneFrom(other *paramRanges, count int) {
-	p.inline = other.inline
-	extraCount := count - len(p.inline)
-	if extraCount <= 0 {
-		p.extra = nil
-		return
-	}
-	if cap(p.extra) < extraCount {
-		p.extra = make([]paramRange, extraCount)
-	} else {
-		p.extra = p.extra[:extraCount]
-	}
-	copy(p.extra, other.extra[:extraCount])
-}
-
-func cloneParamRangesForCache(values paramRanges, count int) paramRanges {
-	var cloned paramRanges
-	cloned.cloneFrom(&values, count)
-	return cloned
-}
-
-// addBrace builds the radix path after collectBraceRouteParams has validated it.
-func (n *radixNode) addBrace(path string, route *radixRoute, caseInsensitive bool) error {
-	current := n
-	staticStart := 0
-	for i := 0; i < len(path); i++ {
-		if path[i] != '{' {
-			continue
-		}
-		if i > staticStart {
-			literal := path[staticStart:i]
-			if caseInsensitive {
-				literal, _ = lowercasePath(literal)
-			}
-			current = current.addStaticPath(literal)
-		}
-		end := i + 1 + strings.IndexByte(path[i+1:], '}')
-		rawName := path[i+1 : end]
-		if strings.HasSuffix(rawName, "...") {
-			current = current.addCatchAllChild()
-		} else {
-			current = current.addParamChild()
-		}
-		staticStart = end + 1
-		i = end
-	}
-	if staticStart < len(path) {
-		literal := path[staticStart:]
-		if caseInsensitive {
-			literal, _ = lowercasePath(literal)
-		}
-		current = current.addStaticPath(literal)
-	}
-	if !current.trySetRoute(route) {
-		return fmt.Errorf("route already registered for %s", path)
-	}
-	return nil
-}
-
-func (n *radixNode) trySetRoute(route *radixRoute) bool {
-	if route == nil || n.route != nil {
-		return false
-	}
-	n.route = route
-	return true
-}
-
-func (n *radixNode) addStaticPath(path string) *radixNode {
-	current := n
-	remaining := path
-	for len(remaining) > 0 {
-		idx := current.staticChildIndex(remaining[0])
-		if idx < 0 {
-			child := &radixNode{kind: radixStatic, prefix: remaining}
-			current.addStaticChild(child)
-			return child
-		}
-		child := current.children[idx]
-		common := commonPrefixLen(child.prefix, remaining)
-		if common == len(child.prefix) {
-			current = child
-			remaining = remaining[common:]
-			continue
-		}
-		existing := &radixNode{
-			kind:          radixStatic,
-			prefix:        child.prefix[common:],
-			route:         child.route,
-			indices:       child.indices,
-			indexTable:    child.indexTable,
-			children:      child.children,
-			paramChild:    child.paramChild,
-			catchAllChild: child.catchAllChild,
-		}
-		child.prefix = child.prefix[:common]
-		child.route = nil
-		child.indices = nil
-		child.indexTable = nil
-		child.children = nil
-		child.paramChild = nil
-		child.catchAllChild = nil
-		child.addStaticChild(existing)
-		if common == len(remaining) {
-			return child
-		}
-		inserted := &radixNode{kind: radixStatic, prefix: remaining[common:]}
-		child.addStaticChild(inserted)
-		return inserted
-	}
-	return current
-}
-
-func (n *radixNode) addParamChild() *radixNode {
-	if n.paramChild != nil {
-		return n.paramChild
-	}
-	child := &radixNode{kind: radixParam}
-	n.paramChild = child
-	return child
-}
-
-func (n *radixNode) addCatchAllChild() *radixNode {
-	if n.catchAllChild != nil {
-		return n.catchAllChild
-	}
-	child := &radixNode{kind: radixCatchAll}
-	n.catchAllChild = child
-	return child
-}
-
-func (n *radixNode) addStaticChild(child *radixNode) {
-	n.indices = append(n.indices, child.prefix[0])
-	n.children = append(n.children, child)
-	if n.indexTable != nil {
-		n.indexTable[child.prefix[0]] = uint16(len(n.children))
-		return
-	}
-	if len(n.children) < 8 {
-		return
-	}
-	table := new([256]uint16)
-	for i, index := range n.indices {
-		table[index] = uint16(i + 1)
-	}
-	n.indexTable = table
-}
-
-func (n *radixNode) staticChildIndex(b byte) int {
-	if n.indexTable != nil {
-		if idx := n.indexTable[b]; idx > 0 {
-			return int(idx) - 1
-		}
-		return -1
-	}
-	for i, index := range n.indices {
-		if index == b {
-			return i
-		}
-	}
-	return -1
-}
-
-func (n *radixNode) lookup(path string, offset int, values *paramRanges, captured int) *radixRoute {
-	switch n.kind {
-	case radixStatic:
-		if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
-			return nil
-		}
-		offset += len(n.prefix)
-		path = path[len(n.prefix):]
-	case radixParam:
-		if len(path) == 0 || path[0] == '/' {
-			return nil
-		}
-		end := nextSlash(path)
-		if end < 0 {
-			end = len(path)
-		}
-		values.set(captured, paramRange{
-			start: uint32(offset),
-			end:   uint32(offset + end),
-		})
-		captured++
-		offset += end
-		path = path[end:]
-	case radixCatchAll:
-		start := offset
-		if len(path) > 0 && path[0] == '/' {
-			start++
-		}
-		values.set(captured, paramRange{
-			start: uint32(start),
-			end:   uint32(offset + len(path)),
-		})
-		captured++
-		return n.matchRoute(captured)
-	}
-	if len(path) == 0 {
-		if matched := n.matchRoute(captured); matched != nil {
-			return matched
-		}
-		if n.catchAllChild != nil {
-			return n.catchAllChild.lookup(path, offset, values, captured)
-		}
-		return nil
-	}
-	if idx := n.staticChildIndex(path[0]); idx >= 0 {
-		if matched := n.children[idx].lookup(path, offset, values, captured); matched != nil {
-			return matched
-		}
-	}
-	if n.paramChild != nil {
-		if matched := n.paramChild.lookup(path, offset, values, captured); matched != nil {
-			return matched
-		}
-	}
-	if n.catchAllChild != nil {
-		if matched := n.catchAllChild.lookup(path, offset, values, captured); matched != nil {
-			return matched
-		}
-	}
-	return nil
-}
-
-func (n *radixNode) matchesPath(path string, captured int) bool {
-	switch n.kind {
-	case radixStatic:
-		if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
-			return false
-		}
-		path = path[len(n.prefix):]
-	case radixParam:
-		if len(path) == 0 || path[0] == '/' {
-			return false
-		}
-		end := nextSlash(path)
-		if end < 0 {
-			end = len(path)
-		}
-		captured++
-		path = path[end:]
-	case radixCatchAll:
-		captured++
-		return n.hasPathRoute(captured)
-	}
-
-	if len(path) == 0 {
-		if n.hasPathRoute(captured) {
-			return true
-		}
-		return n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured)
-	}
-	if idx := n.staticChildIndex(path[0]); idx >= 0 && n.children[idx].matchesPath(path, captured) {
-		return true
-	}
-	if n.paramChild != nil && n.paramChild.matchesPath(path, captured) {
-		return true
-	}
-	if n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured) {
-		return true
-	}
-	return false
-}
-
-func (n *radixNode) hasPathRoute(captured int) bool {
-	return n.route != nil && captured == int(n.route.paramCount)
-}
-
-func (n *radixNode) matchRoute(captured int) *radixRoute {
-	if n.route == nil || captured != int(n.route.paramCount) {
-		return nil
-	}
-	return n.route
-}
-
-func (n *radixNode) hasRoutes() bool {
-	return n.route != nil
-}
-
 func methodMaskFor(method string) methodMask {
 	switch method {
 	case MethodGet:
@@ -1396,81 +1035,4 @@ func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
 		builder.WriteString(method)
 	}
 	return builder.String()
-}
-
-func handlerPC(handler HandlerFunc) uintptr {
-	if handler == nil {
-		return 0
-	}
-	value := reflect.ValueOf(handler)
-	if !value.IsValid() || value.IsNil() {
-		return 0
-	}
-	return value.Pointer()
-}
-
-func handlerName(handler HandlerFunc) string {
-	return handlerNameFromPC(handlerPC(handler))
-}
-
-func handlerNameFromPC(pc uintptr) string {
-	if pc == 0 {
-		return ""
-	}
-	if cached, ok := handlerNameCache.Load(pc); ok {
-		return cached.(string)
-	}
-	fn := runtime.FuncForPC(pc)
-	if fn == nil {
-		return ""
-	}
-	name := fn.Name()
-	handlerNameCache.Store(pc, name)
-	return name
-}
-
-func (a *App) Add(method, path string, handlers ...HandlerFunc) {
-	mustRegister(a.router.Add(method, path, handlers...))
-}
-
-func (a *App) Get(path string, handlers ...HandlerFunc) {
-	a.Add(MethodGet, path, handlers...)
-}
-func (a *App) Post(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPost, path, handlers...)
-}
-func (a *App) Put(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPut, path, handlers...)
-}
-func (a *App) Delete(path string, handlers ...HandlerFunc) {
-	a.Add(MethodDelete, path, handlers...)
-}
-func (a *App) Patch(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPatch, path, handlers...)
-}
-func (a *App) Head(path string, handlers ...HandlerFunc) {
-	a.Add(MethodHead, path, handlers...)
-}
-func (a *App) Options(path string, handlers ...HandlerFunc) {
-	a.Add(MethodOptions, path, handlers...)
-}
-func (a *App) Connect(path string, handlers ...HandlerFunc) {
-	a.Add(MethodConnect, path, handlers...)
-}
-func (a *App) Trace(path string, handlers ...HandlerFunc) {
-	a.Add(MethodTrace, path, handlers...)
-}
-
-func (a *App) Match(methods []string, path string, handlers ...HandlerFunc) {
-	for _, method := range methods {
-		a.Add(method, path, handlers...)
-	}
-}
-
-func (a *App) All(path string, handlers ...HandlerFunc) {
-	a.Match(routeMethods, path, handlers...)
-}
-
-func (a *App) Any(path string, handlers ...HandlerFunc) {
-	a.All(path, handlers...)
 }

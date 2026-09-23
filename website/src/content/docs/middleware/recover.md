@@ -3,13 +3,13 @@ title: Recover
 description: Recover panics and route them through Zinc's error flow.
 ---
 
-`Recover` catches panics from downstream middleware and handlers.
+`Recover` turns a panic in any later middleware or handler into a `500 Internal Server Error` response, instead of a dropped connection. Register it near the start of the chain, after logging, so the logger records the `500`.
 
 ```go
 app.Use(middleware.Recover())
 ```
 
-By default, recovered panics become `500 Internal Server Error` responses through Zinc's error handling flow.
+The recovered panic goes through your error handler like any other error.
 
 Use `RecoverWithConfig` to customize the response or log the stack.
 

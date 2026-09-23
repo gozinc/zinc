@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -9,14 +12,17 @@ import (
 )
 
 const (
+	// B, KB, MB, and GB are binary byte-size helpers.
 	B  int64 = 1
 	KB       = 1024 * B
 	MB       = 1024 * KB
 	GB       = 1024 * MB
 )
 
+// ErrBodyLimitExceeded identifies requests that exceed the configured limit.
 var ErrBodyLimitExceeded = errors.New("zincbodylimit: request body exceeded configured limit")
 
+// BodyLimitSource identifies whether rejection used metadata or observed bytes.
 type BodyLimitSource string
 
 const (
@@ -24,6 +30,7 @@ const (
 	BodyLimitSourceBodyRead      BodyLimitSource = "body_read"
 )
 
+// BodyLimitError records the configured limit and observed request size.
 type BodyLimitError struct {
 	Limit    int64
 	Observed int64
@@ -52,15 +59,19 @@ func (e *BodyLimitError) Unwrap() error {
 	return zinc.ErrRequestEntityTooLarge
 }
 
+// BodyLimitConfig controls request-body size enforcement.
 type BodyLimitConfig struct {
 	Skipper func(*zinc.Context) bool
 	Limit   int64
 }
 
+// BodyLimit enforces limit against request body bytes.
 func BodyLimit(limit int64) zinc.Middleware {
 	return BodyLimitWithConfig(BodyLimitConfig{Limit: limit})
 }
 
+// BodyLimitWithConfig rejects known oversized bodies early and wraps the body
+// reader so chunked or dishonest requests cannot bypass enforcement.
 func BodyLimitWithConfig(config BodyLimitConfig) zinc.Middleware {
 	cfg := resolveBodyLimitConfig(config)
 

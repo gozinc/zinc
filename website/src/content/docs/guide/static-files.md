@@ -1,21 +1,9 @@
 ---
 title: Static Files
-description: Serve directories, single files, and custom filesystem-backed assets.
+description: Serve directories, single files, and embedded assets safely.
 ---
 
-Zinc supports static assets without leaving `net/http`.
-
-## At a glance
-
-```go
-app.Static("/assets", "./public")
-app.File("/robots.txt", "./public/robots.txt")
-app.Mount("/files", http.FileServer(http.Dir("./public")))
-```
-
-Use Zinc's static helpers for normal assets and `Mount` when you already have a standard library handler.
-
-## Serve a directory
+Serve a folder of assets with one call. Zinc answers `GET` and `HEAD`, sets content types, supports `Range` and conditional requests through `http.ServeContent`, and rejects paths that try to escape the folder.
 
 ```go
 if err := app.Static("/assets", "./public"); err != nil {
@@ -23,33 +11,9 @@ if err := app.Static("/assets", "./public"); err != nil {
 }
 ```
 
-This mounts a static handler under `/assets`.
+`GET /assets/css/app.css` now serves `./public/css/app.css`. The returned error reports invalid arguments. A directory that does not exist is not detected until a request arrives, so check the path at startup if a wrong deploy path should stop the process.
 
-## Static options
-
-Use static options to control directory behavior.
-
-```go
-if err := app.Static("/docs", "./docs-public",
-	zinc.WithStaticIndex("home.html"),
-	zinc.WithStaticBrowse(true),
-); err != nil {
-	log.Fatal(err)
-}
-```
-
-Available options:
-
-- `WithStaticIndex(index string)`
-- `WithStaticBrowse(enabled bool)`
-
-Behavior:
-
-- custom index files are served for directory requests when available
-- directory listing works when browse mode is enabled
-- unsafe traversal paths are rejected
-
-## Serve a single file
+## A single file
 
 ```go
 if err := app.File("/robots.txt", "./public/robots.txt"); err != nil {
@@ -57,31 +21,60 @@ if err := app.File("/robots.txt", "./public/robots.txt"); err != nil {
 }
 ```
 
-## Use an `fs.FS`
+## Embedded assets
 
-Zinc works with embedded filesystems and other `fs.FS` implementations.
+Compile assets into the binary with `embed`, then serve any `fs.FS`:
 
 ```go
-if err := app.StaticFS("/assets", embeddedAssets); err != nil {
-	log.Fatal(err)
-}
-if err := app.FileFS("/openapi.json", "openapi.json", embeddedAssets); err != nil {
-	log.Fatal(err)
+//go:embed public
+var public embed.FS
+
+func main() {
+	app := zinc.New()
+
+	assets, err := fs.Sub(public, "public")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := app.StaticFS("/assets", assets); err != nil {
+		log.Fatal(err)
+	}
+	if err := app.FileFS("/favicon.ico", "favicon.ico", assets); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Fatal(app.Listen(":8080"))
 }
 ```
 
-## Mounting existing handlers
+`fs.Sub` strips the `public/` prefix so URLs do not include it. The [Embed Resources](/cookbook/embed-resources/) recipe has a runnable version.
 
-If you already have a stdlib handler or third-party file server, you can mount it directly:
+## Index files and directory listings
 
 ```go
-app.Mount("/files", http.FileServer(http.Dir("./public")))
+err := app.Static("/docs", "./site",
+	zinc.WithStaticIndex("home.html"),  // served for directory requests; default "index.html"
+	zinc.WithStaticBrowse(true),        // list files when there is no index
+)
 ```
 
-For most Zinc applications, prefer `Static` and `StaticFS` first. They keep the setup explicit and consistent with the rest of the framework.
+Directory listing is off by default. Turn it on only for content you intend to publish.
 
-## See also
+## Existing file servers
 
-- [Routing](/guide/routing/) for mounted handlers.
-- [Static middleware](/middleware/static/) for middleware-shaped static serving.
-- [App API](/api/app/) for `Static`, `StaticFS`, `File`, `FileFS`, and `Mount`.
+A standard `http.FileServer`, or any other handler, can own a path instead:
+
+```go
+app.Mount("/files", http.FileServer(http.Dir("./shared"))) // Mount strips "/files" itself
+```
+
+Prefer `Static` and `StaticFS` in new code. They reject methods other than `GET` and `HEAD`, never list directories unless asked, and serve an index file by default.
+
+## Static middleware
+
+The [Static middleware](/middleware/static/) serves files from `app.Use` and falls through to your routes when a file does not exist. It suits apps where files and routes share the same paths.
+
+## Next steps
+
+- [Embed Resources](/cookbook/embed-resources/) ships a single binary with its assets.
+- [Responses and Rendering](/guide/responses-and-rendering/) sends individual files from handlers.

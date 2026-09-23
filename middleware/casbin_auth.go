@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -6,14 +9,18 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// CasbinEnforcer is the subset of a Casbin enforcer required by this middleware.
 type CasbinEnforcer interface {
 	Enforce(args ...any) (bool, error)
 }
 
+// CasbinValueFunc derives a subject, object, or action from a request.
 type CasbinValueFunc func(*zinc.Context) any
 
+// CasbinErrorHandler maps policy errors and denials.
 type CasbinErrorHandler func(*zinc.Context, error) error
 
+// CasbinAuthConfig maps request state to a Casbin enforcement tuple.
 type CasbinAuthConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Enforcer       CasbinEnforcer
@@ -24,8 +31,10 @@ type CasbinAuthConfig struct {
 	ErrorHandler   CasbinErrorHandler
 }
 
+// ErrCasbinAuthRejected identifies a valid policy decision that denied access.
 var ErrCasbinAuthRejected = errors.New("zinccasbin: request rejected")
 
+// CasbinAuth enforces subject against the request path and method.
 func CasbinAuth(enforcer CasbinEnforcer, subject CasbinValueFunc) zinc.Middleware {
 	return CasbinAuthWithConfig(CasbinAuthConfig{
 		Enforcer: enforcer,
@@ -33,6 +42,7 @@ func CasbinAuth(enforcer CasbinEnforcer, subject CasbinValueFunc) zinc.Middlewar
 	})
 }
 
+// CasbinAuthWithConfig enforces subject, object, and action in that order.
 func CasbinAuthWithConfig(config CasbinAuthConfig) zinc.Middleware {
 	cfg := resolveCasbinAuthConfig(config)
 
@@ -52,6 +62,7 @@ func CasbinAuthWithConfig(config CasbinAuthConfig) zinc.Middleware {
 	}
 }
 
+// CasbinSubjectFromBasicAuth uses the authenticated Basic username.
 func CasbinSubjectFromBasicAuth() CasbinValueFunc {
 	return func(c *zinc.Context) any {
 		username, _ := BasicAuthUsername(c)
@@ -59,6 +70,7 @@ func CasbinSubjectFromBasicAuth() CasbinValueFunc {
 	}
 }
 
+// CasbinSubjectFromKeyAuth uses the authenticated key.
 func CasbinSubjectFromKeyAuth() CasbinValueFunc {
 	return func(c *zinc.Context) any {
 		state, ok := KeyAuthCurrent(c)
@@ -69,6 +81,7 @@ func CasbinSubjectFromKeyAuth() CasbinValueFunc {
 	}
 }
 
+// CasbinSubjectFromContext reads a request-scoped value.
 func CasbinSubjectFromContext(key any) CasbinValueFunc {
 	return func(c *zinc.Context) any {
 		value, _ := c.Get(key)
@@ -76,12 +89,14 @@ func CasbinSubjectFromContext(key any) CasbinValueFunc {
 	}
 }
 
+// CasbinObjectPath uses the current URL path as the policy object.
 func CasbinObjectPath() CasbinValueFunc {
 	return func(c *zinc.Context) any {
 		return c.Path()
 	}
 }
 
+// CasbinActionMethod uses the request method as the policy action.
 func CasbinActionMethod() CasbinValueFunc {
 	return func(c *zinc.Context) any {
 		return c.Method()

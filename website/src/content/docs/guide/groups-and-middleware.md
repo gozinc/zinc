@@ -1,148 +1,132 @@
 ---
 title: Groups and Middleware
-description: Compose app-wide, prefix-scoped, and group-scoped behavior cleanly.
+description: Write middleware, choose where it applies, and understand the exact order in which Zinc runs it.
 ---
 
-Zinc keeps middleware composition simple:
-
-- `app.UseHTTP(...)` wraps the application in standard `net/http` middleware
-- `app.Use(...)` applies globally
-- `app.UsePrefix(...)` applies to matching prefixes
-- `group.Use(...)` applies inside a specific group tree
-- route registration accepts middleware before the final handler
-
-Middleware uses the same handler signature as routes:
+Middleware is code that runs around your handlers: logging, authentication, timeouts, headers. In Zinc, middleware has the same signature as a handler and calls `c.Next()` to continue.
 
 ```go
-type Middleware = func(*zinc.Context) error
-```
-
-Every item in the chain runs in order. Call `c.Next()` to continue.
-
-## At a glance
-
-```go
-app.Use(middleware.RequestID())
-
-api := app.Group("/api", requireAPIKey)
-api.Get("/users/{id}", loadUser, showUser)
-```
-
-Middleware belongs at the narrowest level that still matches the behavior: app-wide for every request, group-level for route families, and route-level for endpoint-specific guards.
-
-Use `UseHTTP` when middleware already follows the standard
-`func(http.Handler) http.Handler` contract. It runs outside every Zinc
-middleware layer. See [net/http Interoperability](/guide/http-interoperability/).
-
-## Global middleware
-
-```go
-app.Use(
-	requestLogger,
-	recoverPanic,
-)
-```
-
-Global middleware wraps every request before Zinc dispatches the matched route.
-
-## Prefix middleware
-
-Use `UsePrefix` when behavior should apply to one part of the app but you do not want to build a full group up front.
-
-```go
-app.UsePrefix("/api", requireAPIKey)
-app.UsePrefix("/admin", requireSession)
-```
-
-## Group middleware
-
-Group middleware composes naturally with route prefixes.
-
-```go
-admin := app.Group("/admin")
-admin.Use(requireSession, requireAdmin)
-
-admin.Get("/dashboard", dashboard)
-admin.Get("/users", listAdminUsers)
-```
-
-Nested groups inherit parent middleware.
-
-```go
-api := app.Group("/api", requireAPIKey)
-v1 := api.Group("/v1", withVersionHeader)
-```
-
-## Route middleware
-
-Pass middleware directly into a route when the behavior belongs to one endpoint.
-
-```go
-app.Post("/posts", authUser, requireRole("editor", "admin"), createPost)
-```
-
-That reads as:
-
-1. authenticate the request
-2. check the allowed roles
-3. run the handler
-
-The guard is just middleware.
-
-```go
-func requireRole(allowed ...string) zinc.Middleware {
-	return func(c *zinc.Context) error {
-		user, ok := c.Get("user")
-		if !ok || user == nil {
-			return c.AbortWithStatus(zinc.StatusUnauthorized)
-		}
-		if !hasAnyRole(user, allowed...) {
-			return c.AbortWithStatus(zinc.StatusForbidden)
-		}
-		return c.Next()
-	}
+func timing(c *zinc.Context) error {
+	start := time.Now()
+	err := c.Next() // run everything after this middleware
+	slog.Info("request", "path", c.FullPath(), "took", time.Since(start))
+	return err
 }
 ```
 
-The role lookup can live in your auth package. The middleware shape stays the same.
+Code before `c.Next()` runs on the way in, and code after it runs on the way out. To stop the request, return without calling `c.Next()`.
 
-Use groups when many routes share a guard.
+## Where middleware applies
+
+Attach middleware at the narrowest scope that fits:
+
+| Scope | Register with | Runs for |
+|---|---|---|
+| Whole app | `app.Use(mw...)` | Every request, including 404s |
+| Path prefix | `app.UsePrefix("/admin", mw...)` | Every request under the prefix, before routing |
+| Group | `app.Group("/api", mw...)` or `group.Use(mw...)` | Routes registered on the group and its subgroups |
+| One route | `app.Get("/x", mw, handler)` | That route only |
+| Standard middleware | `app.UseHTTP(func(http.Handler) http.Handler)` | Every request, outside all Zinc middleware |
 
 ```go
-admin := app.Group("/admin", authUser, requireRole("admin"))
-admin.Get("/users", listUsers)
-admin.Delete("/users/{id}", deleteUser)
+app.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover())
+
+api := app.Group("/api", requireAPIKey)
+api.Get("/users/{id}", showUser)
+api.Post("/exports", middleware.BodyLimit(1<<20), startExport)
 ```
 
-## Returning from middleware
+## Execution order
 
-Middleware can:
+For a request to `POST /api/exports` in the example above, Zinc runs:
 
-- continue with `return c.Next()`
-- short-circuit with a response
-- short-circuit by returning an error
+```text
+UseHTTP middleware            (standard net/http, outermost)
+  app.Use: RequestID → RequestLogger → Recover
+    app.UsePrefix middleware   (for matching prefixes)
+      routing
+        group: requireAPIKey
+          route: BodyLimit
+            handler: startExport
+```
+
+Within each level, middleware runs in the order you registered it. Nested groups add their middleware after their parent's.
+
+## Stopping early
+
+Return an error, or write a response, instead of calling `c.Next()`:
 
 ```go
 func requireAPIKey(c *zinc.Context) error {
-	if c.GetHeader("X-API-Key") == "" {
-		return c.AbortWithStatus(zinc.StatusUnauthorized)
+	if !keys.Valid(c.GetHeader("X-API-Key")) {
+		return zinc.ErrUnauthorized // the chain stops; the error handler responds
 	}
 	return c.Next()
 }
 ```
 
-## First-party middleware package
+Everything after this middleware is skipped. Middleware that already ran still finishes its "after" code and sees the returned error. The built-in [Request Logger](/middleware/request-logger/) sends that error through your error handler before logging, so it records the `401`. [Custom Middleware](/cookbook/middleware/) shows how your own middleware can do the same.
 
-Zinc ships common middleware in one package:
+## Configurable middleware
+
+Return a closure to make middleware configurable:
 
 ```go
-import "github.com/0mjs/zinc/middleware"
+func requireRole(roles ...string) zinc.Middleware {
+	return func(c *zinc.Context) error {
+		user, ok := c.Get("user")
+		if !ok {
+			return zinc.ErrUnauthorized
+		}
+		if !user.(*User).HasAnyRole(roles...) {
+			return zinc.ErrForbidden
+		}
+		return c.Next()
+	}
+}
+
+admin := app.Group("/admin", loadUser, requireRole("admin"))
+admin.Delete("/users/{id}", deleteUser)
+
+app.Post("/posts", loadUser, requireRole("editor", "admin"), createPost)
 ```
 
-Start with [Request ID](/middleware/request-id/), [Request Logger](/middleware/request-logger/), [Recover](/middleware/recover/), [CORS](/middleware/cors/), and [Secure](/middleware/secure/) for a typical API stack.
+`zinc.Middleware` is an alias for `zinc.HandlerFunc`, so middleware and handlers mix freely in any chain.
 
-## See also
+## Groups
 
-- [Middleware Overview](/middleware/overview/) for the full first-party middleware map.
-- [Routing](/guide/routing/) for groups and route registration.
-- [Errors](/guide/errors/) for returned middleware errors.
+Groups share a prefix and a middleware chain, and nest:
+
+```go
+api := app.Group("/api", requireAPIKey)
+v1 := api.Group("/v1", setVersionHeader("1"))
+
+v1.Get("/users", listUsers) // GET /api/v1/users: requireAPIKey → setVersionHeader → listUsers
+```
+
+Groups support everything the app does: every route method, `Handle`, `HandleHTTP`, `Mount`, `Static`, and a group-scoped `RouteNotFound`.
+
+:::note[Group middleware needs a route]
+Group middleware runs only when a route in the group matches. For behavior that must also cover unmatched paths under a prefix, such as authentication for everything below `/admin`, use `app.UsePrefix`.
+:::
+
+## First-party middleware
+
+Zinc ships 29 middleware in `github.com/0mjs/zinc/middleware`. A typical API starts with:
+
+```go
+app.Use(
+	middleware.RequestID(),
+	middleware.RequestLogger(),
+	middleware.Recover(),
+	middleware.Secure(),
+)
+```
+
+Browse them all in the [Middleware overview](/middleware/overview/).
+
+## Next steps
+
+- [Custom Middleware](/cookbook/middleware/) measures status and response size.
+- [Zinc and net/http](/guide/http-interoperability/) covers standard `func(http.Handler) http.Handler` middleware.
+- [Errors](/guide/errors/) explains what happens to returned errors.

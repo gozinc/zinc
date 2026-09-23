@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -12,29 +15,35 @@ import (
 	"strings"
 )
 
+// StaticConfig controls directory serving and index behaviour.
 type StaticConfig struct {
 	Browse bool
 	Index  string
 }
 
+// StaticOption mutates static-file configuration during registration.
 type StaticOption func(*StaticConfig)
 
+// WithStaticBrowse enables or disables directory listings.
 func WithStaticBrowse(browse bool) StaticOption {
 	return func(cfg *StaticConfig) {
 		cfg.Browse = browse
 	}
 }
 
+// WithStaticIndex changes the filename served for directory requests.
 func WithStaticIndex(index string) StaticOption {
 	return func(cfg *StaticConfig) {
 		cfg.Index = index
 	}
 }
 
+// Static serves root from the operating-system filesystem below prefix.
 func (a *App) Static(prefix, root string, opts ...StaticOption) error {
 	return a.StaticFS(prefix, os.DirFS(root), opts...)
 }
 
+// StaticFS serves filesystem below prefix.
 func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
 	if filesystem == nil {
 		return errors.New("filesystem is nil")
@@ -47,6 +56,7 @@ func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) er
 	return nil
 }
 
+// File serves one operating-system file at path.
 func (a *App) File(path, file string) error {
 	a.Get(path, func(c *Context) error {
 		return c.File(file)
@@ -54,6 +64,7 @@ func (a *App) File(path, file string) error {
 	return nil
 }
 
+// FileFS serves one file from filesystem at path.
 func (a *App) FileFS(path, file string, filesystem fs.FS) error {
 	a.Get(path, func(c *Context) error {
 		return c.FileFS(file, filesystem)
@@ -61,6 +72,8 @@ func (a *App) FileFS(path, file string, filesystem fs.FS) error {
 	return nil
 }
 
+// newStaticHandler limits methods before resolving paths so unsupported
+// requests never touch the filesystem.
 func newStaticHandler(filesystem fs.FS, cfg StaticConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -86,6 +99,9 @@ func newStaticHandler(filesystem fs.FS, cfg StaticConfig) http.Handler {
 	})
 }
 
+// staticPathName converts a URL path to a valid fs.FS name. Backslashes and
+// explicit parent segments are rejected before path cleaning to prevent
+// platform-dependent traversal.
 func staticPathName(requestPath string) (string, error) {
 	if requestPath == "" {
 		return ".", nil
@@ -173,6 +189,8 @@ func openStaticFile(filesystem fs.FS, name string) (fs.File, fs.FileInfo, error)
 	return file, stat, nil
 }
 
+// serveOpenedStaticFile preserves range and conditional request support through
+// http.ServeContent. Non-seekable files are buffered as a compatibility fallback.
 func serveOpenedStaticFile(w http.ResponseWriter, r *http.Request, file fs.File, stat fs.FileInfo) error {
 	if rs, ok := file.(io.ReadSeeker); ok {
 		http.ServeContent(w, r, stat.Name(), stat.ModTime(), rs)
@@ -188,6 +206,8 @@ func serveOpenedStaticFile(w http.ResponseWriter, r *http.Request, file fs.File,
 	return nil
 }
 
+// serveStaticDirectoryListing escapes display names and never emits filesystem
+// paths outside the requested directory.
 func serveStaticDirectoryListing(w http.ResponseWriter, r *http.Request, filesystem fs.FS, name string) error {
 	entries, err := fs.ReadDir(filesystem, name)
 	if err != nil {

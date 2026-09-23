@@ -1,0 +1,20 @@
+---
+// Title block: section eyebrow, title, and the page's frontmatter description as a lede.
+const { entry } = Astro.locals.starlightRoute;
+const sections: Record<string, string> = {
+  guide: "Guide",
+  "getting-started": "Guide",
+  extra: "Guide",
+  api: "API Reference",
+  middleware: "Middleware",
+  cookbook: "Cookbook",
+};
+const section = sections[entry.id.split("/")[0]];
+const { title, description } = entry.data;
+---
+
+<div class="z-title">
+  {section && <p class="z-title-section">{section}</p>}
+  <h1 id="_top">{title}</h1>
+  {description && <p class="z-title-lede">{description}</p>}
+</div>

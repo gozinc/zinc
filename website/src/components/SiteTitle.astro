@@ -1,0 +1,11 @@
+---
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title z-brand">
+  <span class="z-tile" aria-hidden="true">
+    <span class="z-tile-num">30</span>
+    <span class="z-tile-sym">Zn</span>
+  </span>
+  <span class="z-word" translate="no">{siteTitle}</span>
+</a>

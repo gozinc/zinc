@@ -3,15 +3,15 @@ title: Basic Auth
 description: Extract, validate, and expose HTTP Basic auth credentials.
 ---
 
-`BasicAuth` is a small middleware for admin panels, internal tools, and simple protected routes.
-
-## Quick start
+`BasicAuth` protects routes with HTTP Basic authentication, the browser's built-in username and password prompt. It suits admin panels, internal tools, and operational endpoints.
 
 ```go
-admin.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
-	Validator: middleware.BasicAuthStatic("admin", "secret"),
-}))
+admin := app.Group("/admin",
+	middleware.BasicAuth(middleware.BasicAuthStatic("admin", os.Getenv("ADMIN_PASSWORD"))),
+)
 ```
+
+Basic credentials are only base64-encoded, so serve these routes over HTTPS. Unauthenticated requests get `401` with a `WWW-Authenticate` challenge.
 
 ## Extractor helpers
 
@@ -25,7 +25,7 @@ admin.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
 - `BasicAuthStatic(username, password)`
 - `BasicAuthStaticPairs(pairs...)`
 
-`BasicAuthStaticPairs` hashes usernames and passwords before comparison and uses constant-time checks.
+Both static validators compare in constant time, so response timing does not reveal how much of a guess was right.
 
 ## Config fields
 

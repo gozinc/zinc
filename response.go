@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -19,6 +22,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ErrResponseAlreadySent is returned when a handler attempts a second terminal
+// response write. SSE is the deliberate exception and supports multiple events.
 var ErrResponseAlreadySent = errors.New("response already sent")
 
 const (
@@ -33,6 +38,7 @@ const (
 	octetStream = "application/octet-stream"
 )
 
+// SSEvent describes one Server-Sent Events message.
 type SSEvent struct {
 	Event string
 	ID    string
@@ -68,11 +74,13 @@ func (c *Context) responseStatus() int {
 	return c.status
 }
 
+// SetHeader replaces a response header value.
 func (c *Context) SetHeader(key, value string) *Context {
 	c.Writer().Header().Set(key, value)
 	return c
 }
 
+// AppendHeader adds response header values without replacing existing ones.
 func (c *Context) AppendHeader(key string, values ...string) *Context {
 	for _, value := range values {
 		c.Writer().Header().Add(key, value)
@@ -80,6 +88,7 @@ func (c *Context) AppendHeader(key string, values ...string) *Context {
 	return c
 }
 
+// Type sets Content-Type from a filename extension.
 func (c *Context) Type(ext string) *Context {
 	if ext == "" {
 		return c
@@ -93,14 +102,17 @@ func (c *Context) Type(ext string) *Context {
 	return c
 }
 
+// Location sets the response Location header.
 func (c *Context) Location(location string) *Context {
 	return c.SetHeader(HeaderLocation, location)
 }
 
+// Vary appends fields to the response Vary header.
 func (c *Context) Vary(fields ...string) *Context {
 	return c.AppendHeader(HeaderVary, fields...)
 }
 
+// String writes a plain-text response without converting data to []byte.
 func (c *Context) String(data string) error {
 	if c.written {
 		return ErrResponseAlreadySent
@@ -135,6 +147,7 @@ func (c *Context) String(data string) error {
 	return err
 }
 
+// Send chooses a response representation from the dynamic value type.
 func (c *Context) Send(data any) error {
 	switch value := data.(type) {
 	case nil:
@@ -151,6 +164,7 @@ func (c *Context) Send(data any) error {
 	}
 }
 
+// Data writes bytes with the supplied content type.
 func (c *Context) Data(contentType string, b []byte) error {
 	writer, writeBody, err := c.prepareResponse(contentType)
 	if err != nil || !writeBody {
@@ -160,26 +174,32 @@ func (c *Context) Data(contentType string, b []byte) error {
 	return err
 }
 
+// Blob writes bytes with an explicit status and content type.
 func (c *Context) Blob(status int, contentType string, b []byte) error {
 	return c.Status(status).Data(contentType, b)
 }
 
+// JSONBlob writes pre-encoded JSON.
 func (c *Context) JSONBlob(status int, b []byte) error {
 	return c.Blob(status, jsonType, b)
 }
 
+// XMLBlob writes pre-encoded XML.
 func (c *Context) XMLBlob(status int, b []byte) error {
 	return c.Blob(status, xmlType, b)
 }
 
+// HTMLBlob writes pre-encoded HTML.
 func (c *Context) HTMLBlob(status int, b []byte) error {
 	return c.Blob(status, htmlType, b)
 }
 
+// JSON encodes v using the configured JSON codec.
 func (c *Context) JSON(v any) error {
 	return c.writeJSON(v, "")
 }
 
+// JSONPretty encodes v using the configured JSON codec and indentation.
 func (c *Context) JSONPretty(v any, indent string) error {
 	return c.writeJSON(v, indent)
 }
@@ -201,6 +221,7 @@ func (c *Context) writeJSON(v any, indent string) error {
 	return nil
 }
 
+// XML encodes v as XML.
 func (c *Context) XML(v any) error {
 	if v == nil {
 		return c.writeResponse(xmlType, func() error {
@@ -219,6 +240,7 @@ func (c *Context) XML(v any) error {
 	})
 }
 
+// YAML encodes v as YAML.
 func (c *Context) YAML(v any) error {
 	if v == nil {
 		return c.writeResponse(yamlType, func() error {
@@ -241,6 +263,7 @@ func (c *Context) YAML(v any) error {
 	})
 }
 
+// TOML encodes v as TOML.
 func (c *Context) TOML(v any) error {
 	if v == nil {
 		return c.writeResponse(tomlType, func() error {
@@ -259,6 +282,7 @@ func (c *Context) TOML(v any) error {
 	})
 }
 
+// HTML writes an HTML response.
 func (c *Context) HTML(data string) error {
 	return c.writeResponse(htmlType, func() error {
 		_, err := io.WriteString(c.Writer(), data)
@@ -266,6 +290,7 @@ func (c *Context) HTML(data string) error {
 	})
 }
 
+// Stream copies r to the response without buffering it in Zinc.
 func (c *Context) Stream(contentType string, r io.Reader) error {
 	return c.writeResponse(contentType, func() error {
 		_, err := io.Copy(c.Writer(), r)
@@ -273,6 +298,7 @@ func (c *Context) Stream(contentType string, r io.Reader) error {
 	})
 }
 
+// SSE writes one event and keeps the event-stream response open for more calls.
 func (c *Context) SSE(event SSEvent) error {
 	writer, writeBody, err := c.prepareSSE()
 	if err != nil || !writeBody {
@@ -281,6 +307,7 @@ func (c *Context) SSE(event SSEvent) error {
 	return c.writeSSEEvent(writer, event)
 }
 
+// Accepts returns the best offered type allowed by the request Accept header.
 func (c *Context) Accepts(types ...string) string {
 	if len(types) == 0 {
 		return ""
@@ -312,6 +339,7 @@ func (c *Context) Accepts(types ...string) string {
 	return ""
 }
 
+// Negotiate selects an offered representation or returns ErrNotAcceptable.
 func (c *Context) Negotiate(status int, offers map[string]any) error {
 	if len(offers) == 0 {
 		return ErrNotAcceptable
@@ -330,6 +358,7 @@ func (c *Context) Negotiate(status int, offers map[string]any) error {
 	return c.writeNegotiated(selected, offers[selected])
 }
 
+// NoContent writes the selected status, defaulting to 204.
 func (c *Context) NoContent() error {
 	if c.status == 0 || c.status == http.StatusOK {
 		c.status = http.StatusNoContent
@@ -371,6 +400,7 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 	}
 }
 
+// Redirect writes a redirect response, defaulting code to 302.
 func (c *Context) Redirect(code int, location string) error {
 	if code == 0 {
 		code = http.StatusFound
@@ -384,14 +414,17 @@ func (c *Context) Redirect(code int, location string) error {
 	return nil
 }
 
+// File serves a file from the operating-system filesystem.
 func (c *Context) File(filePath string) error {
 	return c.serveFile(filePath, nil, "")
 }
 
+// FileFS serves a file from filesystem using fs.ValidPath semantics.
 func (c *Context) FileFS(filePath string, filesystem fs.FS) error {
 	return c.serveFile(filePath, filesystem, "")
 }
 
+// Attachment serves a file with an attachment Content-Disposition.
 func (c *Context) Attachment(filePath string, name ...string) error {
 	downloadName := filepath.Base(filePath)
 	if len(name) > 0 && name[0] != "" {
@@ -400,10 +433,12 @@ func (c *Context) Attachment(filePath string, name ...string) error {
 	return c.serveFile(filePath, nil, downloadName)
 }
 
+// Download is an alias for Attachment.
 func (c *Context) Download(filePath string, name ...string) error {
 	return c.Attachment(filePath, name...)
 }
 
+// Inline serves a file with an inline Content-Disposition.
 func (c *Context) Inline(filePath string, name ...string) error {
 	inlineName := filepath.Base(filePath)
 	if len(name) > 0 && name[0] != "" {
@@ -412,6 +447,7 @@ func (c *Context) Inline(filePath string, name ...string) error {
 	return c.serveFileWithDisposition(filePath, nil, "inline", inlineName)
 }
 
+// Render executes the configured renderer and writes the result as HTML.
 func (c *Context) Render(name string, data any) error {
 	if c.app == nil || c.app.config.Renderer == nil {
 		return errors.New("renderer is not configured")
@@ -426,15 +462,18 @@ func (c *Context) Render(name string, data any) error {
 	})
 }
 
+// SetCookie adds cookie to the response.
 func (c *Context) SetCookie(cookie *http.Cookie) {
 	c.writeCookie(cookie)
 }
 
+// SetSameSite supplies a default SameSite mode for subsequently written cookies.
 func (c *Context) SetSameSite(mode http.SameSite) *Context {
 	c.sameSite = mode
 	return c
 }
 
+// ClearCookie expires each named cookie at the root path.
 func (c *Context) ClearCookie(names ...string) {
 	expires := time.Unix(1, 0).UTC()
 	for _, name := range names {

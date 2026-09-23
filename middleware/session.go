@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -14,8 +17,10 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// ErrSessionInvalid identifies a cookie that fails decoding or authentication.
 var ErrSessionInvalid = errors.New("zincsession: invalid session")
 
+// SessionConfig controls the signed client-side session cookie.
 type SessionConfig struct {
 	Skipper         func(*zinc.Context) bool
 	Name            string
@@ -29,6 +34,8 @@ type SessionConfig struct {
 	SameSite        http.SameSite
 }
 
+// Session stores string values for one request. Values are authenticated but not
+// encrypted; do not place secrets in the client-visible cookie.
 type Session struct {
 	values  map[string]string
 	changed bool
@@ -38,6 +45,7 @@ type sessionContextKey int
 
 const sessionStateContextKey sessionContextKey = iota
 
+// SessionCookie configures a signed cookie with name and secret.
 func SessionCookie(name, secret string) zinc.Middleware {
 	return SessionWithConfig(SessionConfig{
 		Name:   name,
@@ -45,6 +53,7 @@ func SessionCookie(name, secret string) zinc.Middleware {
 	})
 }
 
+// DefaultSessionConfig returns HTTP-only, SameSite=Lax cookie defaults.
 func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
 		Name:     "zinc_session",
@@ -54,6 +63,8 @@ func DefaultSessionConfig() SessionConfig {
 	}
 }
 
+// SessionWithConfig verifies incoming state before exposing it and buffers the
+// response until a changed session cookie can be attached safely.
 func SessionWithConfig(config SessionConfig) zinc.Middleware {
 	cfg := resolveSessionConfig(config)
 
@@ -91,6 +102,7 @@ func SessionWithConfig(config SessionConfig) zinc.Middleware {
 	}
 }
 
+// SessionCurrent returns the request session.
 func SessionCurrent(c *zinc.Context) (*Session, bool) {
 	if c == nil {
 		return nil, false
@@ -103,6 +115,7 @@ func SessionCurrent(c *zinc.Context) (*Session, bool) {
 	return session, ok
 }
 
+// MustSession returns the request session or panics when absent.
 func MustSession(c *zinc.Context) *Session {
 	session, ok := SessionCurrent(c)
 	if !ok {
@@ -111,6 +124,7 @@ func MustSession(c *zinc.Context) *Session {
 	return session
 }
 
+// Get returns a session value.
 func (s *Session) Get(key string) string {
 	if s == nil {
 		return ""
@@ -118,6 +132,7 @@ func (s *Session) Get(key string) string {
 	return s.values[key]
 }
 
+// Set updates a value and marks the session for persistence.
 func (s *Session) Set(key, value string) {
 	if s == nil {
 		return
@@ -129,6 +144,7 @@ func (s *Session) Set(key, value string) {
 	s.changed = true
 }
 
+// Delete removes a value and marks the session for persistence.
 func (s *Session) Delete(key string) {
 	if s == nil {
 		return
@@ -137,6 +153,8 @@ func (s *Session) Delete(key string) {
 	s.changed = true
 }
 
+// Values returns a copy so callers cannot mutate session state without marking
+// it changed and causing a new signed cookie to be written.
 func (s *Session) Values() map[string]string {
 	if s == nil {
 		return nil
@@ -243,6 +261,8 @@ type sessionResponseWriter struct {
 }
 
 func (w *sessionResponseWriter) WriteHeader(code int) {
+	// Session cookies may change after the handler returns, so headers and body
+	// remain uncommitted until the middleware has persisted session state.
 	if w.status == 0 {
 		w.status = code
 	}

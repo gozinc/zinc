@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -8,8 +11,10 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// RecoverHandler maps a recovered panic to a handler error.
 type RecoverHandler func(*zinc.Context, *RecoverError) error
 
+// RecoverConfig controls panic recovery and stack capture.
 type RecoverConfig struct {
 	Skipper      func(*zinc.Context) bool
 	Handler      RecoverHandler
@@ -17,6 +22,7 @@ type RecoverConfig struct {
 	DisableStack bool
 }
 
+// RecoverError preserves the recovered value and optional current-goroutine stack.
 type RecoverError struct {
 	Value any
 	Stack []byte
@@ -29,6 +35,7 @@ func (e *RecoverError) Error() string {
 	return fmt.Sprintf("zincrecover: panic recovered: %v", e.Value)
 }
 
+// DefaultRecoverConfig captures a four-kilobyte current-goroutine stack.
 func DefaultRecoverConfig() RecoverConfig {
 	return RecoverConfig{
 		Handler:   defaultRecoverHandler,
@@ -36,10 +43,13 @@ func DefaultRecoverConfig() RecoverConfig {
 	}
 }
 
+// Recover converts downstream panics into internal-server errors.
 func Recover() zinc.Middleware {
 	return RecoverWithConfig(DefaultRecoverConfig())
 }
 
+// RecoverWithConfig converts downstream panics into errors. It does not recover
+// panics from goroutines started by the application.
 func RecoverWithConfig(config RecoverConfig) zinc.Middleware {
 	cfg := resolveRecoverConfig(config)
 

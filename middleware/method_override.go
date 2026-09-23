@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -8,12 +11,15 @@ import (
 )
 
 const (
+	// Method override headers expose the requested and original methods.
 	HeaderXHTTPMethodOverride = "X-HTTP-Method-Override"
 	HeaderXOriginalMethod     = "X-Original-Method"
 )
 
+// MethodOverrideGetter reads a requested replacement method.
 type MethodOverrideGetter func(*zinc.Context) string
 
+// MethodOverrideConfig limits both source and destination methods.
 type MethodOverrideConfig struct {
 	Skipper       func(*zinc.Context) bool
 	Getter        MethodOverrideGetter
@@ -21,10 +27,13 @@ type MethodOverrideConfig struct {
 	Methods       []string
 }
 
+// MethodOverride allows POST to request PUT, PATCH, or DELETE via the standard header.
 func MethodOverride() zinc.Middleware {
 	return MethodOverrideWithConfig(MethodOverrideConfig{})
 }
 
+// MethodOverrideWithConfig rewrites only explicitly permitted source methods,
+// preventing arbitrary header input from widening route access.
 func MethodOverrideWithConfig(config MethodOverrideConfig) zinc.Middleware {
 	cfg := resolveMethodOverrideConfig(config)
 

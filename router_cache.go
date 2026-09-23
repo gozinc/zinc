@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -10,12 +13,22 @@ type routeCacheKey struct {
 	path   string
 }
 
+// routeCacheEntry represents either a positive route match or a negative match
+// carrying the methods allowed for that concrete path.
 type routeCacheEntry struct {
 	route   *radixRoute
 	values  paramRanges
 	allowed allowedMethodSet
 }
 
+// RouteCache accelerates repeated concrete dynamic paths. It begins as a
+// mutex-protected bounded ring, promotes stable contents to an immutable atomic
+// snapshot, and records later traffic in an overlay that may replace the old
+// snapshot when the working set changes.
+//
+// The one-entry hot pointer handles immediate repetition without taking a read
+// lock. All cache contents are derived: misses and eviction affect performance,
+// never the result returned by the router.
 type RouteCache struct {
 	methodCache  [routeMethodCount]map[string]routeCacheEntry
 	extraCache   map[routeCacheKey]routeCacheEntry
@@ -68,6 +81,7 @@ const routeCacheFreezeCapacityDenominator = 4
 const routeCacheRebaseSizeNumerator = 1
 const routeCacheRebaseSizeDenominator = 2
 
+// NewRouteCache creates a cache bounded to size concrete method/path entries.
 func NewRouteCache(size int) *RouteCache {
 	return &RouteCache{size: size}
 }
@@ -76,6 +90,8 @@ func (rc *RouteCache) get(key routeCacheKey) (routeCacheEntry, bool) {
 	return rc.getWithMask(key, methodMaskFor(key.method))
 }
 
+// getWithMask reads snapshots without locking. Once a snapshot exists, only
+// paths admitted after the freeze require an overlay lock.
 func (rc *RouteCache) getWithMask(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
 	if rc == nil {
 		return routeCacheEntry{}, false
@@ -125,6 +141,9 @@ func (rc *RouteCache) set(key routeCacheKey, entry routeCacheEntry) {
 	rc.setWithMask(key, methodMaskFor(key.method), entry)
 }
 
+// setWithMask inserts into the mutable ring or the post-snapshot overlay. At
+// capacity, next identifies the oldest replaceable slot; this is intentionally
+// bounded bookkeeping rather than a general-purpose LRU.
 func (rc *RouteCache) setWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if rc == nil || rc.size <= 0 {
 		return
@@ -188,6 +207,8 @@ func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry 
 	rc.setWithMask(key, mask, entry)
 }
 
+// recordHit freezes a stable, partially filled cache after enough reuse. Full
+// caches continue adapting instead of freezing a possibly transient workload.
 func (rc *RouteCache) recordHit() {
 	count := atomic.LoadUint32(&rc.count)
 	if count < routeCacheMinRoutes ||
@@ -246,6 +267,8 @@ func (rc *RouteCache) freezeReadSnapshot(expectedCount uint32) {
 	rc.hot.Store(nil)
 }
 
+// rebaseReadSnapshot promotes a sufficiently large and stable overlay, dropping
+// the previous snapshot as one operation under the write lock.
 func (rc *RouteCache) rebaseReadSnapshot(
 	expectedSnapshot *routeCacheReadSnapshot,
 	expectedOverlayCount,
@@ -385,6 +408,8 @@ func (rc *RouteCache) deleteOverlayLocked(key routeCacheKey, mask methodMask) {
 	delete(rc.extraOverlay, key)
 }
 
+// routeCacheAdmissionShard is a cheap dispersion function, not a hash table
+// identity. Collisions merely share an admission counter and remain correct.
 func routeCacheAdmissionShard(key routeCacheKey) int {
 	path := key.path
 	hash := uint32(len(path))*16777619 ^ uint32(len(key.method))
@@ -399,6 +424,8 @@ func routeCacheAdmissionShard(key routeCacheKey) int {
 	return int(hash & (routeCacheAdmissionShards - 1))
 }
 
+// invalidate makes lock-free state unreachable immediately. The next cache
+// operation clears mutable maps under the lock, keeping registration cheap.
 func (rc *RouteCache) invalidate() {
 	if rc == nil {
 		return

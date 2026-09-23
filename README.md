@@ -98,7 +98,7 @@ app.UseHTTP(requestTracing, authenticateRequest)
 Handlers that own a whole subtree can be mounted:
 
 ```go
-app.Mount("/debug", http.DefaultServeMux)
+app.Mount("/legacy", legacyMux) // receives paths with "/legacy" removed
 ```
 
 Inside a Zinc handler, the standard request and writer are available when you need them:
@@ -166,7 +166,7 @@ Zinc keeps benchmarks in the repository so performance claims can be checked aga
 
 In the latest Apple M1 Pro comparison, Zinc recorded the lowest latency in 62 of 77 comparable rows against Gin, Echo, and Chi. It was fastest or within 2% of the fastest result in 63 rows. Primary static, parameter, and not-found dispatch paths retained zero request-time allocations.
 
-Results vary by workload and machine. See the [full Zinc benchmark report](./BENCKMARKS.md) for the framework's own suite, or [Zinc in the Gin HTTP routing benchmark](./GIN_BENCHMARK.md) for a same-machine comparison across 13 routers and frameworks.
+Results vary by workload and machine. See the [full benchmark report](./BENCHMARKS.md) for the environment, command, scorecard, and complete results.
 
 ## Packages
 
@@ -174,9 +174,6 @@ Results vary by workload and machine. See the [full Zinc benchmark report](./BEN
 | --- | --- |
 | `github.com/0mjs/zinc` | Application, router, context, binding, responses, rendering, and static files |
 | `github.com/0mjs/zinc/middleware` | First-party HTTP middleware |
-| `github.com/0mjs/zinc/jobs` | Optional in-memory jobs, retries, delayed work, and schedules |
-
-The jobs package is independent of the HTTP application. Applications that do not import it do not use it.
 
 ## Project status
 

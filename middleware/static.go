@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -11,6 +14,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// StaticConfig controls filesystem serving and fallthrough behavior.
 type StaticConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Filesystem     fs.FS
@@ -19,6 +23,7 @@ type StaticConfig struct {
 	NextOnNotFound bool
 }
 
+// Static serves root and falls through when a file is absent.
 func Static(root string) zinc.Middleware {
 	return StaticWithConfig(StaticConfig{
 		Root:           root,
@@ -26,6 +31,7 @@ func Static(root string) zinc.Middleware {
 	})
 }
 
+// StaticFrom serves root below a URL prefix.
 func StaticFrom(prefix, root string) zinc.Middleware {
 	return StaticWithConfig(StaticConfig{
 		Root:           root,
@@ -34,6 +40,7 @@ func StaticFrom(prefix, root string) zinc.Middleware {
 	})
 }
 
+// StaticFS serves an fs.FS and falls through when a file is absent.
 func StaticFS(filesystem fs.FS) zinc.Middleware {
 	return StaticWithConfig(StaticConfig{
 		Filesystem:     filesystem,
@@ -41,6 +48,8 @@ func StaticFS(filesystem fs.FS) zinc.Middleware {
 	})
 }
 
+// StaticWithConfig serves files through net/http.FileServer. Paths are converted
+// to fs.ValidPath form and explicit parent traversal is rejected first.
 func StaticWithConfig(config StaticConfig) zinc.Middleware {
 	cfg := resolveStaticConfig(config)
 	handler := http.FileServer(http.FS(cfg.Filesystem))

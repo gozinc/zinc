@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -12,10 +15,12 @@ import (
 )
 
 var (
+	// Key authentication errors distinguish missing from rejected credentials.
 	ErrKeyAuthKeyMissing = errors.New("zinckeyauth: key missing")
 	ErrKeyAuthKeyInvalid = errors.New("zinckeyauth: key invalid")
 )
 
+// KeyAuthSource identifies where a key was extracted.
 type KeyAuthSource string
 
 const (
@@ -25,22 +30,28 @@ const (
 	KeyAuthSourceCookie              KeyAuthSource = "cookie"
 )
 
+// KeyAuthCredentials contains a key supplied for validation.
 type KeyAuthCredentials struct {
 	Key    string
 	Source KeyAuthSource
 }
 
+// KeyAuthState is the authenticated key state stored on the context.
 type KeyAuthState struct {
 	Key    string
 	Source KeyAuthSource
 }
 
+// KeyAuthExtractor reads key credentials from a request.
 type KeyAuthExtractor func(*zinc.Context) (KeyAuthCredentials, error)
 
+// KeyAuthValidator verifies extracted key credentials.
 type KeyAuthValidator func(*zinc.Context, KeyAuthCredentials) (bool, error)
 
+// KeyAuthErrorHandler maps extraction and validation failures.
 type KeyAuthErrorHandler func(*zinc.Context, error) error
 
+// KeyAuthConfig controls key extraction, validation, and failure handling.
 type KeyAuthConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Extractor      KeyAuthExtractor
@@ -53,6 +64,7 @@ type keyAuthContextKey int
 
 const keyAuthStateContextKey keyAuthContextKey = iota
 
+// DefaultKeyAuthConfig extracts Bearer keys from Authorization.
 func DefaultKeyAuthConfig() KeyAuthConfig {
 	return KeyAuthConfig{
 		Extractor: KeyAuthFromAuthorizationHeader(),
@@ -62,10 +74,13 @@ func DefaultKeyAuthConfig() KeyAuthConfig {
 	}
 }
 
+// KeyAuth authenticates requests with validator.
 func KeyAuth(validator KeyAuthValidator) zinc.Middleware {
 	return KeyAuthWithConfig(KeyAuthConfig{Validator: validator})
 }
 
+// KeyAuthWithConfig authenticates a request and publishes state only after
+// successful validation.
 func KeyAuthWithConfig(config KeyAuthConfig) zinc.Middleware {
 	cfg := resolveKeyAuthConfig(config)
 
@@ -95,18 +110,22 @@ func KeyAuthWithConfig(config KeyAuthConfig) zinc.Middleware {
 	}
 }
 
+// KeyAuthFromAuthorizationHeader extracts a Bearer key.
 func KeyAuthFromAuthorizationHeader() KeyAuthExtractor {
 	return keyAuthFromHeader(zinc.HeaderAuthorization, "Bearer ", KeyAuthSourceAuthorizationHeader)
 }
 
+// KeyAuthFromHeader extracts an unprefixed key from header.
 func KeyAuthFromHeader(header string) KeyAuthExtractor {
 	return keyAuthFromHeader(header, "", KeyAuthSourceHeader)
 }
 
+// KeyAuthFromHeaderPrefix extracts a key after a case-insensitive prefix.
 func KeyAuthFromHeaderPrefix(header, prefix string) KeyAuthExtractor {
 	return keyAuthFromHeader(header, prefix, KeyAuthSourceHeader)
 }
 
+// KeyAuthFromQuery extracts a key from a query parameter.
 func KeyAuthFromQuery(name string) KeyAuthExtractor {
 	return func(c *zinc.Context) (KeyAuthCredentials, error) {
 		key := strings.TrimSpace(c.Query(name))
@@ -117,6 +136,7 @@ func KeyAuthFromQuery(name string) KeyAuthExtractor {
 	}
 }
 
+// KeyAuthFromCookie extracts a key from a cookie.
 func KeyAuthFromCookie(name string) KeyAuthExtractor {
 	return func(c *zinc.Context) (KeyAuthCredentials, error) {
 		cookie, err := c.Cookie(name)
@@ -131,6 +151,7 @@ func KeyAuthFromCookie(name string) KeyAuthExtractor {
 	}
 }
 
+// KeyAuthFromFirst falls back only for missing credentials.
 func KeyAuthFromFirst(extractors ...KeyAuthExtractor) KeyAuthExtractor {
 	list := append([]KeyAuthExtractor(nil), extractors...)
 	return func(c *zinc.Context) (KeyAuthCredentials, error) {
@@ -156,10 +177,12 @@ func KeyAuthFromFirst(extractors ...KeyAuthExtractor) KeyAuthExtractor {
 	}
 }
 
+// KeyAuthStatic returns a constant-time validator for one key.
 func KeyAuthStatic(key string) KeyAuthValidator {
 	return KeyAuthStaticKeys(key)
 }
 
+// KeyAuthStaticKeys returns a constant-time validator for a fixed key set.
 func KeyAuthStaticKeys(keys ...string) KeyAuthValidator {
 	hashes := make([][32]byte, len(keys))
 	for i, key := range keys {
@@ -175,6 +198,7 @@ func KeyAuthStaticKeys(keys ...string) KeyAuthValidator {
 	}
 }
 
+// KeyAuthCurrent returns authenticated key state.
 func KeyAuthCurrent(c *zinc.Context) (KeyAuthState, bool) {
 	if c == nil {
 		return KeyAuthState{}, false
@@ -187,6 +211,7 @@ func KeyAuthCurrent(c *zinc.Context) (KeyAuthState, bool) {
 	return state, ok
 }
 
+// MustKeyAuthCurrent returns key state or panics when absent.
 func MustKeyAuthCurrent(c *zinc.Context) KeyAuthState {
 	state, ok := KeyAuthCurrent(c)
 	if !ok {

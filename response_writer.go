@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -8,6 +11,7 @@ import (
 	"net/http"
 )
 
+// ResponseWriter records status and body size while retaining http.ResponseWriter.
 type ResponseWriter interface {
 	http.ResponseWriter
 	Status() int
@@ -15,6 +19,7 @@ type ResponseWriter interface {
 	Written() bool
 }
 
+// WrapResponseWriter wraps w or returns it unchanged when already instrumented.
 func WrapResponseWriter(w http.ResponseWriter) ResponseWriter {
 	if rw, ok := w.(ResponseWriter); ok {
 		return rw
@@ -29,6 +34,7 @@ type wrappedResponseWriter struct {
 	written      bool
 }
 
+// WriteHeader follows net/http's first-write-wins rule.
 func (w *wrappedResponseWriter) WriteHeader(code int) {
 	if w.written {
 		return
@@ -47,6 +53,7 @@ func (w *wrappedResponseWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// WriteString avoids converting s when the underlying writer supports io.StringWriter.
 func (w *wrappedResponseWriter) WriteString(s string) (int, error) {
 	if !w.written {
 		w.WriteHeader(http.StatusOK)
@@ -91,6 +98,7 @@ func (w *wrappedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hijacker.Hijack()
 }
 
+// ReadFrom preserves io.Copy's ReaderFrom fast path without bypassing counters.
 func (w *wrappedResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 	if !w.written {
 		w.WriteHeader(http.StatusOK)

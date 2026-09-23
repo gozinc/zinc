@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -24,6 +27,7 @@ func (e *HTTPError) Error() string {
 	return http.StatusText(e.Code)
 }
 
+// Unwrap exposes the underlying cause for errors.Is and errors.As.
 func (e *HTTPError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -31,22 +35,27 @@ func (e *HTTPError) Unwrap() error {
 	return e.Cause
 }
 
+// NewError creates an HTTPError for status code.
 func NewError(code int) *HTTPError {
 	return &HTTPError{Code: code}
 }
 
+// WithMessage returns a copy with a client-facing message.
 func (e *HTTPError) WithMessage(message string) *HTTPError {
 	return e.cloneWith(func(err *HTTPError) {
 		err.Message = message
 	})
 }
 
+// WithCause returns a copy that wraps cause.
 func (e *HTTPError) WithCause(cause error) *HTTPError {
 	return e.cloneWith(func(err *HTTPError) {
 		err.Cause = cause
 	})
 }
 
+// WithMeta returns a copy with one metadata value. Metadata is available to
+// custom error handlers and is not emitted by the default handler.
 func (e *HTTPError) WithMeta(key string, value any) *HTTPError {
 	return e.cloneWith(func(err *HTTPError) {
 		if err.Meta == nil {
@@ -56,6 +65,7 @@ func (e *HTTPError) WithMeta(key string, value any) *HTTPError {
 	})
 }
 
+// WithHeader returns a copy that adds a response header.
 func (e *HTTPError) WithHeader(key, value string) *HTTPError {
 	return e.cloneWith(func(err *HTTPError) {
 		if err.Headers == nil {
@@ -65,6 +75,8 @@ func (e *HTTPError) WithHeader(key, value string) *HTTPError {
 	})
 }
 
+// cloneWith keeps package-level HTTP errors immutable and safe to reuse. Maps
+// and headers are copied before mutation so derived errors cannot share state.
 func (e *HTTPError) cloneWith(apply func(*HTTPError)) *HTTPError {
 	if e == nil {
 		return nil
@@ -120,6 +132,8 @@ func writeHTTPError(c *Context, httpErr *HTTPError) {
 	_ = c.Status(httpErr.Code).String(httpErr.Error())
 }
 
+// Reusable HTTP errors. Modifier methods return independent copies and never
+// mutate these package-level values.
 var (
 	ErrBadRequest                    = NewError(StatusBadRequest)
 	ErrUnauthorized                  = NewError(StatusUnauthorized)

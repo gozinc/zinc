@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -8,7 +11,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
-// TokenBucket represents a simple token bucket rate limiter
+// TokenBucket represents a concurrency-safe token bucket.
 type TokenBucket struct {
 	rate       float64
 	capacity   float64
@@ -17,7 +20,7 @@ type TokenBucket struct {
 	mutex      sync.Mutex
 }
 
-// RateLimiterConfig contains configuration for the rate limiter middleware
+// RateLimiterConfig contains rate-limiter policy and key selection.
 type RateLimiterConfig struct {
 	// Rate is the token refill rate per second
 	Rate float64
@@ -71,7 +74,8 @@ func (tb *TokenBucket) take() bool {
 	return true
 }
 
-// RateLimiter returns a rate limiter middleware
+// RateLimiter returns token-bucket middleware. Keyed buckets currently remain
+// for the middleware lifetime; use a bounded key source for public traffic.
 func RateLimiter(config ...RateLimiterConfig) zinc.Middleware {
 	// Set default config
 	cfg := RateLimiterConfig{
@@ -105,7 +109,8 @@ func RateLimiter(config ...RateLimiterConfig) zinc.Middleware {
 	return func(c *zinc.Context) error {
 		var bucket *TokenBucket
 
-		// Determine which bucket to use
+		// A custom key takes precedence over IP lookup; with neither, all
+		// requests share the global bucket.
 		if cfg.KeyGenerator != nil {
 			// Use custom key generator
 			key := cfg.KeyGenerator(c)

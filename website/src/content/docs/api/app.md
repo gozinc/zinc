@@ -1,130 +1,113 @@
 ---
-title: App
-description: The primary Zinc application type and its lifecycle, routing, and introspection APIs.
+title: Application
+description: Reference for zinc.App, covering construction, routing, middleware, files, error routes, introspection, and server lifecycle.
 ---
 
-`App` is Zinc’s main application type.
-
-## Create an app
+`*zinc.App` is the application. It registers routes and middleware, and it is an `http.Handler`, so it runs on any `http.Server`.
 
 ```go
-app := zinc.New()
-app := zinc.NewWithConfig(zinc.Config{StrictRouting: true})
+app := zinc.New()                     // zinc.DefaultConfig
+
+cfg := zinc.DefaultConfig
+cfg.StrictRouting = true
+app = zinc.NewWithConfig(cfg)         // custom configuration
 ```
 
-## Core responsibilities
+## Routes
 
-`App` is responsible for:
-
-- route registration
-- middleware registration
-- mounting sub-handlers
-- lifecycle methods such as `Listen`, `Serve`, and `Shutdown`
-- route introspection and named route lookup
-
-## Common methods
-
-| Method | Purpose |
+| Method | Registers |
 |---|---|
-| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Register routes |
-| `Add`, `Match`, `All`, `Any` | Register source-defined routes more generically |
-| `Handle`, `TryHandle` | Register named source or runtime-defined routes |
-| `Use`, `UsePrefix`, `UseHTTP` | Register Zinc or standard `net/http` middleware |
-| `Group`, `Route` | Create grouped route trees |
-| `HandleHTTP`, `Mount` | Integrate stdlib or external handlers |
-| `Static`, `StaticFS`, `File`, `FileFS` | Serve files and directories |
-| `NotFound`, `RouteNotFound`, `MethodNotAllowed` | Customize error routing |
-| `Routes`, `FindRoute`, `RouteByName`, `URL` | Inspect routes and generate URLs |
-| `Listen`, `ListenTLS`, `Serve`, `Shutdown` | Run and stop the app |
+| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` `(path, handlers...)` | A route for that method |
+| `Add(method, path, handlers...)` | A route for any method, including custom ones |
+| `Match(methods, path, handlers...)` | The same chain for several methods |
+| `All(path, handlers...)`, `Any` | The same chain for every standard method |
+| `Handle(spec RouteSpec)` | A route described by a struct, optionally named. Panics on an invalid spec. |
+| `TryHandle(spec RouteSpec) error` | The same, returning an error instead of panicking |
+| `HandleHTTP(pattern, http.Handler)` | A standard handler, with a `"METHOD /path"` pattern |
 
-Route methods accept a handler chain. Middleware goes before the final handler.
+Every method accepts a chain: middleware first, then the handler. Invalid or conflicting patterns panic at registration. See [Routing](/guide/routing/).
 
 ```go
-app.Post("/posts", authUser, requireRole("editor"), createPost)
-```
-
-Every route method accepts typed `HandlerFunc` values. Responses stay explicit in the handler:
-
-```go
-app.Get("/health", func(c *zinc.Context) error {
-	return c.String("ok")
-})
-```
-
-Register an ordinary `http.Handler` directly with a method and route pattern:
-
-```go
-app.HandleHTTP("GET /metrics", promhttp.Handler())
-```
-
-The package-level `zinc.Wrap` and `zinc.WrapFunc` adapters convert standard
-handlers into a Zinc `HandlerFunc` when a handler chain needs one.
-
-Wrap the complete application in standard Go middleware with `UseHTTP`:
-
-```go
-app.UseHTTP(requestTracing, authenticateRequest)
-```
-
-Standard middleware runs outside Zinc application, group, and route middleware.
-
-## Named route registration
-
-Use `Handle(RouteSpec)` when you want route naming and reverse URL generation. Source-defined routes fail immediately if the declaration is invalid or conflicts with an existing route.
-
-```go
-app.Handle(zinc.RouteSpec{
-	Name:    "users.show",
-	Method:  zinc.MethodGet,
-	Path:    "/users/{id}",
-	Handler: showUser,
-})
-```
-
-When a route pattern comes from configuration, a plugin, or another runtime source, use `TryHandle` and handle the error explicitly:
-
-```go
-if err := app.TryHandle(zinc.RouteSpec{
-	Method:  zinc.MethodGet,
-	Path:    patternFromConfig,
-	Handler: showUser,
-}); err != nil {
-	return err
+type RouteSpec struct {
+	Name    string      // optional; enables URL generation
+	Method  string
+	Path    string
+	Handler HandlerFunc
 }
 ```
 
+## Groups and middleware
+
+| Method | Purpose |
+|---|---|
+| `Group(prefix, middleware...) *Group` | Routes that share a prefix and middleware |
+| `Route(prefix, fn func(*Group), middleware...) *Group` | The same, declared in a nested block |
+| `Use(middleware...)` | Middleware for every request |
+| `UsePrefix(prefix, middleware...)` | Middleware for requests under a prefix, before routing |
+| `UseHTTP(func(http.Handler) http.Handler...)` | Standard middleware around the whole app |
+| `Mount(prefix, http.Handler)` | A handler that owns a subtree; receives paths without the prefix |
+
+See [Groups and Middleware](/guide/groups-and-middleware/) for execution order.
+
+## Files
+
+| Method | Serves |
+|---|---|
+| `Static(prefix, dir, opts...) error` | A directory from disk |
+| `StaticFS(prefix, fs.FS, opts...) error` | A directory from any filesystem, such as `embed.FS` |
+| `File(path, file) error` | One file from disk |
+| `FileFS(path, name, fs.FS) error` | One file from a filesystem |
+
+Options: `zinc.WithStaticIndex(name)` and `zinc.WithStaticBrowse(bool)`. See [Static Files](/guide/static-files/).
+
+## Error routes
+
+| Method | Replaces |
+|---|---|
+| `NotFound(handler)` | The app-wide `404` response |
+| `MethodNotAllowed(handler)` | The app-wide `405` response |
+| `RouteNotFound(pattern, handlers...)` | The `404` response below a prefix, such as `/api/{tail...}` |
+
 ## Introspection
 
-```go
-routes := app.Routes()
-route, ok := app.FindRoute("GET", "/users/42")
-named, ok := app.RouteByName("users.show")
-url, err := app.URL("users.show", "42")
-```
-
-`Routes()` returns `RouteInfo` values containing:
-
-- `Name`
-- `Method`
-- `Path`
-- `Params`
-- `Mounted`
-- `Handler`
-
-## Advanced lifecycle helpers
-
-`Listen` is the shortest way to start an app. With no address, it listens on `:8080`.
+| Method | Returns |
+|---|---|
+| `Routes() []RouteInfo` | Every route and mount, in registration order |
+| `RoutesByMethod(method) []RouteInfo` | Routes for one method |
+| `RoutesByPrefix(prefix) []RouteInfo` | Routes below a prefix |
+| `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request |
+| `RouteByName(name) (RouteInfo, bool)` | A named route |
+| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Segment values are escaped; a catch-all value is inserted as given. |
 
 ```go
-app.Listen()
-app.Listen(":3000")
+type RouteInfo struct {
+	Name    string
+	Method  string
+	Path    string   // the registered pattern
+	Params  []string // parameter names, in order
+	Mounted bool     // true for Mount, Static, and StaticFS
+	Handler string   // the handler's function name
+}
 ```
 
-Most apps do not need these directly, but Zinc exposes:
+## Server lifecycle
 
-- `AcquireContext`
-- `ReleaseContext`
+| Method | Purpose |
+|---|---|
+| `Listen(addr...) error` | Serve HTTP; the address defaults to `:8080` |
+| `ListenTLS(addr, certFile, keyFile) error` | Serve HTTPS |
+| `Serve(net.Listener) error` | Serve on a listener you created |
+| `Shutdown(ctx) error` | Stop accepting connections and wait for in-flight requests |
+| `ServeHTTP(w, r)`, `Handler()` | Use the app as an `http.Handler` |
 
-They are useful for adapters, framework integration, and low-level tests.
+`Listen`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `Shutdown` in a complete program.
 
-For normal applications, register routes and let Zinc manage context lifecycle.
+## Adapters
+
+`AcquireContext(w, r) *Context` and `ReleaseContext(c)` create and recycle a context outside normal dispatch. They exist for adapters and low-level tests; applications do not need them.
+
+## Related
+
+- [Group](/api/group/) has the same routing methods, scoped to a prefix.
+- [Context](/api/context/) is what every handler receives.
+- [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#App) has the generated reference.

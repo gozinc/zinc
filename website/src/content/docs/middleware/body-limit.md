@@ -3,7 +3,7 @@ title: Body Limit
 description: Reject oversized request bodies before handlers consume them.
 ---
 
-`BodyLimit` protects endpoints from unexpectedly large request bodies.
+`BodyLimit` rejects request bodies over a size you choose with `413 Request Entity Too Large`, before handlers read them. Use it to set a tighter limit on particular routes than the app-wide `Config.BodyLimit`, which binding already enforces.
 
 ## Quick start
 

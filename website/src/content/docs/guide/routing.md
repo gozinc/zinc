@@ -1,186 +1,117 @@
 ---
 title: Routing
-description: Register routes, use params and wildcards, group APIs, and generate URLs from named routes.
+description: Register routes, capture path parameters and wildcards, understand matching precedence, and handle 404 and 405 responses.
 ---
 
-Routing in Zinc is intentionally straightforward:
-
-- use `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, and `Trace`
-- fall back to `Add`, `Match`, `All`, or `Any` for broader patterns
-- use groups to apply prefixes and middleware once
-
-## At a glance
+A route pairs an HTTP method and a path pattern with a handler chain. Zinc uses the brace syntax from Go 1.22's `net/http`, so patterns look the same whether a Zinc handler or a standard handler serves them.
 
 ```go
-app.Get("/users/{id}", showUser)
+app.Get("/users", listUsers)
 app.Post("/users", createUser)
-
-api := app.Group("/api")
-api.Get("/health", health)
+app.Get("/users/{id}", showUser)
+app.Get("/assets/{path...}", serveAsset)
 ```
 
-Use method helpers for normal routes, params for path values, wildcards for trailing captures, and groups when routes share a prefix or middleware.
+## Methods
 
-## Basic routes
+Each common method has a helper: `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, and `Trace`.
 
 ```go
-app.Get("/", func(c *zinc.Context) error {
-	return c.String("ok")
-})
-
-app.Post("/users", createUser)
 app.Put("/users/{id}", updateUser)
 app.Delete("/users/{id}", deleteUser)
 ```
 
-For custom methods or more dynamic registration:
+For anything else, name the methods yourself:
 
 ```go
-app.Add("PURGE", "/cache/{key}", purgeCache)
-app.Match([]string{zinc.MethodGet, zinc.MethodHead}, "/health", healthHandler)
+app.Add("PURGE", "/cache/{key}", purgeCache)                   // one custom method
+app.Match([]string{zinc.MethodGet, zinc.MethodHead}, "/ping", ping) // a chosen set
+app.All("/echo", echo)                                         // every standard method
 ```
 
-## Route params
+## Path parameters
 
-Zinc supports named params and wildcard captures.
+A `{name}` segment captures exactly one non-empty path segment. Read it with `c.Param`.
 
 ```go
-app.Get("/users/{id}", func(c *zinc.Context) error {
-	return c.String(c.Param("id"))
-})
-
-app.Get("/assets/{tail...}", func(c *zinc.Context) error {
-	return c.String(c.Param("tail"))
+app.Get("/teams/{team}/users/{user}", func(c *zinc.Context) error {
+	return c.JSON(zinc.Map{
+		"team": c.Param("team"),
+		"user": c.Param("user"),
+	})
 })
 ```
 
-Route patterns are structural: static segments, `{name}` parameters, and a final
-`{name...}` wildcard. Validate numeric IDs, slugs, and other formats in binding or
-application code rather than embedding regular expressions in the route.
+Parameters are strings. Convert and validate them in the handler, or [bind](/guide/binding/) them into a typed struct with `path:"team"` tags. Zinc deliberately has no regex constraints in patterns.
 
-### Route pattern grammar
+## Wildcards
 
-Zinc uses the path wildcard syntax introduced by Go 1.22's `net/http` router.
-It deliberately supports a small path-only subset:
+A final `{name...}` segment captures the rest of the path, including slashes. It can also be empty.
+
+```go
+app.Get("/files/{path...}", func(c *zinc.Context) error {
+	return c.String(c.Param("path")) // "/files/css/app.css" gives "css/app.css"
+})
+```
+
+## Matching rules
+
+When more than one route could match a request, Zinc picks the most specific one, segment by segment:
+
+1. **Static segments** win over parameters: `/users/me` beats `/users/{id}`.
+2. **Parameters** win over wildcards: `/files/{name}` beats `/files/{path...}`.
+
+A few more rules round out the behavior:
+
+- **Case.** Literal segments ignore case by default, so `/Users` matches `/users`. Captured values keep their original case. Set `CaseSensitive` to change this.
+- **Trailing slashes.** `/users` and `/users/` are the same route by default. Set `StrictRouting` to treat them as different.
+- **Encoding.** Matching uses `Request.URL.Path`, the decoded path.
+- **Conflicts.** Parameter names do not make routes distinct: `/users/{id}` and `/users/{name}` conflict for the same method.
+
+:::tip[Try it on the homepage]
+The route matcher on the [Zinc homepage](/) runs these rules live. Type a path and see which route wins and why.
+:::
+
+### Pattern grammar
 
 ```text
 pattern   = "/" [ segment { "/" segment } ]
 segment   = literal | parameter | catch-all
 parameter = "{" identifier "}"
-catch-all = "{" identifier "...}"  // final segment only
+catch-all = "{" identifier "...}"   ; final segment only
 ```
 
-An identifier may contain Unicode letters, digits, and underscores, but cannot
-be empty or begin with a digit. Parameters must occupy a complete path segment,
-and a name can appear only once in a pattern.
+An identifier contains letters, digits, and underscores, and cannot start with a digit. A parameter must fill a whole segment, and each name can appear only once per pattern.
 
-| Pattern | Meaning |
-|---|---|
-| `/users` | Static path |
-| `/users/{id}` | One non-empty segment |
-| `/files/{path...}` | The remaining path, including an empty value for `/files/` |
+Some `net/http` pattern features are intentionally not supported: method or host prefixes inside ordinary route paths, the `{$}` end marker, and `ServeMux`'s overlap resolution. `HandleHTTP("GET /users/{id}", h)` accepts a method prefix because the method is split off before matching.
 
-Static routes take priority over parameters, and parameters take priority over
-catch-alls. Parameter names do not distinguish otherwise identical patterns, so
-`/users/{id}` and `/users/{name}` conflict for the same method.
+### Invalid patterns fail at startup
 
-The default configuration is case-insensitive and non-strict. Literal route
-segments are compared without case, while captured values keep their original
-case. `/users` and `/users/` are treated as the same path unless
-`StrictRouting` is enabled.
-
-Zinc matches `Request.URL.Path`. It does not use `URL.RawPath`, so an encoded
-slash decoded into `URL.Path` participates in path segmentation.
-
-The following `net/http` pattern features are not supported:
-
-- method or host prefixes inside ordinary route paths
-- the `{$}` end marker
-- regular-expression parameters
-- `ServeMux` specificity and overlap resolution
-
-Use `HandleHTTP("GET /users/{id}", handler)` when registering a native handler.
-Its method and path are separated before the same Zinc path grammar is applied.
-
-:::caution[Registration failures]
-Invalid or legacy patterns fail during registration. Source-defined declarations panic at startup so a malformed route cannot remain hidden until its first request.
+Bad patterns panic when they are registered, so a mistake stops the program at boot instead of hiding until the first request.
 
 ```text
 /users/:id             use /users/{id}
 /files/*path           use /files/{path...}
-/users/prefix-{id}     parameters must occupy a complete segment
-/files/{path...}/meta  catch-alls must be final
-/users/{id}/{id}       names must be unique
-```
-:::
-
-### Migrating from Zinc 0.1
-
-Zinc 0.2 uses one route syntax and does not keep compatibility aliases:
-
-| Zinc 0.1 | Zinc 0.2 |
-|---|---|
-| `/users/:id` | `/users/{id}` |
-| `/files/*path` | `/files/{path...}` |
-| `/users/:id<\\d+>` | `/users/{id}` plus validation in the handler or binder |
-
-The panic message points to the equivalent Zinc 0.2 form.
-
-## Named routes and reverse URLs
-
-For application tooling, URL generation, and link building, use `RouteSpec`.
-
-```go
-app.Handle(zinc.RouteSpec{
-	Name:    "users.show",
-	Method:  zinc.MethodGet,
-	Path:    "/users/{id}",
-	Handler: showUser,
-})
+/users/prefix-{id}     a parameter must fill a whole segment
+/files/{path...}/meta  a catch-all must be last
+/users/{id}/{id}       parameter names must be unique
 ```
 
-Route declarations written in source fail fast on invalid patterns and conflicts. For patterns loaded from configuration or plugins, use the error-returning form:
-
-```go
-if err := app.TryHandle(zinc.RouteSpec{
-	Method:  zinc.MethodGet,
-	Path:    patternFromConfig,
-	Handler: showUser,
-}); err != nil {
-	return err
-}
-```
-
-Generate URLs later with the route name:
-
-```go
-url, err := app.URL("users.show", "42")
-// /users/42
-```
-
-You can also inspect route metadata:
-
-```go
-route, ok := app.RouteByName("users.show")
-```
+When patterns come from configuration or plugins, use [`TryHandle`](#routes-from-configuration) to get an error instead of a panic.
 
 ## Groups
 
-Groups let you apply prefixes and middleware once.
+A group shares a path prefix and middleware across related routes.
 
 ```go
 api := app.Group("/api", requireAPIKey)
 v1 := api.Group("/v1")
 
-v1.Get("/users/{id}", showUser)
+v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}, runs requireAPIKey first
 v1.Post("/users", createUser)
 ```
 
-The same API exists on nested groups, including `Handle`, `Static`, `Mount`, and `RouteNotFound`.
-
-## Route blocks
-
-Use `Route` when you want a clear nested declaration block.
+`Route` does the same with a nested block, which some teams find easier to scan:
 
 ```go
 app.Route("/api", func(api *zinc.Group) {
@@ -191,62 +122,98 @@ app.Route("/api", func(api *zinc.Group) {
 }, requireAPIKey)
 ```
 
-## Route-scoped 404 handling
+[Groups and Middleware](/guide/groups-and-middleware/) covers ordering and scoping in detail.
 
-Zinc supports app-wide and prefix-scoped not-found flows.
+## Not found and method not allowed
+
+Zinc answers routing misses with the right status:
+
+| Request | Default response |
+|---|---|
+| No route matches the path | `404 Not Found` |
+| The path exists, but not for this method | `405 Method Not Allowed` with an `Allow` header |
+| `OPTIONS` for a known path | `204 No Content` with an `Allow` header |
+| `HEAD` for a path with a `GET` route | The `GET` handler runs, without a body |
+
+The last three come from the `HandleMethodNotAllowed`, `AutoOptions`, and `AutoHead` settings, all on by default in [`zinc.DefaultConfig`](/guide/configuration/).
+
+Replace the responses app-wide:
 
 ```go
-app.RouteNotFound("/api/{tail...}", func(c *zinc.Context) error {
-	return c.Status(zinc.StatusNotFound).JSON(zinc.Map{
-		"error": "unknown api route",
-	})
+app.NotFound(func(c *zinc.Context) error {
+	return c.Status(zinc.StatusNotFound).JSON(zinc.Map{"error": "not found"})
+})
+
+app.MethodNotAllowed(func(c *zinc.Context) error {
+	return c.Status(zinc.StatusMethodNotAllowed).JSON(zinc.Map{"error": "method not allowed"})
 })
 ```
 
-This is useful for APIs that should return structured JSON in one subtree while leaving the rest of the app with different not-found behavior.
+Or only below a prefix, for example to keep API misses in JSON while the rest of the site serves HTML:
+
+```go
+app.RouteNotFound("/api/{tail...}", func(c *zinc.Context) error {
+	return c.Status(zinc.StatusNotFound).JSON(zinc.Map{"error": "unknown api route"})
+})
+```
+
+## Named routes and URLs
+
+Give a route a name to build its URL elsewhere without hard-coding paths.
+
+```go
+app.Handle(zinc.RouteSpec{
+	Name:    "users.show",
+	Method:  zinc.MethodGet,
+	Path:    "/users/{id}",
+	Handler: showUser,
+})
+
+url, err := app.URL("users.show", "42") // "/users/42"
+```
+
+### Routes from configuration
+
+`Handle` panics on an invalid spec, like every source-defined route. For patterns you do not control, `TryHandle` returns the error instead:
+
+```go
+if err := app.TryHandle(zinc.RouteSpec{
+	Method:  zinc.MethodGet,
+	Path:    patternFromConfig,
+	Handler: showUser,
+}); err != nil {
+	return fmt.Errorf("register route: %w", err)
+}
+```
 
 ## Standard library handlers
 
-Register a standard handler at one endpoint with `HandleHTTP`:
+Any `http.Handler` can serve a route, and it reads parameters with `r.PathValue`:
 
 ```go
 app.HandleHTTP("GET /metrics", promhttp.Handler())
-```
 
-The handler can read brace parameters through `r.PathValue`.
-
-```go
 app.HandleHTTP("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, r.PathValue("id"))
 }))
+
+app.Mount("/legacy", legacyMux) // owns everything below /legacy
 ```
 
-Zinc handlers use `c.Param("id")`. `PathValue` is populated when control crosses
-into a standard handler through `HandleHTTP` or `Wrap`, keeping the ordinary Zinc
-route path minimal.
+See [Zinc and net/http](/guide/http-interoperability/) for the details.
 
-Use `Mount` when a standard handler owns a whole subtree.
+## Inspecting routes
+
+Route metadata stays available for tests, debug pages, and tooling.
 
 ```go
-app.Mount("/debug", http.DefaultServeMux)
+all := app.Routes()                                     // every route, in registration order
+users := app.RoutesByPrefix("/users")                   // one subtree
+route, ok := app.FindRoute(zinc.MethodGet, "/users/42") // what would serve this request
 ```
 
-Mounted handlers also show up in route introspection with `Mounted: true`.
+## Next steps
 
-## Introspection helpers
-
-Zinc keeps route metadata available for tooling and diagnostics.
-
-```go
-routes := app.Routes()
-users := app.RoutesByPrefix("/users")
-route, ok := app.FindRoute(zinc.MethodGet, "/users/42")
-```
-
-Use these helpers for tests, debug pages, generated route tables, and application tooling.
-
-## See also
-
-- [Groups and Middleware](/guide/groups-and-middleware/) for composing route trees.
-- [Context](/guide/context/) for reading params and query values in handlers.
-- [App API](/api/app/) for method-level route registration details.
+- [Groups and Middleware](/guide/groups-and-middleware/) for scoping behavior to route families.
+- [Request Data](/guide/request/) for everything you can read from a request.
+- [Application API](/api/app/) for the complete method list.

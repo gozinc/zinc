@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -9,12 +12,16 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// HeaderUberTraceID is Jaeger's legacy propagation header.
 const HeaderUberTraceID = "Uber-Trace-Id"
 
+// JaegerObserver receives completed span data.
 type JaegerObserver func(*zinc.Context, JaegerSpan) error
 
+// JaegerOperationName derives a span operation name.
 type JaegerOperationName func(*zinc.Context) string
 
+// JaegerConfig controls lightweight Jaeger-compatible trace observation.
 type JaegerConfig struct {
 	Skipper   func(*zinc.Context) bool
 	Observe   JaegerObserver
@@ -22,6 +29,7 @@ type JaegerConfig struct {
 	Now       func() time.Time
 }
 
+// JaegerSpan contains propagation and timing data for one request.
 type JaegerSpan struct {
 	TraceID      string
 	SpanID       string
@@ -37,10 +45,13 @@ type jaegerContextKey int
 
 const jaegerSpanContextKey jaegerContextKey = iota
 
+// Jaeger observes Jaeger-compatible request spans.
 func Jaeger(observer JaegerObserver) zinc.Middleware {
 	return JaegerWithConfig(JaegerConfig{Observe: observer})
 }
 
+// JaegerWithConfig observes spans but does not export them itself; the observer
+// owns integration with a tracing backend.
 func JaegerWithConfig(config JaegerConfig) zinc.Middleware {
 	cfg := resolveJaegerConfig(config)
 	now := cfg.Now
@@ -67,6 +78,7 @@ func JaegerWithConfig(config JaegerConfig) zinc.Middleware {
 	}
 }
 
+// JaegerCurrent returns the request span snapshot stored before observation.
 func JaegerCurrent(c *zinc.Context) (JaegerSpan, bool) {
 	if c == nil {
 		return JaegerSpan{}, false

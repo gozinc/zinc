@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -17,12 +20,14 @@ import (
 )
 
 var (
+	// CSRF errors are stable sentinels for custom policy and telemetry.
 	ErrCSRFTokenMissing      = errors.New("zinccsrf: request token missing")
 	ErrCSRFCookieMissing     = errors.New("zinccsrf: csrf cookie missing")
 	ErrCSRFTokenInvalid      = errors.New("zinccsrf: request token invalid")
 	ErrCSRFFetchSiteRejected = errors.New("zinccsrf: request rejected by fetch metadata")
 )
 
+// CSRFReason classifies why a request failed validation.
 type CSRFReason string
 
 const (
@@ -32,6 +37,7 @@ const (
 	CSRFReasonFetchSiteRejected CSRFReason = "fetch_site_rejected"
 )
 
+// CSRFFetchSite represents a normalized Sec-Fetch-Site value.
 type CSRFFetchSite string
 
 const (
@@ -41,14 +47,19 @@ const (
 	CSRFFetchSiteNone       CSRFFetchSite = "none"
 )
 
+// CSRFReader extracts candidate request tokens.
 type CSRFReader func(*zinc.Context) ([]string, error)
 
+// CSRFGenerator creates a new token value.
 type CSRFGenerator func(*zinc.Context) (string, error)
 
+// CSRFErrorHandler maps a CSRF violation to a handler error or response.
 type CSRFErrorHandler func(*zinc.Context, error) error
 
+// CSRFFetchSiteDecider decides whether fetch metadata permits a request.
 type CSRFFetchSiteDecider func(*zinc.Context, CSRFDecision) (bool, error)
 
+// CSRFCookie controls the double-submit token cookie.
 type CSRFCookie struct {
 	Name     string
 	Domain   string
@@ -59,12 +70,14 @@ type CSRFCookie struct {
 	SameSite http.SameSite
 }
 
+// CSRFDecision describes fetch-metadata information for policy decisions.
 type CSRFDecision struct {
 	Site    CSRFFetchSite
 	Origin  string
 	Trusted bool
 }
 
+// CSRFState records token issuance or verification for the current request.
 type CSRFState struct {
 	Token      string
 	CookieName string
@@ -73,6 +86,7 @@ type CSRFState struct {
 	FetchSite  CSRFFetchSite
 }
 
+// CSRFViolation preserves a machine-readable failure reason and context.
 type CSRFViolation struct {
 	Reason     CSRFReason
 	CookieName string
@@ -146,6 +160,7 @@ func (e *CSRFViolation) Is(target error) bool {
 	}
 }
 
+// CSRFConfig controls double-submit validation and fetch-metadata policy.
 type CSRFConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Readers        []CSRFReader
@@ -169,6 +184,7 @@ var csrfSafeMethods = map[string]struct{}{
 	http.MethodTrace:   {},
 }
 
+// DefaultCSRFConfig returns secure double-submit cookie defaults.
 func DefaultCSRFConfig() CSRFConfig {
 	return CSRFConfig{
 		Readers:    []CSRFReader{CSRFFromHeader(zinc.HeaderXCSRFToken)},
@@ -182,10 +198,13 @@ func DefaultCSRFConfig() CSRFConfig {
 	}
 }
 
+// CSRF returns middleware using DefaultCSRFConfig.
 func CSRF() zinc.Middleware {
 	return CSRFWithConfig(DefaultCSRFConfig())
 }
 
+// CSRFWithConfig issues tokens on safe methods and requires a constant-time
+// cookie/request-token match on unsafe methods. Cookies alone are never proof.
 func CSRFWithConfig(config CSRFConfig) zinc.Middleware {
 	cfg := resolveCSRFConfig(config)
 
@@ -238,6 +257,7 @@ func CSRFWithConfig(config CSRFConfig) zinc.Middleware {
 	}
 }
 
+// CSRFFromHeader reads token candidates from a request header.
 func CSRFFromHeader(header string) CSRFReader {
 	header = textproto.CanonicalMIMEHeaderKey(header)
 
@@ -260,6 +280,7 @@ func CSRFFromHeader(header string) CSRFReader {
 	}
 }
 
+// CSRFFromQuery reads a token from a query parameter.
 func CSRFFromQuery(name string) CSRFReader {
 	return func(c *zinc.Context) ([]string, error) {
 		values := c.QueryValues()[name]
@@ -274,6 +295,7 @@ func CSRFFromQuery(name string) CSRFReader {
 	}
 }
 
+// CSRFFromForm reads a token from URL-encoded or multipart form input.
 func CSRFFromForm(name string) CSRFReader {
 	return func(c *zinc.Context) ([]string, error) {
 		req := c.Request()
@@ -312,6 +334,8 @@ func CSRFFromForm(name string) CSRFReader {
 	}
 }
 
+// CSRFFromFirst tries token sources in order. A source may return multiple
+// candidates; verification succeeds when any candidate matches the cookie.
 func CSRFFromFirst(readers ...CSRFReader) CSRFReader {
 	list := compactCSRFReaders(readers)
 
@@ -335,6 +359,7 @@ func CSRFFromFirst(readers ...CSRFReader) CSRFReader {
 	}
 }
 
+// CSRFCurrent returns CSRF state for the current request.
 func CSRFCurrent(c *zinc.Context) (CSRFState, bool) {
 	if c == nil {
 		return CSRFState{}, false
@@ -347,6 +372,7 @@ func CSRFCurrent(c *zinc.Context) (CSRFState, bool) {
 	return state, ok
 }
 
+// MustCSRFCurrent returns CSRF state or panics when middleware did not set it.
 func MustCSRFCurrent(c *zinc.Context) CSRFState {
 	state, ok := CSRFCurrent(c)
 	if !ok {
@@ -355,6 +381,7 @@ func MustCSRFCurrent(c *zinc.Context) CSRFState {
 	return state
 }
 
+// CSRFToken returns the issued or verified token.
 func CSRFToken(c *zinc.Context) (string, bool) {
 	state, ok := CSRFCurrent(c)
 	if !ok {
@@ -363,6 +390,7 @@ func CSRFToken(c *zinc.Context) (string, bool) {
 	return state.Token, true
 }
 
+// MustCSRFToken returns the token or panics when it is absent.
 func MustCSRFToken(c *zinc.Context) string {
 	token, ok := CSRFToken(c)
 	if !ok {
@@ -518,6 +546,8 @@ func verifyCSRFRequestToken(c *zinc.Context, readers []CSRFReader, token string)
 		}
 
 		foundCandidate = true
+		// Compare every supplied representation without normalizing the token;
+		// transformations here could make distinct credentials equivalent.
 		for _, value := range values {
 			if subtle.ConstantTimeCompare([]byte(token), []byte(value)) == 1 {
 				return nil

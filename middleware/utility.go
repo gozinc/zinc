@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -7,6 +10,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// NoCache applies conservative headers that disable browser and intermediary caches.
 func NoCache() zinc.Middleware {
 	return func(c *zinc.Context) error {
 		c.SetHeader(zinc.HeaderCacheControl, "no-cache, no-store, max-age=0, must-revalidate")
@@ -16,6 +20,7 @@ func NoCache() zinc.Middleware {
 	}
 }
 
+// Heartbeat answers path with 204 without invoking downstream handlers.
 func Heartbeat(path string) zinc.Middleware {
 	if path == "" {
 		path = "/"
@@ -28,6 +33,8 @@ func Heartbeat(path string) zinc.Middleware {
 	}
 }
 
+// RealIP replaces RemoteAddr with Context.IP. Its safety therefore depends on
+// Config.TrustedProxies being configured correctly.
 func RealIP() zinc.Middleware {
 	return func(c *zinc.Context) error {
 		if ip := c.IP(); ip != "" && c.Request() != nil {
@@ -37,6 +44,7 @@ func RealIP() zinc.Middleware {
 	}
 }
 
+// Throttle bounds concurrent downstream requests and rejects excess work.
 func Throttle(limit int) zinc.Middleware {
 	if limit <= 0 {
 		panic("zincthrottle: limit must be greater than zero")
@@ -53,6 +61,7 @@ func Throttle(limit int) zinc.Middleware {
 	}
 }
 
+// Maybe applies mw only when predicate succeeds.
 func Maybe(predicate func(*zinc.Context) bool, mw zinc.Middleware) zinc.Middleware {
 	if predicate == nil {
 		panic("zincmaybe: predicate is required")
@@ -68,6 +77,7 @@ func Maybe(predicate func(*zinc.Context) bool, mw zinc.Middleware) zinc.Middlewa
 	}
 }
 
+// AllowContentType rejects request media types outside the normalized allowlist.
 func AllowContentType(types ...string) zinc.Middleware {
 	allowed := mediaTypeSet(types)
 	return func(c *zinc.Context) error {
@@ -78,6 +88,7 @@ func AllowContentType(types ...string) zinc.Middleware {
 	}
 }
 
+// AllowContentEncoding rejects any content coding outside the allowlist.
 func AllowContentEncoding(encodings ...string) zinc.Middleware {
 	allowed := stringSet(encodings)
 	return func(c *zinc.Context) error {
@@ -98,6 +109,7 @@ func AllowContentEncoding(encodings ...string) zinc.Middleware {
 	}
 }
 
+// SetHeader sets one response header before downstream execution.
 func SetHeader(key, value string) zinc.Middleware {
 	return func(c *zinc.Context) error {
 		c.SetHeader(key, value)
@@ -105,12 +117,14 @@ func SetHeader(key, value string) zinc.Middleware {
 	}
 }
 
+// HeaderRoute conditionally selects middleware by request header.
 type HeaderRoute struct {
 	Header     string
 	Value      string
 	Middleware zinc.Middleware
 }
 
+// RouteHeaders applies the first matching rule.
 func RouteHeaders(rules ...HeaderRoute) zinc.Middleware {
 	compiled := make([]HeaderRoute, 0, len(rules))
 	for _, rule := range rules {

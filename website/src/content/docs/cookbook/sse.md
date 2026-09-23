@@ -3,6 +3,8 @@ title: Server-Sent Events
 description: Stream structured one-way events and flush each one to the browser.
 ---
 
+Server-sent events push a stream of updates from server to browser over one long-lived HTTP response. They are simpler than WebSockets when data flows only one way. This program sends the time every second until the client disconnects.
+
 ```go
 package main
 

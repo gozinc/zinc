@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -7,6 +10,7 @@ import (
 	"github.com/0mjs/zinc"
 )
 
+// SecureConfig controls defensive browser response headers.
 type SecureConfig struct {
 	Skipper                         func(*zinc.Context) bool
 	XSSProtection                   string
@@ -21,6 +25,7 @@ type SecureConfig struct {
 	PermissionsPolicy               string
 }
 
+// DefaultSecureConfig returns conservative browser-security headers without HSTS.
 func DefaultSecureConfig() SecureConfig {
 	return SecureConfig{
 		XSSProtection:             "0",
@@ -31,10 +36,13 @@ func DefaultSecureConfig() SecureConfig {
 	}
 }
 
+// Secure applies DefaultSecureConfig.
 func Secure() zinc.Middleware {
 	return SecureWithConfig(DefaultSecureConfig())
 }
 
+// SecureWithConfig applies configured security headers. HSTS is emitted only
+// for requests Zinc considers secure, including trusted-proxy scheme handling.
 func SecureWithConfig(config SecureConfig) zinc.Middleware {
 	cfg := resolveSecureConfig(config)
 

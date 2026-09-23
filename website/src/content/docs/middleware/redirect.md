@@ -3,7 +3,7 @@ title: Redirect
 description: Redirect exact or wildcard paths before route dispatch.
 ---
 
-`Redirect` maps a path to another path.
+`Redirect` sends clients from an old path to a new one, before routing. Use it for moved pages and renamed API prefixes.
 
 ```go
 app.Use(middleware.Redirect("/old", "/new"))

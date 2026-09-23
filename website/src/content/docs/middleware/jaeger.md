@@ -3,7 +3,7 @@ title: Jaeger
 description: Propagate Jaeger uber-trace-id headers and observe spans.
 ---
 
-`Jaeger` handles `Uber-Trace-Id` propagation without forcing a tracing dependency.
+`Jaeger` reads and continues Jaeger's `Uber-Trace-Id` header and reports a span for each request to a function you provide. It has no dependencies. For new systems, prefer [OpenTelemetry](/middleware/open-telemetry/).
 
 ```go
 app.Use(middleware.Jaeger(func(c *zinc.Context, span middleware.JaegerSpan) error {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -11,6 +14,8 @@ import (
 	"sync"
 )
 
+// bindingPlan is the immutable, type-specific description used by every bind
+// operation after the first request for a target type.
 type bindingPlan struct {
 	pathFields          []bindingField
 	queryFields         []bindingField
@@ -19,6 +24,8 @@ type bindingPlan struct {
 	headerFields        []bindingField
 }
 
+// bindingField keeps both the wire name and Go field label: the former locates
+// input while the latter makes conversion errors actionable.
 type bindingField struct {
 	index  int
 	name   string
@@ -26,6 +33,8 @@ type bindingField struct {
 	setter fieldSetter
 }
 
+// bindFieldError carries source and field attribution through the binder without
+// discarding the strconv or reflection error that caused the failure.
 type bindFieldError struct {
 	Source string
 	Field  string
@@ -55,6 +64,8 @@ func (e *bindFieldError) Unwrap() error {
 	return e.Err
 }
 
+// fieldSetter precompiles the reflection decisions needed to convert input. It
+// deliberately contains data only, so cached plans remain safe for concurrent use.
 type fieldSetter struct {
 	kind             fieldSetterKind
 	bits             int
@@ -63,6 +74,8 @@ type fieldSetter struct {
 	unsupportedSlice reflect.Type
 }
 
+// fieldSetterKind selects a conversion path without repeating reflect.Kind
+// switches for every request.
 type fieldSetterKind uint8
 
 const (
@@ -81,11 +94,17 @@ const (
 	fieldSetterUnsupportedSlice
 )
 
+// Binding plans are immutable and safe to share across requests. Compiling
+// reflection and conversion decisions once keeps the hot path predictable.
 var bindingPlanCache sync.Map
 
+// Cache the exact FileHeader types because other structs and pointers are not
+// valid multipart targets even when they have a similar shape.
 var multipartFileHeaderType = reflect.TypeOf(multipart.FileHeader{})
 var multipartFileHeaderPtrType = reflect.TypeOf((*multipart.FileHeader)(nil))
 
+// bindTargetPlan validates the public binding contract before any field is
+// touched: the target must be a non-nil pointer to a struct.
 func bindTargetPlan(ptr any) (reflect.Value, *bindingPlan, error) {
 	if ptr == nil {
 		return reflect.Value{}, nil, fmt.Errorf("binding target must not be nil")
@@ -109,6 +128,8 @@ func bindingPlanFor(typ reflect.Type) *bindingPlan {
 		return cached.(*bindingPlan)
 	}
 
+	// Two first requests may compile the same type concurrently. LoadOrStore
+	// accepts that small one-time duplication and avoids a global compilation lock.
 	plan := compileBindingPlan(typ)
 	actual, _ := bindingPlanCache.LoadOrStore(typ, plan)
 	return actual.(*bindingPlan)
@@ -118,10 +139,14 @@ func compileBindingPlan(typ reflect.Type) *bindingPlan {
 	plan := &bindingPlan{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		// Unexported fields cannot be set through reflection and must never be
+		// made writable with unsafe solely for binding convenience.
 		if field.PkgPath != "" {
 			continue
 		}
 
+		// One field may participate in several sources. The plan preserves that
+		// intentionally so Bind.All can apply its documented source precedence.
 		setter := compileFieldSetter(field.Type)
 		if compiled, ok := compileBindingField(i, field, setter, "path"); ok {
 			plan.pathFields = append(plan.pathFields, compiled)
@@ -161,9 +186,13 @@ func bindingFieldName(field reflect.StructField, tag string) (string, bool) {
 	if name == "-" {
 		return "", false
 	}
+	// Ignore comma options for compatibility with conventional Go struct tags;
+	// Zinc currently needs only the name portion.
 	if idx := strings.IndexByte(name, ','); idx >= 0 {
 		name = name[:idx]
 	}
+	// Untagged exported fields bind by their lower-cased Go name. A per-source
+	// "-" tag is the explicit opt-out.
 	if name == "" {
 		name = strings.ToLower(field.Name)
 	}
@@ -211,6 +240,8 @@ func compileFieldSetter(typ reflect.Type) fieldSetter {
 	default:
 		return fieldSetter{kind: fieldSetterUnsupportedKind, unsupportedKind: typ.Kind()}
 	}
+	// Preserve unsupported types in the plan instead of failing compilation.
+	// They should error only when request input actually targets that field.
 	return fieldSetter{kind: fieldSetterUnsupportedKind, unsupportedKind: typ.Kind()}
 }
 
@@ -227,6 +258,8 @@ func bindFieldsFromValues(val reflect.Value, fields []bindingField, values url.V
 	if len(fields) == 0 || len(values) == 0 {
 		return nil
 	}
+	// Scalar setters consume the first value; slice setters retain every value
+	// in transport order.
 	for _, field := range fields {
 		inputs, ok := values[field.name]
 		if !ok || len(inputs) == 0 {
@@ -243,6 +276,8 @@ func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.
 	if len(fields) == 0 || len(header) == 0 {
 		return nil
 	}
+	// Header.Values preserves repeated header lines and canonicalizes lookup via
+	// net/http rather than duplicating MIME header rules here.
 	for _, field := range fields {
 		inputs := header.Values(field.name)
 		if len(inputs) == 0 {
@@ -259,6 +294,8 @@ func bindFieldsFromMultipartFiles(val reflect.Value, fields []bindingField, file
 	if len(fields) == 0 || len(files) == 0 {
 		return nil
 	}
+	// File fields are kept separate from textual form fields so a filename can
+	// never be coerced through a string setter by accident.
 	for _, field := range fields {
 		inputs := files[field.name]
 		if len(inputs) == 0 {
@@ -275,6 +312,8 @@ func bindFieldsFromPath(val reflect.Value, fields []bindingField, c *Context) er
 	if len(fields) == 0 || c == nil || c.paramCount == 0 {
 		return nil
 	}
+	// Resolve parameters through Context so lazy router offsets remain an
+	// internal optimization rather than leaking into binding.
 	for _, field := range fields {
 		input, ok := c.lookupPathParam(field.name)
 		if !ok {
@@ -293,6 +332,8 @@ func (s fieldSetter) set(value reflect.Value, inputs []string) error {
 		return nil
 	}
 
+	// Conversion is strict: strconv bit sizes match the destination exactly and
+	// overflow is returned instead of truncating data.
 	switch s.kind {
 	case fieldSetterString:
 		value.SetString(inputs[0])
@@ -351,6 +392,8 @@ func (s fieldSetter) setFiles(value reflect.Value, files []*multipart.FileHeader
 		return nil
 	}
 
+	// Pointer targets reference FileHeaders owned by the parsed multipart form;
+	// value targets receive copies of those headers.
 	switch s.kind {
 	case fieldSetterFileHeaderValue:
 		value.Set(reflect.ValueOf(*files[0]).Convert(value.Type()))
@@ -375,6 +418,8 @@ func (s fieldSetter) setFiles(value reflect.Value, files []*multipart.FileHeader
 }
 
 func (c *Context) lookupPathParam(name string) (string, bool) {
+	// Registered radix routes carry a name-to-index table. Fall back to a linear
+	// scan only for manually populated or otherwise non-indexed parameters.
 	if route := c.paramRoute; route != nil {
 		if c.paramPath != "" && c.paramCount > 1 && len(route.paramIndices) > 0 {
 			c.materializePathParams()
@@ -406,6 +451,8 @@ func (c *Context) lookupPathParam(name string) (string, bool) {
 }
 
 func requestMediaType(header string) string {
+	// Binding dispatch needs only the media type. Charset and boundary parameters
+	// remain available on the request for the format-specific parser.
 	base, _, _ := strings.Cut(header, ";")
 	return strings.TrimSpace(base)
 }

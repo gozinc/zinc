@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package middleware
 
 import (
@@ -9,10 +12,13 @@ import (
 
 const defaultPprofPrefix = "/debug/pprof"
 
+// Pprof exposes the standard net/http/pprof handlers under /debug/pprof.
+// Protect or disable these endpoints in untrusted environments.
 func Pprof() zinc.Middleware {
 	return PprofWithPrefix(defaultPprofPrefix)
 }
 
+// PprofWithPrefix exposes the standard pprof handlers below prefix.
 func PprofWithPrefix(prefix string) zinc.Middleware {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {

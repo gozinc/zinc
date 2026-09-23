@@ -1,96 +1,126 @@
 ---
 title: Errors
-description: Return structured HTTP errors, short-circuit handlers cleanly, and customize error handling globally.
+description: Return HTTP errors from handlers, attach messages and metadata, and shape every error response in one place.
 ---
 
-Zinc uses normal Go error returns for handler failure flow.
-
-## At a glance
+Handlers and middleware fail by returning an error. Zinc sends every returned error to one error handler, which turns it into a response. Handlers stay short, and error responses stay consistent across the whole app.
 
 ```go
 app.Get("/users/{id}", func(c *zinc.Context) error {
-	user, err := findUser(c.Param("id"))
-	if err != nil {
+	user, err := users.Find(c.Context(), c.Param("id"))
+	if errors.Is(err, ErrUserNotFound) {
 		return zinc.ErrNotFound.WithMessage("user not found")
+	}
+	if err != nil {
+		return err
 	}
 	return c.JSON(user)
 })
 ```
 
-Return errors from handlers and middleware. Let one app-level error handler decide how errors become HTTP responses.
+## What the default handler sends
 
-## Returning errors
+| Returned error | Response |
+|---|---|
+| A Zinc HTTP error, such as `zinc.ErrNotFound` | Its status code, with its message as a plain-text body |
+| An error that wraps a Zinc HTTP error | The same, found with `errors.As` |
+| Any other error | `500 Internal Server Error`, without the error text |
 
-```go
-app.Get("/users/{id}", func(c *zinc.Context) error {
-	return zinc.ErrNotFound
-})
-```
+Unknown errors never leak their message to clients, so returning `err` straight from a database call is safe. It is just not very informative. Log it, or map it in a [custom handler](#a-custom-error-handler).
 
-If the returned error is an `HTTPError`, Zinc writes the associated status and message.
+## HTTP errors
 
-## Structured HTTP errors
+Zinc predefines an error for each HTTP status: `zinc.ErrBadRequest`, `zinc.ErrUnauthorized`, `zinc.ErrForbidden`, `zinc.ErrNotFound`, `zinc.ErrConflict`, `zinc.ErrUnprocessableEntity`, `zinc.ErrTooManyRequests`, `zinc.ErrInternalServerError`, and the rest. Create one for any code with `zinc.NewError(code)`.
 
-Build more specific errors with `WithMessage`, `WithCause`, `WithMeta`, and `WithHeader`.
+Each builder method returns a copy, so the shared values are never modified:
 
 ```go
 return zinc.ErrBadRequest.
-	WithMessage("invalid user payload").
-	WithCause(err).
-	WithMeta("field", "email")
+	WithMessage("email is invalid").     // client-facing text
+	WithCause(err).                      // the underlying error, for logs; never sent
+	WithMeta("field", "email").          // extra data for a custom handler
+	WithHeader("X-Error-Code", "E1042")  // a response header
 ```
 
-## Predefined errors
+The default handler sends the message and headers. `Meta` and `Cause` are for your own handler and logs.
 
-Zinc ships a broad set of predefined HTTP errors, including:
+## Stopping a middleware chain
 
-- `ErrBadRequest`
-- `ErrUnauthorized`
-- `ErrForbidden`
-- `ErrNotFound`
-- `ErrMethodNotAllowed`
-- `ErrUnprocessableEntity`
-- `ErrInternalServerError`
-
-You can also create your own with `NewError(code)`.
-
-## Abort helpers
-
-For explicit short-circuiting inside handlers or middleware:
-
-- `AbortWithStatus(code)`
-- `AbortWithJSON(code, value)`
-- `Fail(err)`
-
-Example:
+Middleware can stop a request by returning an error instead of calling `c.Next()`:
 
 ```go
-func requireAuth(c *zinc.Context) error {
-	if c.GetHeader("Authorization") == "" {
-		return c.AbortWithStatus(zinc.StatusUnauthorized)
+func requireAPIKey(c *zinc.Context) error {
+	if c.GetHeader("X-API-Key") == "" {
+		return zinc.ErrUnauthorized
 	}
 	return c.Next()
 }
 ```
 
-## Custom error handlers
+`c.AbortWithStatus(code)` is shorthand for returning `zinc.NewError(code)`. To stop with a body rather than an error, write the response and return its result: `return c.AbortWithJSON(zinc.StatusForbidden, body)`.
 
-Override Zinc’s default error writer with `Config.ErrorHandler`.
+## A custom error handler
+
+Replace the default handler to send JSON, log failures, or report them to an error tracker. This one gives every error the same envelope:
 
 ```go
-app := zinc.NewWithConfig(zinc.Config{
-	ErrorHandler: func(c *zinc.Context, err error) {
-		_ = c.Status(zinc.StatusInternalServerError).JSON(zinc.Map{
-			"error": err.Error(),
-		})
-	},
-})
+cfg := zinc.DefaultConfig
+cfg.ErrorHandler = func(c *zinc.Context, err error) {
+	status, message := zinc.StatusInternalServerError, "internal server error"
+
+	var httpErr *zinc.HTTPError
+	if errors.As(err, &httpErr) {
+		status, message = httpErr.Code, httpErr.Error()
+	} else {
+		slog.Error("request failed", "path", c.Path(), "err", err)
+	}
+
+	_ = c.Status(status).JSON(zinc.Map{"error": message})
+}
+app := zinc.NewWithConfig(cfg)
 ```
 
-That gives you one place to standardize API error envelopes.
+```bash
+curl -i http://localhost:8080/users/nope
+# HTTP/1.1 404 Not Found
+# Content-Type: application/json; charset=utf-8
+#
+# {"error":"user not found"}
+```
 
-## See also
+:::caution[Start from DefaultConfig]
+Copy `zinc.DefaultConfig` and change fields, as above. A bare `zinc.Config{...}` literal leaves `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed`, and the route cache switched off, because their zero values are `false` and `0`.
+:::
 
-- [Your First Route](/guide/first-route/) for a small returned-error example.
-- [Configuration](/guide/configuration/) for `Config.ErrorHandler`.
-- [Errors API](/api/errors/) for predefined HTTP errors.
+### Map binding errors to 400
+
+By default a failed bind becomes a `500`, because `*zinc.BindError` is not an HTTP error. Handle it once in the error handler, and handlers can return bind errors unchanged:
+
+```go
+cfg.ErrorHandler = func(c *zinc.Context, err error) {
+	status, message := zinc.StatusInternalServerError, "internal server error"
+
+	var httpErr *zinc.HTTPError
+	var bindErr *zinc.BindError
+	switch {
+	case errors.As(err, &httpErr): // check first: an oversized body is a BindError wrapping a 413
+		status, message = httpErr.Code, httpErr.Error()
+	case errors.As(err, &bindErr):
+		status, message = zinc.StatusBadRequest, "invalid "+bindErr.Source
+	default:
+		slog.Error("request failed", "path", c.Path(), "err", err)
+	}
+
+	_ = c.Status(status).JSON(zinc.Map{"error": message})
+}
+```
+
+## Panics
+
+Without help, Go's HTTP server catches a handler panic, logs it, and drops the connection, so the client gets no response at all. Add [Recover](/middleware/recover/) early in the middleware chain, and panics become `500` responses that flow through your error handler like any other error.
+
+## Next steps
+
+- [Binding](/guide/binding/) for the errors that binding and validation return.
+- [Recover](/middleware/recover/) for turning panics into errors.
+- [Errors API](/api/errors/) for the full `HTTPError` type.

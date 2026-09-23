@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
 package zinc
 
 import (
@@ -10,23 +13,28 @@ import (
 	texttemplate "text/template"
 )
 
+// Template renderer configuration and lookup errors.
 var (
 	ErrTemplateEngineNotConfigured = errors.New("template engine is not configured")
 	ErrTemplateNameRequired        = errors.New("template name is required")
 	ErrTemplateNotFound            = errors.New("template not found")
 )
 
+// TemplateExecutor is implemented by html/template and text/template sets.
 type TemplateExecutor interface {
 	ExecuteTemplate(w io.Writer, name string, data any) error
 }
 
+// TemplateRenderer adapts parsed templates to Zinc's Renderer contract.
 type TemplateRenderer struct {
 	Engine       TemplateExecutor
 	nameSuffixes []string
 }
 
+// TemplateRendererOption configures template name resolution.
 type TemplateRendererOption func(*TemplateRenderer)
 
+// NewTemplateRenderer wraps a parsed template set.
 func NewTemplateRenderer(engine TemplateExecutor, opts ...TemplateRendererOption) *TemplateRenderer {
 	renderer := &TemplateRenderer{
 		Engine: engine,
@@ -39,14 +47,17 @@ func NewTemplateRenderer(engine TemplateExecutor, opts ...TemplateRendererOption
 	return renderer
 }
 
+// NewHTMLTemplateRenderer wraps an html/template set.
 func NewHTMLTemplateRenderer(engine *htmltemplate.Template, opts ...TemplateRendererOption) *TemplateRenderer {
 	return NewTemplateRenderer(engine, opts...)
 }
 
+// NewTextTemplateRenderer wraps a text/template set.
 func NewTextTemplateRenderer(engine *texttemplate.Template, opts ...TemplateRendererOption) *TemplateRenderer {
 	return NewTemplateRenderer(engine, opts...)
 }
 
+// WithTemplateSuffixes configures fallback suffixes tried after an exact name.
 func WithTemplateSuffixes(suffixes ...string) TemplateRendererOption {
 	cleaned := cleanTemplateSuffixes(suffixes)
 	return func(renderer *TemplateRenderer) {
@@ -54,6 +65,7 @@ func WithTemplateSuffixes(suffixes ...string) TemplateRendererOption {
 	}
 }
 
+// Render executes the first matching exact or suffixed template name.
 func (r *TemplateRenderer) Render(w io.Writer, name string, data any, _ *Context) error {
 	if r == nil || r.Engine == nil {
 		return ErrTemplateEngineNotConfigured
@@ -124,6 +136,8 @@ func templateCandidates(name string, suffixes []string) []string {
 	return candidates
 }
 
+// lookupTemplateName uses an optional Lookup method when available. Engines
+// exposing only ExecuteTemplate retain compatibility through execution fallback.
 func lookupTemplateName(engine TemplateExecutor, candidates []string) (string, bool, bool) {
 	method := reflect.ValueOf(engine).MethodByName("Lookup")
 	if !method.IsValid() {

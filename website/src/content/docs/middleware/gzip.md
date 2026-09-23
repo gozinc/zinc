@@ -3,7 +3,7 @@ title: Gzip
 description: Compress responses for clients that accept gzip.
 ---
 
-`Gzip` compresses response bodies when the request includes `Accept-Encoding: gzip`.
+`Gzip` compresses responses for clients that send `Accept-Encoding: gzip`, which cuts transfer size for JSON and HTML considerably. Skip it when a CDN or reverse proxy in front of the app already compresses responses.
 
 ```go
 app.Use(middleware.Gzip())

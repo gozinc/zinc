@@ -3,7 +3,7 @@ title: Request ID
 description: Generate or propagate request IDs through X-Request-ID.
 ---
 
-`RequestID` keeps request IDs available through Zinc's normal context helpers.
+`RequestID` gives every request an ID and returns it in the `X-Request-ID` response header. Put it first in the chain so logs, errors, and upstream calls can all carry the same ID.
 
 ```go
 app.Use(middleware.RequestID())

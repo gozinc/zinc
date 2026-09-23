@@ -3,7 +3,7 @@ title: Casbin Auth
 description: Authorize requests with a Casbin-compatible enforcer.
 ---
 
-`CasbinAuth` adapts any value with this method:
+`CasbinAuth` checks each request against a [Casbin](https://casbin.org) policy and answers `403` when it is denied. It accepts any enforcer with this method, so Zinc does not depend on Casbin itself:
 
 ```go
 Enforce(args ...any) (bool, error)

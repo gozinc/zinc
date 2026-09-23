@@ -3,15 +3,22 @@ title: JWT
 description: Parse bearer tokens, validate claims, and expose token data to handlers.
 ---
 
-`JWT` extracts a token, parses it, validates it, and stores the token and claims on the Zinc context.
+`JWT` authenticates requests that carry a signed JSON Web Token. It reads the token, verifies the signature and standard claims such as expiry, and makes the claims available to handlers. Invalid or missing tokens get `401` with a `WWW-Authenticate` challenge.
 
 ## Quick start
 
 ```go
-app.Use(middleware.JWT(func(_ *zinc.Context, token *jwt.Token) (any, error) {
+api := app.Group("/api", middleware.JWT(func(_ *zinc.Context, token *jwt.Token) (any, error) {
+	if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		return nil, fmt.Errorf("unexpected signing method %v", token.Header["alg"])
+	}
 	return signingKey, nil
 }))
 ```
+
+:::caution[Pin the signing algorithm]
+Check `token.Method` in the key function, as above, or pass `ParserOptions: []jwt.ParserOption{jwt.WithValidMethods([]string{"HS256"})}` in `JWTConfig`. Accepting whatever algorithm the token names is a classic JWT vulnerability.
+:::
 
 ## Default extraction
 

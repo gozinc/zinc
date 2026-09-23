@@ -1,134 +1,29 @@
 ---
 title: Zinc
-description: A high-performance application layer for net/http.
+description: Galvanize net/http. The high-performance, minimalist web layer for Go.
 template: splash
 tableOfContents: false
+editUrl: false
+lastUpdated: false
 hero:
   tagline: " "
 head:
   - tag: title
-    content: Zinc — Fast Go APIs. Still net/http.
+    content: Zinc · Galvanize net/http
 ---
 
-import HomeHero from "../../components/HomeHero.astro";
-import { Code } from "astro:components";
+import Hero from "../../components/home/Hero.astro";
+import Coat from "../../components/home/Coat.astro";
+import Features from "../../components/home/Features.astro";
+import Bench from "../../components/home/Bench.astro";
+import Elements from "../../components/home/Elements.astro";
+import Start from "../../components/home/Start.astro";
 
-<HomeHero />
-
-<section class="z-manifesto">
-  <div class="z-section-intro">
-    <span>WHAT ZINC ADDS</span>
-    <h2>Application code without the ceremony.</h2>
-    <p>Zinc fills the practical gaps above the standard library. Nothing underneath is replaced.</p>
-  </div>
-
-  <div class="z-principles">
-    <article>
-      <b>01</b>
-      <div><h3>Write the common path quickly.</h3><p>Concise routes, groups, binding, response helpers, and one central place for errors.</p></div>
-      <code>{'app.Get("/users/{id}", showUser)'}</code>
-    </article>
-    <article>
-      <b>02</b>
-      <div><h3>Keep standard Go within reach.</h3><p>A Zinc app is an <code>http.Handler</code>. The original request and response writer stay available.</p></div>
-      <code>server.Handler = app</code>
-    </article>
-    <article>
-      <b>03</b>
-      <div><h3>Bring the ecosystem with you.</h3><p>Mount existing handlers and wrap the application with ordinary HTTP middleware.</p></div>
-      <code>app.HandleHTTP(pattern, handler)</code>
-    </article>
-  </div>
-</section>
-
-<section class="z-foundation">
-  <div class="z-foundation-copy">
-    <span>ONE HTTP STACK</span>
-    <h2>Zinc is the thin layer—not another engine.</h2>
-    <p>Own your server configuration, use Go-style brace routes, and move between Zinc and standard handlers without adapters.</p>
-    <a href="/guide/http-interoperability/">See net/http interoperability <b>→</b></a>
-  </div>
-
-  <div class="z-foundation-ledger" role="table" aria-label="Responsibilities across the application stack">
-    <div class="head" role="row"><span role="columnheader">LAYER</span><span role="columnheader">OWNS</span><span role="columnheader">CONTRACT</span></div>
-    <div role="row"><b role="cell">Application</b><span role="cell">business logic · packages</span><code role="cell">your code</code></div>
-    <div class="active" role="row"><b role="cell">Zinc</b><span role="cell">routing · binding · errors</span><code role="cell">http.Handler</code></div>
-    <div role="row"><b role="cell">net/http</b><span role="cell">request · writer · server</span><code role="cell">standard library</code></div>
-  </div>
-</section>
-
-<section class="z-native">
-  <div class="z-section-intro">
-    <span>NATIVE BY DESIGN</span>
-    <h2>Mix framework and standard handlers.</h2>
-    <p>Choose the shortest API for your own code. Keep third-party and standard-library integrations standard.</p>
-  </div>
-
-  <div class="z-native-code">
-    <div>
-      <span>ZINC HANDLER</span>
-      <Code code={`app.Get("/users/{id}", func(c *zinc.Context) error {
-    return c.String(c.Param("id"))
-})`} lang="go" theme="tokyo-night" />
-    </div>
-    <i>+</i>
-    <div>
-      <span>STANDARD HANDLER</span>
-      <Code code={`app.HandleHTTP(
-    "GET /metrics",
-    promhttp.Handler(),
-)`} lang="go" theme="tokyo-night" />
-    </div>
-    <i>=</i>
-    <div class="result">
-      <span>ONE APPLICATION</span>
-      <Code code={`server := &http.Server{
-    Addr:    ":8080",
-    Handler: app,
-}
-log.Fatal(server.ListenAndServe())`} lang="go" theme="tokyo-night" />
-    </div>
-  </div>
-</section>
-
-<section class="z-middleware">
-  <div class="z-middleware-count">
-    <strong>29</strong>
-    <span>DOCUMENTED<br />MIDDLEWARE</span>
-  </div>
-  <div class="z-middleware-catalogue">
-    <div class="z-middleware-heading">
-      <div><span>MIDDLEWARE + INTEGRATIONS</span><h2>Production pieces, ready to compose.</h2></div>
-      <a href="/middleware/overview/">Browse all middleware <b>→</b></a>
-    </div>
-    <div class="z-middleware-row"><b>PROTECT</b><span>Basic Auth · Casbin · CORS · CSRF · Header Guards · JWT · Key Auth · Secure · Session</span><i>09</i></div>
-    <div class="z-middleware-row"><b>OBSERVE</b><span>Body Dump · Jaeger · OpenTelemetry · Pprof · Prometheus · Request ID · Request Logger</span><i>07</i></div>
-    <div class="z-middleware-row"><b>CONTROL</b><span>Body Limit · Context Timeout · Rate Limiter · Recover · Utility</span><i>05</i></div>
-    <div class="z-middleware-row"><b>TRANSPORT</b><span>Decompress · Gzip · Method Override · Proxy · Redirect · Rewrite · Static · Trailing Slash</span><i>08</i></div>
-  </div>
-</section>
-
-<section class="z-proof">
-  <div class="z-proof-number"><strong>62</strong><span>/ 77</span></div>
-  <div><span>MEASURED PERFORMANCE</span><h2>Fast where applications actually route.</h2><p>On the latest published comparison, Zinc recorded the lowest latency in 62 of 77 comparable benchmarks against Gin, Echo, and Chi.</p><a href="/extra/benchmarks/">Read the benchmark report <b>→</b></a></div>
-</section>
-
-<section class="z-start">
-  <div>
-    <span>CHOOSE A PATH</span>
-    <h2>Start where your code is.</h2>
-    <p>Build something new or introduce Zinc to an existing Go service without changing the rest of your stack.</p>
-  </div>
-  <nav class="z-start-paths" aria-label="Ways to start with Zinc">
-    <a href="/guide/quickstart/"><b>01</b><p><span>NEW SERVICE</span><strong>Build your first Zinc API</strong><small>From a new module to a running route.</small></p><i>→</i></a>
-    <a href="/guide/http-interoperability/"><b>02</b><p><span>EXISTING SERVICE</span><strong>Add Zinc alongside net/http</strong><small>Keep your handlers, middleware, and server.</small></p><i>→</i></a>
-    <a href="/middleware/overview/"><b>03</b><p><span>PRODUCTION</span><strong>Explore middleware and operations</strong><small>Logging, recovery, security, tracing, and more.</small></p><i>→</i></a>
-  </nav>
-</section>
-
-<div class="z-home-footer">
-  <div class="brand"><span class="brand-name">Zinc</span><p>Fast Go APIs. Still net/http. Maintained by Carbon Software Ltd.</p></div>
-  <div class="col"><h4>Docs</h4><a href="/guide/quickstart/">Quickstart</a><a href="/guide/routing/">Routing</a><a href="/middleware/overview/">Middleware</a><a href="/cookbook/">Cookbook</a></div>
-  <div class="col"><h4>Project</h4><a href="https://github.com/0mjs/zinc">GitHub</a><a href="https://github.com/0mjs/zinc/releases">Releases</a><a href="https://github.com/0mjs/zinc/issues">Issues</a><a href="https://github.com/0mjs/zinc/blob/dev/CONTRIBUTING.md">Contributing</a></div>
-  <div class="col"><h4>Resources</h4><a href="https://pkg.go.dev/github.com/0mjs/zinc">API Reference</a><a href="/extra/benchmarks/">Benchmarks</a><a href="https://github.com/0mjs/zinc/blob/dev/LICENSE">MIT License</a></div>
+<div class="not-content z-home">
+  <Hero />
+  <Coat />
+  <Features />
+  <Bench />
+  <Elements />
+  <Start />
 </div>
