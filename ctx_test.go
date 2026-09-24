@@ -1338,7 +1338,7 @@ func TestContextProxyAndSchemeBranches(t *testing.T) {
 	if !ctx.trustProxy() {
 		t.Fatal("expected trusted proxy")
 	}
-	if scheme := ctx.Scheme(); scheme != "https" {
+	if scheme := ctx.Scheme(); scheme != "http" {
 		t.Fatalf("scheme=%q", scheme)
 	}
 	ips := ctx.IPs()

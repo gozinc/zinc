@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"runtime"
@@ -143,6 +144,7 @@ type mountedHandler struct {
 // concurrently with requests.
 type App struct {
 	config           Config
+	trustedProxies   []netip.Prefix
 	router           *Router
 	notFoundRoutes   *Router
 	middleware       []HandlerFunc
@@ -169,6 +171,8 @@ func New() *App {
 func NewWithConfig(cfg Config) *App {
 	defaultErrors := cfg.ErrorHandler == nil
 	cfg = normalizeConfig(cfg)
+	cfg.TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
+	trusted := compileTrustedProxies(cfg.TrustedProxies)
 
 	var cache *RouteCache
 	if cfg.RouteCacheSize > 0 {
@@ -176,7 +180,8 @@ func NewWithConfig(cfg Config) *App {
 	}
 
 	app := &App{
-		config: cfg,
+		config:         cfg,
+		trustedProxies: trusted,
 		router: &Router{
 			cache:  cache,
 			config: &cfg,

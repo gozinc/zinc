@@ -45,3 +45,9 @@ Keyed rate limiters default to 10,000 buckets and 256-byte keys. New keys are de
 Prometheus defaults are isolated per middleware construction. Use the same explicit registry for collection and scraping, or place the no-argument scrape handler behind its middleware. Unmatched routes use `unmatched`, unknown methods use `OTHER`, and registries cap series at 10,000 by default. Overflow is visible in `zinc_http_metrics_dropped_total`.
 
 Credentialed CORS requires explicit origins. An empty origin list with credentials denies access; combining `*` with credentials now panics at construction instead of reflecting arbitrary origins.
+
+## Proxy trust and retries
+
+Trusted proxy addresses/CIDRs are compiled and copied at construction; invalid entries panic. Forwarded IP chains are evaluated right to left until the first untrusted hop, so `IP()` no longer accepts an attacker-controlled leftmost value. `Scheme()` uses only the final trusted `http`/`https` value, rather than arbitrary protocol strings or a client-supplied prefix.
+
+Reverse proxy `Director` runs after inbound forwarding and hop-by-hop header removal. Fresh forwarding values describe the direct request. Retries default to idempotent methods with replayable bodies; a custom `RetryFilter` is an explicit override of method policy.

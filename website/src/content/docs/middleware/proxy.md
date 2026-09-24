@@ -117,3 +117,7 @@ app.Use(middleware.ProxyWithConfig(middleware.ProxyConfig{
 ```
 
 The target must be a valid absolute URL.
+
+Inbound `Forwarded` and `X-Forwarded-*` headers are removed before Zinc sets fresh forwarding headers from the direct request. `Director` now executes through the standard library's `Rewrite` phase, after hop-by-hop headers are removed, so a client cannot remove a director-added identity header through `Connection`.
+
+Retries require a replayable body. By default only GET, HEAD, OPTIONS, TRACE, PUT, and DELETE can retry after transport errors. A custom `RetryFilter` explicitly controls method policy, including any opt-in for POST/PATCH; callers must account for possible duplicate upstream execution. Cancellation stops retries.
