@@ -180,13 +180,6 @@ func TestTimeoutErrorMatching(t *testing.T) {
 	}
 }
 
-func mustNoErrContextTimeout(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func sleepWithContext(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()

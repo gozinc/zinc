@@ -156,10 +156,3 @@ func signSurfaceJWT(t *testing.T, key []byte) string {
 	}
 	return signed
 }
-
-func mustNoErrSurface(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

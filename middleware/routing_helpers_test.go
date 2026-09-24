@@ -167,10 +167,3 @@ func TestSecureSetsDefaultHeaders(t *testing.T) {
 		t.Fatalf("csp=%q", got)
 	}
 }
-
-func mustNoErrRoutingHelpers(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

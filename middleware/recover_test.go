@@ -77,10 +77,3 @@ func TestRecoverSkipper(t *testing.T) {
 		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
 	}
 }
-
-func mustNoErrRecover(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

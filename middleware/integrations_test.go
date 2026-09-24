@@ -240,10 +240,3 @@ func TestJaegerPropagatesUberTraceID(t *testing.T) {
 		t.Fatalf("trace header=%q", got)
 	}
 }
-
-func mustNoErrIntegrations(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

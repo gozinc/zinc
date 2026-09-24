@@ -57,3 +57,11 @@ Reverse proxy `Director` runs after inbound forwarding and hop-by-hop header rem
 Case-insensitive static routes now win over parameter routes regardless of request spelling. Unicode case folds preserve original parameter bytes. Mounted requests have consistent stripped paths and RequestURI, including escaped prefixes; outer middleware still sees the original request.
 
 Named URL generation rejects empty/slash-containing single-segment parameters instead of generating a URL that cannot round-trip through decoded-path routing. Catch-all values still accept slashes and now escape `?`, `#`, and `%` as path data. Cache keys over 4 KiB bypass storage while remaining routable; retained keys own their backing bytes.
+
+## Binding and error classification
+
+Default `BindError` responses are now generic 400 errors, preserving HTTP causes such as 413. Known JSON syntax/type errors are classified as malformed input. Invalid JSON destinations and opaque custom-codec failures remain 500; validators retain their application-defined error policy. Explicit XML binding now supplies the same `BindError` context as other sources.
+
+`All` merges path, query, then body for YAML/TOML struct targets as it does for JSON/XML, validating once. Scalar/map YAML/TOML and plain text remain body-only. Source-specific operations still validate individually. Path/query/header/form fields now support `encoding.TextUnmarshaler` and optional scalar pointers; absent pointers stay nil. Avoid binding directly into persistence/authorization models.
+
+HTTP error modifiers retain their copy semantics. Sentinel pointer identity is not preserved by modifiers; match the `HTTPError` status with `errors.As`, or use `errors.Is` on an application cause supplied with `WithCause`.

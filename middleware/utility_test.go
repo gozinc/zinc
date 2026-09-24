@@ -232,10 +232,3 @@ func TestPprofDefaultAndPrefixNormalization(t *testing.T) {
 		t.Fatalf("fallthrough body=%q", rec.Body.String())
 	}
 }
-
-func mustNoErrUtility(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

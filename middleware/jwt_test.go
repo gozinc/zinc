@@ -364,13 +364,6 @@ func mustSignedStringJWT(t *testing.T, claims jwtgo.Claims, key []byte) string {
 	return tokenString
 }
 
-func mustNoErrJWT(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func assertPanicsJWT(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

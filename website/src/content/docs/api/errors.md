@@ -58,4 +58,4 @@ There is one `Err` value for each standard 4xx and 5xx status, named after it:
 type ErrorHandler func(c *zinc.Context, err error)
 ```
 
-Set `Config.ErrorHandler` to control how every returned error becomes a response. The default writes `HTTPError`s as plain text with their status, and every other error as `500 Internal Server Error`.
+Set `Config.ErrorHandler` to control how every returned error becomes a response. The default writes `HTTPError`s as plain text with their status, binding errors as generic `400 Bad Request` (preserving HTTP causes such as 413), and other errors as `500 Internal Server Error`.

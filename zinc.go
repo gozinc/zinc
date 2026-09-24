@@ -226,17 +226,3 @@ func (m *mountedHandler) serve(c *Context) {
 	mountedRequest.RequestURI = cloneRequestURI(mountedRequest.URL)
 	m.handler.ServeHTTP(c.Writer(), mountedRequest)
 }
-
-func stripMountPrefix(path, prefix string) string {
-	if prefix == "/" {
-		return path
-	}
-	trimmed := strings.TrimPrefix(path, prefix)
-	if trimmed == "" {
-		return "/"
-	}
-	if trimmed[0] != '/' {
-		return "/" + trimmed
-	}
-	return trimmed
-}

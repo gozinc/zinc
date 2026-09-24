@@ -32,12 +32,13 @@ type Config struct {
 
 	// ProxyHeader identifies the forwarding header used by Context.IP.
 	ProxyHeader string
-	// TrustedProxies restricts which immediate peers may supply forwarding headers.
+	// TrustedProxies contains IPs/CIDRs trusted in the forwarded chain.
+	// Entries are copied and validated at construction.
 	TrustedProxies []string
 
 	// RequestBinder replaces the default request-data binder.
 	RequestBinder RequestBinder
-	// Validator runs after binding when Context.Bind().Validate is used.
+	// Validator runs after successful default binding, or through Context.Validate.
 	Validator Validator
 	// Renderer provides named template rendering.
 	Renderer Renderer

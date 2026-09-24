@@ -807,15 +807,6 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 			t.Fatalf("mount mutated original request: path=%q rawPath=%q requestURI=%q", req.URL.Path, req.URL.RawPath, req.RequestURI)
 		}
 
-		if got := stripMountPrefix("/sub/hello", "/"); got != "/sub/hello" {
-			t.Fatalf("strip=%q", got)
-		}
-		if got := stripMountPrefix("/sub", "/sub"); got != "/" {
-			t.Fatalf("strip=%q", got)
-		}
-		if got := stripMountPrefix("/subhello", "/sub"); got != "/hello" {
-			t.Fatalf("strip=%q", got)
-		}
 	})
 }
 

@@ -232,15 +232,15 @@ func TestLowercasePathAndHandlerNameBranches(t *testing.T) {
 		t.Fatalf("got=%q changed=%v", got, changed)
 	}
 
-	if name := handlerName(nil); name != "" {
+	if name := handlerNameFromPC(handlerPC(nil)); name != "" {
 		t.Fatalf("name=%q", name)
 	}
 	handler := HandlerFunc(func(*Context) error { return nil })
-	name := handlerName(handler)
+	name := handlerNameFromPC(handlerPC(handler))
 	if name == "" {
 		t.Fatal("expected handler name")
 	}
-	if again := handlerName(handler); again != name {
+	if again := handlerNameFromPC(handlerPC(handler)); again != name {
 		t.Fatalf("cached name=%q first=%q", again, name)
 	}
 }
@@ -620,17 +620,17 @@ func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
 	mustDo(t, router.Add(MethodGet, "/users/{id}", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodPost, "/users/me", func(*Context) error { return nil }))
 
-	shared := router.allowedMethods("/shared/one", true, true)
+	shared := strings.Split(allowedHeaderForTest(router, "/shared/one"), ", ")
 	if want := []string{MethodGet, MethodHead, MethodOptions}; !reflect.DeepEqual(shared, want) {
 		t.Fatalf("shared allow = %v want %v", shared, want)
 	}
 
-	overlap := router.allowedMethods("/users/me", true, true)
+	overlap := strings.Split(allowedHeaderForTest(router, "/users/me"), ", ")
 	if want := []string{MethodGet, MethodHead, MethodPost, MethodOptions}; !reflect.DeepEqual(overlap, want) {
 		t.Fatalf("overlap allow = %v want %v", overlap, want)
 	}
 
-	if header := router.allowedMethodHeader("/users/me", true, true); header != "GET, HEAD, POST, OPTIONS" {
+	if header := allowedHeaderForTest(router, "/users/me"); header != "GET, HEAD, POST, OPTIONS" {
 		t.Fatalf("allow header = %q", header)
 	}
 }
@@ -977,7 +977,7 @@ func TestRouterAllowedMethodsCaseInsensitiveStaticIndex(t *testing.T) {
 		t.Fatalf("case-sensitive allowed=%v", allowed)
 	}
 
-	methods := router.lookupStaticAllowedMethods("/CASE", "/CASE", false).methods(true, true)
+	methods := strings.Split(router.lookupStaticAllowedMethods("/CASE", "/CASE", false).header(true, true), ", ")
 	if want := []string{MethodPost, MethodOptions}; !reflect.DeepEqual(methods, want) {
 		t.Fatalf("methods=%v want %v", methods, want)
 	}
@@ -1009,4 +1009,10 @@ func buildSequentialParamRoute(count int) (string, string, []string, paramRanges
 		})
 	}
 	return pattern.String(), path.String(), names, ranges
+}
+
+// Exercise the same method-negotiation path used by ServeHTTP.
+func allowedHeaderForTest(r *Router, path string) string {
+	_, allowed, _ := r.dispatchInto("UNREGISTERED", path, true, &Context{})
+	return allowed.header(true, true)
 }

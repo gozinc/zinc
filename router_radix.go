@@ -438,7 +438,3 @@ func (n *radixNode) matchRoute(captured int) *radixRoute {
 	}
 	return n.route
 }
-
-func (n *radixNode) hasRoutes() bool {
-	return n.route != nil
-}

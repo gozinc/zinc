@@ -91,11 +91,17 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
 	}
-	if isYAMLMediaType(mediaType) {
-		return bindYAMLBody(c, v, false)
-	}
-	if isTOMLMediaType(mediaType) {
-		return bindTOMLBody(c, v, false)
+	// Scalar/map YAML and TOML remain body-only. Struct targets consistently
+	// merge path, query, then body just like JSON/XML.
+	typ := reflect.TypeOf(v)
+	structTarget := typ != nil && typ.Kind() == reflect.Pointer && typ.Elem().Kind() == reflect.Struct
+	if !structTarget {
+		if isYAMLMediaType(mediaType) {
+			return bindYAMLBody(c, v, false)
+		}
+		if isTOMLMediaType(mediaType) {
+			return bindTOMLBody(c, v, false)
+		}
 	}
 
 	val, plan, err := bindTargetPlan(v)
@@ -114,6 +120,13 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	if req == nil || req.Body == nil {
 		return c.Validate(v)
 	}
+	if isYAMLMediaType(mediaType) {
+		return bindYAMLBody(c, v, false)
+	}
+	if isTOMLMediaType(mediaType) {
+		return bindTOMLBody(c, v, false)
+	}
+
 	switch mediaType {
 	case "", "application/json":
 		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(b.codec, v)
@@ -124,7 +137,7 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 			return c.Validate(v)
 		}
 		if decodeErr != nil {
-			return wrapBindError("body", decodeErr)
+			return classifyJSONDecodeError(decodeErr)
 		}
 	case "application/xml", "text/xml":
 		bodyLen, readErr, decodeErr := c.readAndCacheBody(func(r io.Reader) error {
@@ -176,7 +189,7 @@ func (b defaultBinder) BindBody(c *Context, v any) error {
 			return wrapBindError("body", errors.New("request body is empty"))
 		}
 		if decodeErr != nil {
-			return wrapBindError("body", decodeErr)
+			return classifyJSONDecodeError(decodeErr)
 		}
 	case "application/xml", "text/xml":
 		bodyLen, readErr, decodeErr := c.readAndCacheBody(func(r io.Reader) error {
@@ -298,7 +311,7 @@ func (b *Bind) JSON(v any) error {
 		return wrapBindError("body", errors.New("request body is empty"))
 	}
 	if decodeErr != nil {
-		return wrapBindError("body", decodeErr)
+		return classifyJSONDecodeError(decodeErr)
 	}
 	return b.c.Validate(v)
 }
@@ -333,13 +346,13 @@ func (b *Bind) XML(v any) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
 	if readErr != nil {
-		return readErr
+		return wrapBindError("body", readErr)
 	}
 	if bodyLen == 0 {
-		return errors.New("request body is empty")
+		return wrapBindError("body", errors.New("request body is empty"))
 	}
 	if decodeErr != nil {
-		return decodeErr
+		return wrapBindError("body", decodeErr)
 	}
 	return b.c.Validate(v)
 }
@@ -370,25 +383,6 @@ func (c *Context) Validate(v any) error {
 		return nil
 	}
 	return c.app.config.Validator.Validate(v)
-}
-
-func bindData(ptr any, data map[string][]string, tag string) error {
-	val, plan, err := bindTargetPlan(ptr)
-	if err != nil {
-		return err
-	}
-	switch tag {
-	case "path":
-		return bindFieldsFromValues(val, plan.pathFields, data)
-	case "query":
-		return bindFieldsFromValues(val, plan.queryFields, data)
-	case "form":
-		return bindFieldsFromValues(val, plan.formFields, data)
-	case "header":
-		return bindFieldsFromValues(val, plan.headerFields, data)
-	default:
-		return nil
-	}
 }
 
 func setFieldValue(value reflect.Value, inputs []string) error {
@@ -550,6 +544,10 @@ func wrapBindError(source string, err error) error {
 	if err == nil {
 		return nil
 	}
+	var invalid *json.InvalidUnmarshalError
+	if errors.As(err, &invalid) {
+		return err
+	}
 	var bindErr *BindError
 	if errors.As(err, &bindErr) {
 		return err
@@ -571,4 +569,15 @@ func bindErrorField(err error) string {
 		return typeErr.Field
 	}
 	return ""
+}
+
+// Opaque decoder errors may be application/codec failures. Classify known
+// malformed JSON and type errors without exposing decoder details to clients.
+func classifyJSONDecodeError(err error) error {
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	if errors.As(err, &syntax) || errors.As(err, &mismatch) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return wrapBindError("body", err)
+	}
+	return err
 }

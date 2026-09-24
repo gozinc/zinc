@@ -69,10 +69,3 @@ func TestKeyAuthRejectsMissingKey(t *testing.T) {
 		t.Fatalf("www-authenticate=%q", got)
 	}
 }
-
-func mustNoErrKeyAuth(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

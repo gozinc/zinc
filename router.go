@@ -567,10 +567,6 @@ func (r *Router) lookupDynamicDispatch(method string, mask methodMask, path stri
 	return routeCacheEntry{allowed: r.lookupAllowedInDynamicTrees(path, method)}
 }
 
-func (r *Router) hasDynamicTrees() bool {
-	return r.dynamicRouteCount > 0
-}
-
 func (r *Router) dynamicTree(method string, mask methodMask) *radixNode {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		return r.dynamicRoots[slot]
@@ -644,66 +640,6 @@ func init() {
 	for raw := 0; raw < len(allowHeaderByMask); raw++ {
 		allowHeaderByMask[raw] = buildAllowHeader(methodMask(raw))
 	}
-}
-
-func (r *Router) allowedMethods(path string, autoHead, autoOptions bool) []string {
-	return r.lookupAllowedMethods(path).methods(autoHead, autoOptions)
-}
-
-func (r *Router) allowedMethodHeader(path string, autoHead, autoOptions bool) string {
-	return r.lookupAllowedMethods(path).header(autoHead, autoOptions)
-}
-
-// lookupAllowedMethods merges static and dynamic matches for the same path.
-// Automatic HEAD and OPTIONS are applied later so the stored set reflects only
-// routes the application explicitly registered.
-func (r *Router) lookupAllowedMethods(path string) allowedMethodSet {
-	originalPath := path
-	strictRouting := r.config != nil && r.config.StrictRouting
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-	caseSensitive := r.config != nil && r.config.CaseSensitive
-
-	allowed := r.lookupStaticAllowedMethods(originalPath, path, caseSensitive)
-	if r.hasDynamicTrees() {
-		allowed.merge(r.lookupAllowedDynamicMethods(originalPath, path, caseSensitive))
-	}
-	return allowed
-}
-
-func (r *Router) lookupAllowedDynamicMethods(originalPath, path string, caseSensitive bool) allowedMethodSet {
-	tryLookup := func(candidate string) allowedMethodSet {
-		if candidate == "" {
-			return allowedMethodSet{}
-		}
-		return r.lookupAllowedInDynamicTrees(candidate, "")
-	}
-
-	if allowed := tryLookup(originalPath); !allowed.empty() {
-		return allowed
-	}
-	if path != originalPath {
-		if allowed := tryLookup(path); !allowed.empty() {
-			return allowed
-		}
-	}
-	if caseSensitive {
-		return allowedMethodSet{}
-	}
-	if lower, changed := lowercasePath(originalPath); changed {
-		if allowed := tryLookup(lower); !allowed.empty() {
-			return allowed
-		}
-	}
-	if path != originalPath {
-		if lower, changed := lowercasePath(path); changed {
-			if allowed := tryLookup(lower); !allowed.empty() {
-				return allowed
-			}
-		}
-	}
-	return allowedMethodSet{}
 }
 
 func (r *Router) lookupAllowedInDynamicTrees(path, excludeMethod string) allowedMethodSet {
@@ -974,24 +910,6 @@ func (s *allowedMethodSet) merge(other allowedMethodSet) {
 	}
 }
 
-func (s *allowedMethodSet) removeMethod(method string) {
-	if method == "" {
-		return
-	}
-	if mask := methodMaskFor(method); mask != 0 {
-		s.mask &^= mask
-		return
-	}
-	for i, existing := range s.extra {
-		if existing != method {
-			continue
-		}
-		copy(s.extra[i:], s.extra[i+1:])
-		s.extra = s.extra[:len(s.extra)-1]
-		return
-	}
-}
-
 func (s allowedMethodSet) empty() bool {
 	return s.mask == 0 && len(s.extra) == 0
 }
@@ -1007,22 +925,6 @@ func (s allowedMethodSet) withAutomatic(autoHead, autoOptions bool) allowedMetho
 		s.mask |= methodMaskOptions
 	}
 	return s
-}
-
-func (s allowedMethodSet) methods(autoHead, autoOptions bool) []string {
-	s = s.withAutomatic(autoHead, autoOptions)
-	if s.empty() {
-		return nil
-	}
-	allowed := make([]string, 0, len(routeMethods)+len(s.extra))
-	for _, method := range routeMethods {
-		if s.mask&methodMaskFor(method) == 0 {
-			continue
-		}
-		allowed = append(allowed, method)
-	}
-	allowed = append(allowed, s.extra...)
-	return allowed
 }
 
 func (s allowedMethodSet) header(autoHead, autoOptions bool) string {
