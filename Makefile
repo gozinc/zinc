@@ -20,3 +20,20 @@ test:
 .PHONY: benchmark
 benchmark:
 	go test -bench=. -benchmem
+
+# Head-to-head benchmark history. Records and the dashboard live in
+# benchmarks/results/, which git ignores.
+#   make bench-record NOTE="router: cache promotion at 8"
+#   make bench-baseline RUN=<run-id>   (or RUN=latest)
+.PHONY: bench-record bench-dash bench-list bench-baseline
+bench-record:
+	cd benchmarks && go run ./cmd/zincbench record -note "$(NOTE)" $(ARGS)
+
+bench-dash:
+	cd benchmarks && go run ./cmd/zincbench dash -open
+
+bench-list:
+	cd benchmarks && go run ./cmd/zincbench list
+
+bench-baseline:
+	cd benchmarks && go run ./cmd/zincbench baseline $(RUN)
