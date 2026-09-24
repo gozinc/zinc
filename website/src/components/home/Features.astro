@@ -143,8 +143,9 @@ api.Use(middleware.ContextTimeout(5 * time.Second))`,
     text-wrap: balance;
   }
 
+  /* Both columns share one row height: the code plate always matches the tab list. */
   .body {
-    align-items: start;
+    align-items: stretch;
     display: grid;
     gap: 1.5rem;
     grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
@@ -204,10 +205,32 @@ api.Use(middleware.ContextTimeout(5 * time.Second))`,
     width: 2px;
   }
 
+  .panels,
+  [role="tabpanel"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panels {
+    height: 100%;
+  }
+
+  [role="tabpanel"] {
+    flex: 1;
+  }
+
+  [role="tabpanel"][hidden] {
+    display: none;
+  }
+
   .plate {
     background: var(--z-plate);
     border: 1px solid var(--z-plate-line);
     border-radius: 10px;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     overflow: hidden;
   }
 
@@ -242,8 +265,8 @@ api.Use(middleware.ContextTimeout(5 * time.Second))`,
     border-radius: 0;
     font-size: 0.8rem;
     line-height: 1.75;
+    flex: 1;
     margin: 0;
-    min-height: 19rem;
     overflow-x: auto;
     padding: 1.25rem 1.3rem;
   }

@@ -31,10 +31,10 @@ export const routes: Route[] = [
 
 export const presets = ["/users/42/posts/7", "/users/me", "/Users/42/", "/files/css/app.css", "/teams/9"];
 
-const kindOf = (segment: string): Kind =>
+export const kindOf = (segment: string): Kind =>
   /^\{[^}]+\.\.\.\}$/.test(segment) ? "catchall" : /^\{[^}]+\}$/.test(segment) ? "param" : "static";
 
-const nameOf = (segment: string) => segment.replace(/^\{|\.\.\.\}$|\}$/g, "");
+export const nameOf = (segment: string) => segment.replace(/^\{|\.\.\.\}$|\}$/g, "");
 
 const split = (path: string) => path.split("/").filter((s, i, all) => i > 0 && !(s === "" && i === all.length - 1));
 
@@ -95,4 +95,58 @@ export function explain(result: Result): string {
   if (winner.kinds.includes("catchall")) return "The catch-all captures the rest of the path.";
   if (winner.params.length) return "Literals compare without case; captured values keep theirs.";
   return "An exact static match, the fastest path through the router.";
+}
+
+// Tree view of the routes, as the radix router sees them. Siblings are ordered
+// by precedence (static, then parameter, then catch-all), so the order on
+// screen is the order in which a request is matched.
+export interface TreeRow {
+  key: string; // cumulative pattern, e.g. "/users/{id}"; "" is the root
+  seg: string;
+  kind: Kind;
+  guide: string; // box-drawing prefix
+  handler?: string;
+  name?: string; // parameter name, for captured values
+}
+
+export function treeRows(): TreeRow[] {
+  interface Node { key: string; seg: string; kind: Kind; handler?: string; children: Node[] }
+  const root: Node = { key: "", seg: "/", kind: "static", children: [] };
+  for (const r of routes) {
+    let node = root;
+    let key = "";
+    for (const seg of r.pattern.split("/").filter(Boolean)) {
+      key += "/" + seg;
+      let child = node.children.find((c) => c.key === key);
+      if (!child) {
+        child = { key, seg, kind: kindOf(seg), children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+    node.handler = r.handler;
+  }
+  const order: Record<Kind, number> = { static: 0, param: 1, catchall: 2 };
+  const rows: TreeRow[] = [];
+  const walk = (n: Node, prefix: string, guide: string) => {
+    rows.push({ key: n.key, seg: n.seg, kind: n.kind, guide, handler: n.handler, name: n.kind === "static" ? undefined : nameOf(n.seg) });
+    const kids = [...n.children].sort((a, b) => order[a.kind] - order[b.kind]);
+    kids.forEach((c, i) => {
+      const last = i === kids.length - 1;
+      walk(c, prefix + (last ? "   " : "│  "), prefix + (last ? "└─ " : "├─ "));
+    });
+  };
+  walk(root, "", "");
+  return rows;
+}
+
+// The tree keys a pattern passes through, root first.
+export function pathKeys(pattern: string): string[] {
+  const keys = [""];
+  let key = "";
+  for (const seg of pattern.split("/").filter(Boolean)) {
+    key += "/" + seg;
+    keys.push(key);
+  }
+  return keys;
 }

@@ -42,6 +42,7 @@ const elements: [string, string, string, Group, string][] = [
 ];
 
 const count = (g: Group) => elements.filter((e) => e[3] === g).length;
+const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: "CTL", transport: "TRN" };
 ---
 
 <section class="elements" data-elements>
@@ -54,7 +55,7 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
       <button type="button" role="radio" aria-checked="true" data-filter="all">All <span>{elements.length}</span></button>
       {groups.map((g) => (
         <button type="button" role="radio" aria-checked="false" data-filter={g.id} data-group={g.id}>
-          <i aria-hidden="true"></i>{g.name} <span>{count(g.id)}</span>
+          <b aria-hidden="true">{stamp[g.id]}</b>{g.name} <span>{count(g.id)}</span>
         </button>
       ))}
     </div>
@@ -64,7 +65,7 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
     {elements.map(([sym, name, fn, group, slug], i) => (
       <li data-group={group} data-first={i === 0 || elements[i - 1][3] !== group ? "" : undefined}>
         <a href={`/middleware/${slug}/`}>
-          <span class="num">{i + 1}</span>
+          <span class="top"><span class="num">{i + 1}</span><span class="grp" title={groups.find((g) => g.id === group)?.name}>{stamp[group]}</span></span>
           <span class="sym">{sym}</span>
           <span class="name">{name}</span>
           <span class="fn">{fn}</span>
@@ -88,18 +89,21 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
 </script>
 
 <style>
+  /* Brushed zinc plates. Category is stamped as text, not colour. */
   .elements {
-    --protect: #2a78d6;
-    --observe: #eb6834;
-    --control: #1baf7a;
-    --transport: #eda100;
+    --plate-top: #f7f8f9;
+    --plate-bottom: #e4e8eb;
+    --plate-edge: #cdd2d7;
+    --plate-brush: rgba(20, 24, 28, 0.022);
+    --plate-bevel: rgba(255, 255, 255, 0.85);
   }
 
   :global(:root:not([data-theme="light"])) .elements {
-    --protect: #3987e5;
-    --observe: #d95926;
-    --control: #199e70;
-    --transport: #c98500;
+    --plate-top: #1d2125;
+    --plate-bottom: #15181b;
+    --plate-edge: #2b3036;
+    --plate-brush: rgba(255, 255, 255, 0.018);
+    --plate-bevel: rgba(255, 255, 255, 0.045);
   }
 
   .head {
@@ -147,16 +151,15 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
     transition: color 120ms ease, border-color 120ms ease;
   }
 
+  .filters button b {
+    color: var(--z-soft);
+    font: 500 0.62rem/1 var(--sl-font-mono);
+    letter-spacing: 0.06em;
+  }
+
   .filters button span {
     color: var(--z-soft);
     font: 400 0.72rem/1 var(--sl-font-mono);
-  }
-
-  .filters button i {
-    background: var(--c);
-    border-radius: 2px;
-    height: 0.55rem;
-    width: 0.55rem;
   }
 
   .filters button:hover,
@@ -164,11 +167,6 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
     border-color: var(--z-muted);
     color: var(--z-text);
   }
-
-  [data-group="protect"] { --c: var(--protect); }
-  [data-group="observe"] { --c: var(--observe); }
-  [data-group="control"] { --c: var(--control); }
-  [data-group="transport"] { --c: var(--transport); }
 
   .table {
     display: grid;
@@ -185,32 +183,83 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
 
   .table li {
     margin: 0;
-    transition: opacity 180ms ease;
+    transition: opacity 200ms ease;
   }
 
   .table a {
     aspect-ratio: 1 / 0.92;
-    background: color-mix(in srgb, var(--c) 9%, var(--z-panel));
-    border: 1px solid color-mix(in srgb, var(--c) 24%, var(--sl-color-hairline));
+    background:
+      repeating-linear-gradient(180deg, var(--plate-brush) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    border: 1px solid var(--plate-edge);
     border-radius: 6px;
+    box-shadow: inset 0 1px 0 var(--plate-bevel);
     color: var(--z-text);
     display: grid;
     grid-template-rows: auto 1fr auto auto;
     max-width: 100%;
     padding: 0.55rem 0.65rem 0.6rem;
+    position: relative;
     text-decoration: none;
-    transition: border-color 140ms ease, transform 140ms ease;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  /* Hover galvanizes the plate: the same spangle as the Zinc tile. */
+  .table a::after {
+    background: #c9ced3 url("/zn-spangle.png") center / 180px auto;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+    content: "";
+    inset: -1px;
+    opacity: 0;
+    position: absolute;
+    transition: opacity 200ms ease;
+    z-index: 0;
+  }
+
+  .table a > * {
+    position: relative;
+    z-index: 1;
+    transition: color 200ms ease;
   }
 
   .table a:hover,
   .table a:focus-visible {
-    border-color: var(--c);
+    border-color: transparent;
+    box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.6);
     transform: translateY(-2px);
   }
 
-  .num {
+  .table a:hover::after,
+  .table a:focus-visible::after {
+    opacity: 1;
+  }
+
+  .table a:hover > *,
+  .table a:focus-visible > * {
+    color: #1a1d21;
+  }
+
+  .top {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .num,
+  .grp {
     color: var(--z-muted);
-    font: 500 0.66rem/1 var(--sl-font-mono);
+    font: 500 0.64rem/1 var(--sl-font-mono);
+  }
+
+  .grp {
+    letter-spacing: 0.06em;
+  }
+
+  .table a:hover .num,
+  .table a:hover .grp,
+  .table a:hover .fn {
+    color: #3a4047;
   }
 
   .sym {
@@ -240,7 +289,7 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
   [data-active="observe"] li:not([data-group="observe"]),
   [data-active="control"] li:not([data-group="control"]),
   [data-active="transport"] li:not([data-group="transport"]) {
-    opacity: 0.18;
+    opacity: 0.16;
   }
 
   @media (max-width: 72rem) {
@@ -254,6 +303,11 @@ const count = (g: Group) => elements.filter((e) => e[3] === g).length;
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .table a,
+    .table a::after {
+      transition: none;
+    }
+
     .table a:hover {
       transform: none;
     }

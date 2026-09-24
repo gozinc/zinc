@@ -531,6 +531,18 @@ starlight-toc a[aria-current="true"] {
   overflow: hidden;
 }
 
+/* Starlight renders tables as scrollable blocks, so rows only span their content.
+   Where a table fits, lay it out as a real table so the header spans the card. */
+@media (min-width: 50rem) {
+  .sl-markdown-content table:not(:where(.not-content *)) {
+    display: table;
+    width: 100%;
+  }
+}
+
+.sl-markdown-content thead tr:first-child th:first-child { border-top-left-radius: calc(var(--z-radius) - 1px); }
+.sl-markdown-content thead tr:first-child th:last-child { border-top-right-radius: calc(var(--z-radius) - 1px); }
+
 .sl-markdown-content th {
   background: var(--z-panel-soft);
   color: var(--z-muted);

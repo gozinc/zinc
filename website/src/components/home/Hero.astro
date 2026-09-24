@@ -1,8 +1,11 @@
 ---
-import { routes, presets, resolve, explain } from "./router";
+import { presets, resolve, explain, treeRows, pathKeys } from "./router";
 
+const rows = treeRows();
 const initial = presets[0];
 const result = resolve(initial);
+const lit = new Set(result.winner ? pathKeys(result.winner.route.pattern) : [""]);
+const captured = Object.fromEntries(result.winner?.params ?? []);
 ---
 
 <section class="lead">
@@ -11,7 +14,7 @@ const result = resolve(initial);
       <span class="tile" aria-hidden="true"><b>30</b>Zn</span>
       <span>v0.2.1</span><i></i><span>MIT</span><i></i><span>Go 1.25+</span>
     </p>
-    <h1>Galvanize<br /><span>net/http.</span></h1>
+    <h1>Galvanize <code>net/http</code>.</h1>
     <p class="lede">
       The high-performance, minimalist web layer for Go. Routing, binding, errors, and 29 middleware,
       applied as a thin coat over the standard library you already trust.
@@ -27,50 +30,44 @@ const result = resolve(initial);
     </button>
   </div>
 
-  <div class="matcher" data-matcher>
-    <div class="m-head">
-      <span>Route matcher</span>
-      <span class="m-hint">Try a path</span>
+  <div class="router" data-router>
+    <div class="r-head">
+      <span class="r-title">Route tree</span>
+      <span class="r-hint" data-hint>Type any path</span>
     </div>
 
-    <label class="m-input">
+    <label class="r-input">
       <span class="method">GET</span>
-      <input type="text" value={initial} spellcheck="false" autocomplete="off" aria-label="Request path" data-path />
+      <input type="text" value={initial} spellcheck="false" autocomplete="off" aria-label="Request path to match" data-path />
+      <span class="caret" aria-hidden="true"></span>
     </label>
 
-    <div class="m-presets" role="list">
-      {presets.map((p) => <button type="button" role="listitem" data-preset={p}>{p}</button>)}
-    </div>
-
-    <ol class="m-routes" aria-label="Registered routes">
-      {routes.map((r) => {
-        const state = result.winner?.route === r ? "win" : result.others.some((o) => o.route === r) ? "also" : "";
-        return (
-          <li data-pattern={r.pattern} data-state={state}>
-            <span class="r-method">GET</span>
-            <code>{r.pattern}</code>
-            <span class="r-handler">{r.handler}</span>
-          </li>
-        );
-      })}
+    <ol class="tree" aria-label="Registered routes as a tree">
+      {rows.map((r) => (
+        <li data-key={r.key} data-kind={r.kind} data-lit={lit.has(r.key) ? "" : undefined} data-name={r.name}>
+          <span class="guide" aria-hidden="true">{r.guide}</span>
+          <span class="seg">{r.seg}</span>
+          <span class="cap" data-cap>{r.name && lit.has(r.key) && captured[r.name] !== undefined ? ` = "${captured[r.name]}"` : ""}</span>
+          {r.handler && <span class="handler"><b data-code></b>{r.handler}</span>}
+        </li>
+      ))}
     </ol>
 
-    <div class="m-result" data-result aria-live="polite">
+    <div class="r-result" aria-live="polite">
       <p class="status" data-status data-ok={result.winner ? "true" : "false"}>
-        {result.winner ? `200 → ${result.winner.route.handler}` : "404 → not found"}
+        {result.winner ? `200 · ${result.winner.route.handler}` : "404 · not found"}
       </p>
-      <dl data-params>
-        {result.winner?.params.map(([k, v]) => (
-          <div><dt>c.Param("{k}")</dt><dd>"{v}"</dd></div>
-        ))}
-      </dl>
       <p class="why" data-why>{explain(result)}</p>
+    </div>
+
+    <div class="r-presets" role="group" aria-label="Example paths">
+      {presets.map((p) => <button type="button" data-preset={p} aria-pressed={p === initial ? "true" : "false"}>{p}</button>)}
     </div>
   </div>
 </section>
 
 <script>
-  import { resolve, explain } from "./router";
+  import { resolve, explain, pathKeys, presets } from "./router";
 
   document.querySelectorAll<HTMLButtonElement>(".lead .install").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -89,45 +86,88 @@ const result = resolve(initial);
     });
   });
 
-  document.querySelectorAll<HTMLElement>("[data-matcher]").forEach((root) => {
+  const STEP = 90; // ms between tree levels as a request descends
+
+  document.querySelectorAll<HTMLElement>("[data-router]").forEach((root) => {
     const input = root.querySelector<HTMLInputElement>("[data-path]")!;
     const status = root.querySelector<HTMLElement>("[data-status]")!;
-    const params = root.querySelector<HTMLElement>("[data-params]")!;
     const why = root.querySelector<HTMLElement>("[data-why]")!;
-    const rows = [...root.querySelectorAll<HTMLElement>("[data-pattern]")];
+    const hint = root.querySelector<HTMLElement>("[data-hint]")!;
+    const nodes = [...root.querySelectorAll<HTMLElement>("li[data-key]")];
+    const presetButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-preset]")];
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const render = () => {
       const result = resolve(input.value);
       const w = result.winner;
-      status.textContent = w ? `200 → ${w.route.handler}` : "404 → not found";
+      const path = w ? pathKeys(w.route.pattern) : [""];
+      const captured = new Map(w?.params ?? []);
+      const lost = new Set(result.others.flatMap((o) => pathKeys(o.route.pattern)));
+      const depth = path.length;
+
+      for (const n of nodes) {
+        const key = n.dataset.key!;
+        const i = path.indexOf(key);
+        n.style.setProperty("--d", i >= 0 ? `${i * STEP}ms` : "0ms");
+        n.toggleAttribute("data-lit", i >= 0);
+        n.toggleAttribute("data-lost", i < 0 && lost.has(key));
+        n.toggleAttribute("data-win", !!w && key === path[path.length - 1]);
+        const cap = n.querySelector<HTMLElement>("[data-cap]")!;
+        const name = n.dataset.name;
+        cap.textContent = i >= 0 && name && captured.has(name) ? ` = "${captured.get(name)}"` : "";
+        const code = n.querySelector<HTMLElement>("[data-code]");
+        if (code) code.textContent = w && key === path[path.length - 1] ? "200" : "";
+      }
+      // The verdict arrives after the request has reached the bottom of the tree.
+      root.style.setProperty("--settle", `${depth * STEP}ms`);
+      status.textContent = w ? `200 · ${w.route.handler}` : "404 · not found";
       status.dataset.ok = String(Boolean(w));
-      params.replaceChildren(
-        ...(w?.params ?? []).map(([k, v]) => {
-          const row = document.createElement("div");
-          const dt = document.createElement("dt");
-          const dd = document.createElement("dd");
-          dt.textContent = `c.Param("${k}")`;
-          dd.textContent = `"${v}"`;
-          row.append(dt, dd);
-          return row;
-        }),
-      );
       why.textContent = explain(result);
-      rows.forEach((row) => {
-        const p = row.dataset.pattern;
-        row.dataset.state = w?.route.pattern === p ? "win" : result.others.some((o) => o.route.pattern === p) ? "also" : "";
-      });
-      root.querySelectorAll<HTMLElement>("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === input.value)));
+      root.classList.remove("settled");
+      void root.offsetWidth; // restart the fade
+      root.classList.add("settled");
+      presetButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === input.value)));
     };
 
-    input.addEventListener("input", render);
-    root.querySelectorAll<HTMLButtonElement>("[data-preset]").forEach((b) =>
-      b.addEventListener("click", () => {
-        input.value = b.dataset.preset || "/";
-        render();
-      }),
-    );
+    // Idle demo: type through the examples until someone interacts.
+    let demo = !reduced;
+    let timer = 0;
+    const stopDemo = () => {
+      if (!demo) return;
+      demo = false;
+      clearTimeout(timer);
+      root.classList.remove("typing");
+      hint.textContent = "Type any path";
+    };
+    const typeOut = (text: string, done: () => void) => {
+      let i = 0;
+      input.value = "";
+      root.classList.add("typing");
+      const tick = () => {
+        if (!demo) return;
+        input.value = text.slice(0, ++i);
+        if (i < text.length) timer = window.setTimeout(tick, 42 + Math.random() * 40);
+        else { root.classList.remove("typing"); render(); timer = window.setTimeout(done, 3200); }
+      };
+      timer = window.setTimeout(tick, 250);
+    };
+    let next = 1;
+    const loop = () => { if (!demo) return; typeOut(presets[next], () => { next = (next + 1) % presets.length; loop(); }); };
+
+    input.addEventListener("input", () => { stopDemo(); render(); });
+    for (const ev of ["pointerdown", "keydown", "focusin"]) root.addEventListener(ev, stopDemo);
+    presetButtons.forEach((b) => b.addEventListener("click", () => { stopDemo(); input.value = b.dataset.preset || "/"; render(); }));
+
     render();
+    if (demo) {
+      hint.textContent = "Watching examples · click to try";
+      const seen = new IntersectionObserver((entries) => {
+        if (!demo) return seen.disconnect();
+        if (entries[0].isIntersecting) timer = window.setTimeout(loop, 2400);
+        else clearTimeout(timer);
+      });
+      seen.observe(root);
+    }
   });
 </script>
 
@@ -135,7 +175,7 @@ const result = resolve(initial);
   .lead {
     display: grid;
     gap: clamp(2.5rem, 6vw, 5rem);
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
     padding-block: clamp(2rem, 6vw, 4.5rem) 1rem;
   }
@@ -148,7 +188,7 @@ const result = resolve(initial);
     font: 500 0.72rem/1 var(--sl-font-mono);
     gap: 0.7rem;
     letter-spacing: 0.04em;
-    margin: 0 0 1.75rem;
+    margin: 0 0 1.6rem;
   }
 
   .meta i {
@@ -179,22 +219,29 @@ const result = resolve(initial);
     top: 0.25rem;
   }
 
+  /* One colour, a calmer size. net/http is set as code because it is code. */
   h1 {
     color: var(--z-text);
-    font: 600 clamp(3.2rem, 7.2vw, 6rem) / 0.94 var(--sl-font);
-    letter-spacing: -0.055em;
+    font: 600 clamp(2.3rem, 4.2vw, 3.25rem) / 1.05 var(--sl-font);
+    letter-spacing: -0.042em;
     margin: 0;
+    text-wrap: balance;
   }
 
-  h1 span {
-    color: var(--z-soft);
+  h1 code {
+    background: none;
+    border: 0;
+    color: inherit;
+    font: 500 0.9em / 1 var(--sl-font-mono);
+    letter-spacing: -0.045em;
+    padding: 0;
   }
 
   .lede {
     color: var(--z-muted);
-    font-size: 1.1rem;
+    font-size: 1.08rem;
     line-height: 1.6;
-    margin: 1.6rem 0 2rem;
+    margin: 1.25rem 0 1.9rem;
     max-width: 46ch;
     text-wrap: pretty;
   }
@@ -260,12 +307,12 @@ const result = resolve(initial);
     padding: 0;
   }
 
-  .install .prompt {
+  .install .prompt,
+  .install .copy {
     color: var(--z-soft);
   }
 
   .install .copy {
-    color: var(--z-soft);
     font-size: 0.68rem;
     letter-spacing: 0.08em;
     margin-left: auto;
@@ -276,153 +323,192 @@ const result = resolve(initial);
     color: var(--z-text);
   }
 
-  /* Matcher: a dark plate in both themes, like the code blocks. */
-  .matcher {
+  /* Route tree: a dark plate, like the code blocks. */
+  .router {
+    --lit: #88c0d0;
+    --guide: #353b44;
+    --rule: #252a31; /* the plate is dark in both themes, so its rules are fixed too */
     background: var(--z-plate);
-    border: 1px solid var(--z-plate-line);
+    border: 1px solid var(--rule);
     border-radius: 10px;
     color: var(--z-plate-ink);
     font-family: var(--sl-font-mono);
     overflow: hidden;
   }
 
-  .m-head {
+  .r-head {
     align-items: center;
     background: var(--z-plate-bar);
-    border-bottom: 1px solid var(--z-plate-line);
-    color: var(--z-plate-ink);
+    border-bottom: 1px solid var(--rule);
     display: flex;
     font-size: 0.72rem;
     justify-content: space-between;
     padding: 0.7rem 1.1rem;
   }
 
-  .m-hint {
+  .r-hint {
     color: var(--z-plate-mute);
   }
 
-  .m-input {
+  .r-input {
     align-items: center;
-    border-bottom: 1px solid var(--z-plate-line);
+    border-bottom: 1px solid var(--rule);
     display: flex;
     gap: 0.8rem;
-    padding: 0.9rem 1.1rem;
+    padding: 0.95rem 1.1rem;
+    position: relative;
   }
 
-  .method,
-  .r-method {
+  .method {
     color: var(--z-code-kw);
     font-size: 0.7rem;
     font-weight: 600;
   }
 
-  .m-input input {
+  .r-input input {
     background: transparent;
     border: 0;
-    caret-color: var(--z-code-fn);
+    caret-color: var(--lit);
     color: #eceff4;
     flex: 1;
-    font: 400 1rem/1.4 var(--sl-font-mono);
+    font: 400 1.02rem/1.4 var(--sl-font-mono);
     min-width: 0;
     outline: none;
   }
 
-  .m-input:focus-within {
-    box-shadow: inset 0 -1px 0 var(--z-code-fn);
+  .r-input:focus-within {
+    box-shadow: inset 0 -1px 0 var(--lit);
   }
 
-  .m-presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    padding: 0.8rem 1.1rem 0.2rem;
+  /* A block caret shown while the demo types, since the input is not focused. */
+  .caret {
+    display: none;
   }
 
-  .m-presets button {
-    background: transparent;
-    border: 1px solid var(--z-plate-line);
-    border-radius: 999px;
-    color: var(--z-plate-mute);
-    cursor: pointer;
-    font: 400 0.68rem/1 var(--sl-font-mono);
-    padding: 0.4rem 0.65rem;
-    transition: color 120ms ease, border-color 120ms ease;
+  .typing .caret {
+    animation: blink 900ms steps(1) infinite;
+    background: var(--lit);
+    display: block;
+    height: 1.05rem;
+    position: absolute;
+    right: 1.1rem;
+    width: 0.45rem;
   }
 
-  .m-presets button:hover,
-  .m-presets button[aria-pressed="true"] {
-    border-color: #3a414b;
-    color: var(--z-plate-ink);
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
   }
 
-  .m-routes {
-    display: grid;
-    gap: 0.15rem;
+  .tree {
+    font-size: 0.8rem;
+    line-height: 1;
     list-style: none;
     margin: 0;
-    padding: 0.7rem 0.6rem;
+    padding: 0.75rem 0;
   }
 
-  .m-routes li {
+  .tree li {
     align-items: center;
-    border-radius: 6px;
-    color: var(--z-plate-mute);
-    display: grid;
-    font-size: 0.78rem;
-    gap: 0.9rem;
-    grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+    display: flex;
     margin: 0;
-    padding: 0.45rem 0.5rem;
-    transition: background 160ms ease, color 160ms ease;
+    padding: 0.36rem 1.1rem;
+    position: relative;
+    white-space: pre;
   }
 
-  .m-routes code {
-    background: none;
-    border: 0;
-    color: inherit;
-    font: inherit;
-    overflow: hidden;
-    padding: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .tree li::before {
+    background: rgba(136, 192, 208, 0.07);
+    content: "";
+    inset: 0;
+    opacity: 0;
+    position: absolute;
+    transition: opacity 240ms ease var(--d, 0ms);
   }
 
-  .m-routes .r-method {
-    opacity: 0.55;
+  .guide {
+    color: var(--guide);
+    transition: color 240ms ease var(--d, 0ms);
   }
 
-  .r-handler {
-    font-size: 0.7rem;
+  .seg {
+    color: #7d889a;
+    transition: color 240ms ease var(--d, 0ms);
   }
 
-  .m-routes li[data-state="also"] {
+  li[data-kind="param"] .seg {
+    color: #6d9aa6;
+  }
+
+  li[data-kind="catchall"] .seg {
+    color: #8f7b99;
+  }
+
+  .cap {
+    color: var(--z-code-str);
+    opacity: 0;
+    transition: opacity 240ms ease var(--d, 0ms);
+  }
+
+  .handler {
+    align-items: center;
+    color: #5f6a79;
+    display: inline-flex;
+    font-size: 0.72rem;
+    gap: 0.5rem;
+    margin-left: auto;
+    padding-left: 1rem;
+    transition: color 240ms ease var(--d, 0ms);
+  }
+
+  .handler b {
+    color: var(--z-code-str);
+    font-weight: 600;
+  }
+
+  /* The request's path through the tree. */
+  li[data-lit] .guide {
+    color: var(--lit);
+  }
+
+  li[data-lit] .seg {
+    color: #eceff4;
+  }
+
+  li[data-lit][data-kind="param"] .seg {
+    color: var(--lit);
+  }
+
+  li[data-lit][data-kind="catchall"] .seg {
+    color: var(--z-code-num);
+  }
+
+  li[data-lit] .cap {
+    opacity: 1;
+  }
+
+  li[data-win]::before {
+    opacity: 1;
+  }
+
+  li[data-win] .handler {
+    color: #eceff4;
+  }
+
+  /* Routes that also matched but lost on precedence. */
+  li[data-lost] .seg {
     color: #9aa4b2;
-  }
-
-  .m-routes li[data-state="also"] code {
     text-decoration: line-through;
     text-decoration-color: #5b6470;
   }
 
-  .m-routes li[data-state="win"] {
-    background: rgba(136, 192, 208, 0.1);
-    color: #eceff4;
-  }
-
-  .m-routes li[data-state="win"] .r-method {
-    opacity: 1;
-  }
-
-  .m-routes li[data-state="win"] .r-handler {
-    color: var(--z-code-fn);
-  }
-
-  .m-result {
-    border-top: 1px solid var(--z-plate-line);
+  .r-result {
+    border-top: 1px solid var(--rule);
     display: grid;
-    gap: 0.6rem;
-    min-height: 9.5rem;
-    padding: 1rem 1.1rem 1.1rem;
+    gap: 0.4rem;
+    min-height: 5.6rem;
+    padding: 0.95rem 1.1rem;
   }
 
   .status {
@@ -436,44 +522,67 @@ const result = resolve(initial);
     color: #d08770;
   }
 
-  /* Param rows are also created in the browser, so they need global selectors. */
-  dl {
-    display: grid;
-    gap: 0.35rem;
-    margin: 0;
-  }
-
-  dl :global(div) {
-    align-items: baseline;
-    display: flex;
-    font-size: 0.8rem;
-    gap: 0.75rem;
-  }
-
-  dl :global(dt) {
-    color: var(--z-code-fn);
-    font-weight: 400;
-  }
-
-  dl :global(dd) {
-    color: var(--z-code-str);
-    margin: 0;
-  }
-
-  dl :global(dd)::before {
-    color: var(--z-plate-mute);
-    content: "→ ";
-  }
-
   .why {
     color: var(--z-plate-mute);
     font: 400 0.8rem/1.5 var(--sl-font);
     margin: 0;
   }
 
+  .settled .status,
+  .settled .why {
+    animation: arrive 260ms ease both var(--settle, 0ms);
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+  }
+
+  .r-presets {
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0.8rem 1.1rem 0.9rem;
+  }
+
+  .r-presets button {
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    color: var(--z-plate-mute);
+    cursor: pointer;
+    font: 400 0.68rem/1 var(--sl-font-mono);
+    padding: 0.4rem 0.65rem;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+
+  .r-presets button:hover,
+  .r-presets button[aria-pressed="true"] {
+    border-color: #3a414b;
+    color: var(--z-plate-ink);
+  }
+
   @media (max-width: 60rem) {
     .lead {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tree li::before,
+    .guide,
+    .seg,
+    .cap,
+    .handler {
+      transition: none;
+    }
+
+    .settled .status,
+    .settled .why {
+      animation: none;
     }
   }
 </style>
