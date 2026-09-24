@@ -14,3 +14,5 @@ In the Parse aggregate CPU profile, `Router.dispatchInto` accounts for 53.6% cum
 | Lower `routeCacheMinRoutes` from 64 to 8 | StaticAll | 8,041.0 ns | 8,086.5 ns | +0.6% | 0 → 0 |
 
 The bypass is rejected: it doubles the small mixed-route workloads and adds allocations. Lowering the minimum is a candidate for deeper work, not a ready fix. The constant also affects cache promotion and dynamic `Find` behavior; verify hot/cold/working-set/unique-path, method mismatch, concurrency/race, routing equivalence, and the full 77-scenario suite before considering it for production. Preserve the static and 20-parameter wins while investigating the larger mixed-route gap.
+
+A later isolated experiment kept the 64-route `Router.Find` threshold and lowered only the snapshot-promotion floor to eight entries. It passed hot/cold/working-set/unique, phase-shift, external aggregate, race, and full-suite checks and is included in PR #72. See [the next pass](../performance-recovery/NEXT_PASS.md) for its results and final 77-row score.

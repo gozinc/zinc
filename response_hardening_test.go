@@ -223,6 +223,30 @@ func TestResponseHeadersAreRequestOwned(t *testing.T) {
 	}
 }
 
+func TestDefaultMethodMismatchHeadersAreIndependent(t *testing.T) {
+	app := zinc.New()
+	app.Get("/resource", func(c *zinc.Context) error { return c.String("ok") })
+	first := hardeningRequest(app, http.MethodPost, "/resource")
+	if first.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("first status = %d", first.Code)
+	}
+	allow := first.Header()["Allow"]
+	contentType := first.Header()["Content-Type"]
+	if len(allow) == 0 || len(contentType) == 0 {
+		t.Fatalf("missing headers: %#v", first.Header())
+	}
+	originalAllow, originalContentType := allow[0], contentType[0]
+	allow[0] = "tampered"
+	allow = append(allow, "another-method")
+	if contentType[0] != originalContentType {
+		t.Fatalf("Allow mutation changed Content-Type: %q", contentType[0])
+	}
+	second := hardeningRequest(app, http.MethodPost, "/resource")
+	if second.Header().Get("Allow") != originalAllow || second.Header().Get("Content-Type") != originalContentType {
+		t.Fatalf("headers leaked into next response: %#v", second.Header())
+	}
+}
+
 type headerRecorder struct {
 	header http.Header
 	codes  []int

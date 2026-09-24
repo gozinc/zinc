@@ -374,9 +374,16 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 		writer := &c.response.base
 		header := writer.Header()
 		if allowHeader != "" {
-			header[HeaderAllow] = []string{allowHeader}
-		}
-		if len(header[contentType]) == 0 {
+			if len(header[contentType]) == 0 {
+				// Both values belong to this response. Separate capacities prevent
+				// appending to one header from modifying the other.
+				values := []string{allowHeader, plainText}
+				header[HeaderAllow] = values[:1:1]
+				header[contentType] = values[1:2:2]
+			} else {
+				header[HeaderAllow] = []string{allowHeader}
+			}
+		} else if len(header[contentType]) == 0 {
 			header[contentType] = []string{plainText}
 		}
 		writer.WriteHeader(status)
