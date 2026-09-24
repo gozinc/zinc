@@ -107,7 +107,10 @@ func staticRequestName(requestPath, prefix string) (string, bool) {
 	if name == "" {
 		name = "."
 	}
-	return name, fs.ValidPath(name)
+	if !fs.ValidPath(name) {
+		return "", false
+	}
+	return name, true
 }
 
 type staticRootFS string
