@@ -1,5 +1,7 @@
 # Next 0.3 performance pass
 
+Open the [interactive benchmark dashboard](benchmark-dashboard.html) for the complete 77-row Zinc/Gin/Chi/Echo leaderboard, loss percentages, and the saved Gin-style routing rankings. The HTML is self-contained and separates the original external snapshot from current-code paired checks.
+
 This pass starts from the combined recovery branch in PR #72 (`2ea63f3`). On 24 September 2026, a repeat of the 77-scenario Zinc/Gin/Echo/Chi suite gave Zinc **57/77** wins, versus 55/77 in the previous run of essentially the same code. The two-win shift is benchmark noise near ties, not a code improvement. Both runs use Go 1.27.1 on an Apple M1 Pro, ten 100 ms samples for each framework and scenario, and the lowest median ns/op as the winner.
 
 The code changes in this pass are intentionally small:

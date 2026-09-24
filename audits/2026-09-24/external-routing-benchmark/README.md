@@ -49,7 +49,7 @@ The four `*All` workloads were repeated ten times per framework at 100 ms per sa
 
 Zinc was **48.5% slower than Gin** on the repeated GitHub aggregate, **111.6% slower than Gin** on GPlus, and **111.0% slower than Gin** on Parse. It was **16.1% faster than Gin** on StaticAll. The external suite is a useful routing diagnostic: Zinc's static dispatch and deep parameter matching are strong, while small mixed dynamic route sets remain slower than Gin/Echo. It does not replace the 77-scenario HTTP benchmark, where response writing and API behavior are part of the measured work.
 
-Follow-up [route-cache scratch experiments](CACHE_EXPERIMENTS.md) record a rejected cache bypass and a promising but unmerged promotion-threshold change. They are separate from the full-suite numbers above.
+Follow-up [route-cache experiments](CACHE_EXPERIMENTS.md) record a rejected cache bypass and the isolated promotion-threshold change now included in draft PR #72. The [interactive dashboard](../performance-recovery/benchmark-dashboard.html) reproduces this saved Gin-style snapshot and separately shows current-code paired Zinc checks. The [paired medians](dashboard-current-paired.json) and compressed raw outputs (`dashboard-current-paired-before.log.gz`, `dashboard-current-paired-after.log.gz`) are separate from the full-suite numbers above.
 
 ## Routing-structure memory
 
