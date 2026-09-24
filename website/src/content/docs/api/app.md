@@ -97,7 +97,8 @@ type RouteInfo struct {
 | `Listen(addr...) error` | Serve HTTP; the address defaults to `:8080` |
 | `ListenTLS(addr, certFile, keyFile) error` | Serve HTTPS |
 | `Serve(net.Listener) error` | Serve on a listener you created |
-| `Shutdown(ctx) error` | Stop accepting connections and wait for in-flight requests |
+| `Shutdown(ctx) error` | Stop accepting connections, wait for in-flight requests, and release disk-static roots |
+| `Close() error` | Stop the active server and release disk-static roots immediately |
 | `ServeHTTP(w, r)`, `Handler()` | Use the app as an `http.Handler` |
 
 `Listen`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `Shutdown` in a complete program.

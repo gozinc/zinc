@@ -4,11 +4,14 @@
 package zinc
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 )
@@ -107,4 +110,152 @@ func TestServeOpenedStaticFileReadAllFallback(t *testing.T) {
 	if rec.Body.String() != "fallback-static" {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
+}
+
+func TestConfinedDirFSReusesRootAndPreservesConfinement(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	mustDo(t, os.WriteFile(filepath.Join(root, "safe.txt"), []byte("safe"), 0o600))
+	mustDo(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o600))
+	if err := os.Symlink("safe.txt", filepath.Join(root, "inside")); err != nil {
+		t.Skip(err)
+	}
+	mustDo(t, os.Symlink(outside, filepath.Join(root, "escape")))
+
+	filesystem := &confinedDirFS{path: root}
+	for range 3 {
+		file, err := filesystem.Open("inside")
+		mustDo(t, err)
+		data, err := io.ReadAll(file)
+		mustDo(t, err)
+		mustDo(t, file.Close())
+		if string(data) != "safe" {
+			t.Fatalf("in-root symlink returned %q", data)
+		}
+		if _, err := filesystem.Open("escape/secret.txt"); err == nil {
+			t.Fatal("symlink escaped retained root")
+		}
+	}
+	retained := filesystem.root
+	if retained == nil {
+		t.Fatal("root was not retained")
+	}
+	file, err := filesystem.Open("safe.txt")
+	mustDo(t, err)
+	mustDo(t, file.Close())
+	if filesystem.root != retained {
+		t.Fatal("root was reopened on a later request")
+	}
+	mustDo(t, filesystem.Close())
+	mustDo(t, filesystem.Close())
+	if _, err := filesystem.Open("safe.txt"); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("open after close: %v", err)
+	}
+}
+
+func TestStaticRootLifecycleAndLateDirectory(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "late")
+	app := New()
+	mustDo(t, app.Static("/files", root))
+	if got := performRequest(t, app, http.MethodGet, "/files/item.txt", nil, nil); got.Code != http.StatusNotFound {
+		t.Fatalf("missing root status=%d", got.Code)
+	}
+	mustDo(t, os.Mkdir(root, 0o700))
+	mustDo(t, os.WriteFile(filepath.Join(root, "item.txt"), []byte("item"), 0o600))
+	if got := performRequest(t, app, http.MethodGet, "/files/item.txt", nil, nil); got.Code != http.StatusOK || got.Body.String() != "item" {
+		t.Fatalf("late root status=%d body=%q", got.Code, got.Body.String())
+	}
+	group := app.Group("/nested")
+	mustDo(t, group.Static("/files", root))
+	if got := performRequest(t, app, http.MethodGet, "/nested/files/item.txt", nil, nil); got.Code != http.StatusOK {
+		t.Fatalf("group static status=%d", got.Code)
+	}
+	if len(app.staticRoots) != 2 || app.staticRoots[0].root == nil || app.staticRoots[1].root == nil {
+		t.Fatalf("static roots not retained: %d", len(app.staticRoots))
+	}
+	mustDo(t, app.Close())
+	mustDo(t, app.Close())
+	for _, filesystem := range app.staticRoots {
+		if !filesystem.closed || filesystem.root != nil {
+			t.Fatal("static root remained open after App.Close")
+		}
+	}
+}
+
+func TestConfinedDirFSConcurrentOpenAndClose(t *testing.T) {
+	root := t.TempDir()
+	mustDo(t, os.WriteFile(filepath.Join(root, "item.txt"), []byte("item"), 0o600))
+	filesystem := &confinedDirFS{path: root}
+	var workers sync.WaitGroup
+	for range 8 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for range 100 {
+				file, err := filesystem.Open("item.txt")
+				if errors.Is(err, os.ErrClosed) {
+					return
+				}
+				if err != nil {
+					t.Errorf("open: %v", err)
+					return
+				}
+				if err := file.Close(); err != nil {
+					t.Errorf("close file: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	mustDo(t, filesystem.Close())
+	workers.Wait()
+}
+
+func TestConfinedDirFSRemainsConfinedDuringSymlinkReplacement(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	mustDo(t, os.Mkdir(filepath.Join(root, "inside"), 0o700))
+	mustDo(t, os.WriteFile(filepath.Join(root, "inside", "item.txt"), []byte("inside"), 0o600))
+	mustDo(t, os.WriteFile(filepath.Join(outside, "item.txt"), []byte("outside"), 0o600))
+	link := filepath.Join(root, "current")
+	if err := os.Symlink("inside", link); err != nil {
+		t.Skip(err)
+	}
+	filesystem := &confinedDirFS{path: root}
+	defer filesystem.Close()
+	file, err := filesystem.Open("current/item.txt")
+	mustDo(t, err)
+	mustDo(t, file.Close()) // retain the root before replacement begins
+
+	var readers sync.WaitGroup
+	for range 4 {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for range 100 {
+				file, err := filesystem.Open("current/item.txt")
+				if err != nil { // the link may be absent between remove and create
+					continue
+				}
+				data, readErr := io.ReadAll(file)
+				closeErr := file.Close()
+				if readErr != nil || closeErr != nil {
+					t.Errorf("read=%v close=%v", readErr, closeErr)
+					return
+				}
+				if string(data) != "inside" {
+					t.Errorf("confined root returned %q", data)
+					return
+				}
+			}
+		}()
+	}
+	for i := range 100 {
+		mustDo(t, os.Remove(link))
+		target := "inside"
+		if i%2 == 0 {
+			target = outside
+		}
+		mustDo(t, os.Symlink(target, link))
+	}
+	readers.Wait()
 }

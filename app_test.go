@@ -955,3 +955,40 @@ func TestHTTPErrorHelpersCloneGlobalsAndAbortHelpers(t *testing.T) {
 		t.Fatalf("json resp=%d %q", jsonResp.Code, jsonResp.Body.String())
 	}
 }
+
+func TestShutdownReleasesConfinedStaticRoots(t *testing.T) {
+	root := t.TempDir()
+	mustDo(t, os.WriteFile(filepath.Join(root, "asset.txt"), []byte("asset"), 0o600))
+	app := New()
+	mustDo(t, app.Static("/assets", root))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	mustDo(t, err)
+	defer ln.Close()
+	finished := make(chan error, 1)
+	go func() { finished <- app.Serve(ln) }()
+
+	url := "http://" + ln.Addr().String() + "/assets/asset.txt"
+	var resp *http.Response
+	for i := 0; i < 20; i++ {
+		resp, err = http.Get(url)
+		if err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	mustDo(t, err)
+	body, err := io.ReadAll(resp.Body)
+	mustDo(t, err)
+	mustDo(t, resp.Body.Close())
+	if string(body) != "asset" {
+		t.Fatalf("body=%q", body)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	mustDo(t, app.Shutdown(ctx))
+	mustDo(t, <-finished)
+	if len(app.staticRoots) != 1 || !app.staticRoots[0].closed || app.staticRoots[0].root != nil {
+		t.Fatal("Shutdown did not release the confined root")
+	}
+}
