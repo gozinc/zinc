@@ -237,7 +237,7 @@ func TestDefaultMethodMismatchHeadersAreIndependent(t *testing.T) {
 	}
 	originalAllow, originalContentType := allow[0], contentType[0]
 	allow[0] = "tampered"
-	allow = append(allow, "another-method")
+	first.Header()["Allow"] = append(allow, "another-method")
 	if contentType[0] != originalContentType {
 		t.Fatalf("Allow mutation changed Content-Type: %q", contentType[0])
 	}
