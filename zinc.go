@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // ServeHTTP implements http.Handler. Standard HTTP middleware wraps the
@@ -192,17 +193,37 @@ func (m *mountedHandler) serve(c *Context) {
 	mountedRequest := new(http.Request)
 	*mountedRequest = *request
 	mountedRequest.URL = cloneURL(request.URL)
-	mountedRequest.RequestURI = cloneRequestURI(mountedRequest.URL)
-	mountedRequest.URL.Path = stripMountPrefix(mountedRequest.URL.Path, m.prefixPath)
-	if mountedRequest.URL.RawPath != "" {
-		mountedRequest.URL.RawPath = stripMountPrefix(mountedRequest.URL.RawPath, m.prefixPath)
+	// The mount was already matched using the application's case policy. Count
+	// prefix runes to find its byte boundary in the original (possibly Unicode)
+	// spelling, then map that boundary into the validated escaped path.
+	cut := 0
+	if m.prefixPath != "/" {
+		for range m.prefixPath {
+			if cut < len(request.URL.Path) {
+				_, size := utf8.DecodeRuneInString(request.URL.Path[cut:])
+				cut += size
+			}
+		}
+	}
+	escaped := request.URL.EscapedPath()
+	rawCut := 0
+	for decoded := 0; decoded < cut && rawCut < len(escaped); decoded++ {
+		if escaped[rawCut] == '%' {
+			rawCut += 3
+		} else {
+			rawCut++
+		}
+	}
+	mountedRequest.URL.Path = request.URL.Path[cut:]
+	mountedRequest.URL.RawPath = escaped[rawCut:]
+	if !strings.HasPrefix(mountedRequest.URL.RawPath, "/") {
+		mountedRequest.URL.RawPath = ""
 	}
 	if mountedRequest.URL.Path == "" {
 		mountedRequest.URL.Path = "/"
+		mountedRequest.URL.RawPath = "/"
 	}
-	if mountedRequest.URL.RawPath == "" && mountedRequest.URL.Path != "" {
-		mountedRequest.URL.RawPath = mountedRequest.URL.Path
-	}
+	mountedRequest.RequestURI = cloneRequestURI(mountedRequest.URL)
 	m.handler.ServeHTTP(c.Writer(), mountedRequest)
 }
 

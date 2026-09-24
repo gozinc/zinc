@@ -4,6 +4,7 @@
 package zinc
 
 import (
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -59,6 +60,9 @@ type routeCacheReadSnapshot struct {
 }
 
 const routeCacheMinRoutes = 64
+
+// Oversized request keys remain routable without being retained.
+const routeCacheMaxKeyBytes = 4096
 
 // A full cache admits one miss per interval in each shard. This protects hot
 // entries from one-hit paths while still letting repeatedly missed paths enter.
@@ -145,9 +149,12 @@ func (rc *RouteCache) set(key routeCacheKey, entry routeCacheEntry) {
 // capacity, next identifies the oldest replaceable slot; this is intentionally
 // bounded bookkeeping rather than a general-purpose LRU.
 func (rc *RouteCache) setWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
-	if rc == nil || rc.size <= 0 {
+	if rc == nil || rc.size <= 0 || len(key.path)+len(key.method) > routeCacheMaxKeyBytes {
 		return
 	}
+	// Own the key bytes instead of retaining a larger request URI backing string.
+	key.path = strings.Clone(key.path)
+	key.method = strings.Clone(key.method)
 	rc.ensureFresh()
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
@@ -196,7 +203,7 @@ func (rc *RouteCache) setMiss(key routeCacheKey, entry routeCacheEntry) {
 }
 
 func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
-	if rc == nil || rc.size <= 0 {
+	if rc == nil || rc.size <= 0 || len(key.path)+len(key.method) > routeCacheMaxKeyBytes {
 		return
 	}
 	admissionShard := routeCacheAdmissionShard(key)

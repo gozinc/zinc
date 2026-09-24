@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/0mjs/zinc"
@@ -31,6 +32,7 @@ func runServeHTTPParallelBenchmarksWithProof(
 
 			b.ReportAllocs()
 			b.ResetTimer()
+			var total atomic.Int64
 			b.RunParallel(func(pb *testing.PB) {
 				req := httptest.NewRequest(method, target, nil)
 				rw := newDiscardResponseWriter()
@@ -38,8 +40,9 @@ func runServeHTTPParallelBenchmarksWithProof(
 					rw.reset()
 					handler.ServeHTTP(rw, req)
 				}
-				benchmarkSinkInt = rw.status + rw.bytes
+				total.Add(int64(rw.status + rw.bytes))
 			})
+			benchmarkSinkInt = int(total.Load())
 		})
 	}
 }

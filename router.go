@@ -8,6 +8,7 @@ import (
 	"math/bits"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // RouteHandlerMap associates route patterns with handlers.
@@ -290,6 +291,14 @@ func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 			return route.handler
 		}
 	}
+	if !caseSensitive {
+		if routes, ok := r.routes[method]; ok {
+			if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
+				ctx.setRoute(r.routeMetaAt(route.infoIndex))
+				return route.handler
+			}
+		}
+	}
 	if caseSensitive {
 		if handler := r.findDynamicInto(method, path, ctx); handler != nil || path == originalPath {
 			return handler
@@ -304,30 +313,74 @@ func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 			return handler
 		}
 	}
-	if routes, ok := r.routes[method]; ok {
-		if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
-			ctx.setRoute(r.routeMetaAt(route.infoIndex))
-			return route.handler
-		}
-	}
 	if lower, changed := lowercasePath(path); changed {
-		if handler := r.findDynamicInto(method, lower, ctx); handler != nil {
+		if handler := r.findFoldedInto(method, originalPath, lower, ctx); handler != nil {
 			return handler
 		}
 	}
 	if path != originalPath {
 		if lower, changed := lowercasePath(originalPath); changed {
-			return r.findDynamicInto(method, lower, ctx)
+			return r.findFoldedInto(method, originalPath, lower, ctx)
 		}
 	}
 	return nil
+}
+
+// findFoldedInto keeps Find's parameters in the original spelling. Cache ranges
+// for the folded lookup stay untouched; Context receives an independent copy.
+func (r *Router) findFoldedInto(method, original, folded string, ctx *Context) HandlerFunc {
+	handler := r.findDynamicInto(method, folded, ctx)
+	if handler == nil {
+		return nil
+	}
+	var ranges paramRanges
+	for i := 0; i < ctx.paramCount; i++ {
+		ranges.set(i, paramRange{start: uint32(ctx.PathParams[i].start), end: uint32(ctx.PathParams[i].end)})
+	}
+	remapFoldedParams(&ranges, ctx.paramCount, original, folded)
+	ctx.applyRouteParams(original, ctx.paramRoute, ranges)
+	return handler
+}
+
+// Unicode lowercasing can change byte widths (for example K to k). Walk both
+// spellings once, mapping ordered parameter boundaries back to original bytes.
+func remapFoldedParams(values *paramRanges, count int, original, folded string) {
+	if original == folded {
+		return
+	}
+	ascii := true
+	for i := 0; i < len(original); i++ {
+		if original[i] >= utf8.RuneSelf {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return
+	}
+	oi, fi := 0, 0
+	offset := func(target uint32) uint32 {
+		for fi < int(target) && oi < len(original) && fi < len(folded) {
+			_, os := utf8.DecodeRuneInString(original[oi:])
+			_, fs := utf8.DecodeRuneInString(folded[fi:])
+			oi += os
+			fi += fs
+		}
+		return uint32(oi)
+	}
+	for i := 0; i < count; i++ {
+		v := values.at(i)
+		start := offset(v.start)
+		end := offset(v.end)
+		values.set(i, paramRange{start: start, end: end})
+	}
 }
 
 // dispatchInto resolves and invokes a route. needAllowed controls the more
 // expensive alternate-method search required for 405 and automatic OPTIONS;
 // ordinary not-found dispatch leaves it disabled.
 //
-// The lookup order is exact static, cached result, dynamic tree, case-folded
+// The lookup order is static (including case folds), cached result, dynamic tree, case-folded
 // fallback, then alternate methods. A cache entry may represent a hit or a
 // known miss, but cache state never determines routing correctness.
 func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
@@ -359,6 +412,15 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 			return true, allowedMethodSet{}, route.handler(ctx)
 		}
 	}
+	// Case-folded static routes precede parameters just like exact static routes.
+	// Byte-length filtering cannot reject a Unicode fold whose width changes.
+	if routes != nil && !caseSensitive {
+		if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
+			ctx.setRouteIndex(route.infoIndex)
+			return true, allowedMethodSet{}, route.handler(ctx)
+		}
+	}
+
 	dispatchCacheEnabled := r.dispatchCacheEnabled()
 	var key routeCacheKey
 	if dispatchCacheEnabled {
@@ -386,26 +448,28 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 		entry = r.lookupDynamicDispatch(method, mask, originalPath, needAllowed, captured)
 	}
 	if !caseSensitive && entry.route == nil {
-		if routes := r.staticRoutesFor(method, mask); routes != nil {
-			if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
-				ctx.setRouteIndex(route.infoIndex)
-				return true, allowedMethodSet{}, route.handler(ctx)
-			}
-		}
 		if lower, changed := lowercasePath(path); changed {
+			foldedPath := lower
 			lowerEntry := r.lookupDynamicDispatch(method, mask, lower, needAllowed, captured)
 			if path != originalPath && lowerEntry.route == nil && lowerEntry.allowed.empty() {
 				if lowerOriginal, originalChanged := lowercasePath(originalPath); originalChanged {
+					foldedPath = lowerOriginal
 					lowerEntry = r.lookupDynamicDispatch(method, mask, lowerOriginal, needAllowed, captured)
 				}
 			}
 			if lowerEntry.route != nil || !lowerEntry.allowed.empty() {
+				if lowerEntry.route != nil {
+					remapFoldedParams(&lowerEntry.values, int(lowerEntry.route.paramCount), originalPath, foldedPath)
+				}
 				entry = lowerEntry
 			}
 		} else if path != originalPath {
 			if lowerOriginal, changed := lowercasePath(originalPath); changed {
 				lowerEntry := r.lookupDynamicDispatch(method, mask, lowerOriginal, needAllowed, captured)
 				if lowerEntry.route != nil || !lowerEntry.allowed.empty() {
+					if lowerEntry.route != nil {
+						remapFoldedParams(&lowerEntry.values, int(lowerEntry.route.paramCount), originalPath, lowerOriginal)
+					}
 					entry = lowerEntry
 				}
 			}

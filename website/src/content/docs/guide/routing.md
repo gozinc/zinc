@@ -217,3 +217,7 @@ route, ok := app.FindRoute(zinc.MethodGet, "/users/42") // what would serve this
 - [Groups and Middleware](/guide/groups-and-middleware/) for scoping behavior to route families.
 - [Request Data](/guide/request/) for everything you can read from a request.
 - [Application API](/api/app/) for the complete method list.
+
+Named URLs reject empty or slash-containing values for single-segment parameters. Routing uses decoded `URL.Path`, so an encoded slash cannot represent a single segment. Use a catch-all parameter for multiple segments; generated catch-all values preserve `/` separators while escaping query, fragment, and percent characters.
+
+Mounted handlers receive a cloned request with consistent `URL.Path`, `URL.RawPath`, and `RequestURI`. The original request remains available to outer middleware. Case-insensitive static routes retain precedence over parameter routes, including Unicode case folds; captured values preserve their original spelling.
