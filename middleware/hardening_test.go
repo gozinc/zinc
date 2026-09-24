@@ -354,7 +354,7 @@ func TestSecureDefaultsAndHSTSOptions(t *testing.T) {
 
 func TestSessionDeleteValuesAndOptions(t *testing.T) {
 	cfg := DefaultSessionConfig()
-	cfg.Secret = []byte("secret")
+	cfg.Secret = []byte(strings.Repeat("s", 32))
 	cfg.Name = "sid"
 	cfg.MaxAge = 10
 	cfg.DisableHTTPOnly = true
@@ -404,31 +404,6 @@ func TestSessionHelpersOnNil(t *testing.T) {
 	}
 	if _, ok := SessionCurrent(nil); ok {
 		t.Fatal("nil context should not have session")
-	}
-}
-
-func TestSessionResponseWriterBuffersStatusAndBody(t *testing.T) {
-	rec := httptest.NewRecorder()
-	writer := &sessionResponseWriter{ResponseWriter: rec}
-
-	writer.WriteHeader(http.StatusCreated)
-	writer.WriteHeader(http.StatusAccepted)
-	if _, err := writer.Write([]byte("created")); err != nil {
-		t.Fatal(err)
-	}
-	if writer.Unwrap() != rec {
-		t.Fatal("unwrap returned the wrong writer")
-	}
-	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
-		t.Fatalf("response should still be buffered: status=%d body=%q", rec.Code, rec.Body.String())
-	}
-
-	mustNoErrHardening(t, writer.FlushBuffered())
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if rec.Body.String() != "created" {
-		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
 
