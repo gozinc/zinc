@@ -408,11 +408,24 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 		}
 	}
 	// Case-folded static routes precede parameters just like exact static routes.
-	// Byte-length filtering cannot reject a Unicode fold whose width changes.
+	// ASCII folding preserves byte length, so an impossible static length also
+	// rules out a folded static match. Unicode folding can change width and must
+	// still be checked.
 	if routes != nil && !caseSensitive {
-		if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
-			ctx.setRouteIndex(route.infoIndex)
-			return true, allowedMethodSet{}, route.handler(ctx)
+		lookupFolded := staticLengthPossible
+		if !lookupFolded {
+			for i := 0; i < len(path); i++ {
+				if path[i] >= utf8.RuneSelf {
+					lookupFolded = true
+					break
+				}
+			}
+		}
+		if lookupFolded {
+			if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
+				ctx.setRouteIndex(route.infoIndex)
+				return true, allowedMethodSet{}, route.handler(ctx)
+			}
 		}
 	}
 
