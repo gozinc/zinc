@@ -158,7 +158,7 @@ func TestStaticServesFilesAndFallsThrough(t *testing.T) {
 
 func TestSessionPersistsSignedCookie(t *testing.T) {
 	app := zinc.New()
-	app.Use(SessionCookie("sid", "secret"))
+	app.Use(SessionCookie("sid", strings.Repeat("s", 32)))
 	app.Get("/", func(c *zinc.Context) error {
 		session := MustSession(c)
 		visits := session.Get("visits")
@@ -195,7 +195,7 @@ func TestSessionPersistsSignedCookie(t *testing.T) {
 
 func TestSessionRejectsInvalidCookie(t *testing.T) {
 	app := zinc.New()
-	app.Use(SessionCookie("sid", "secret"))
+	app.Use(SessionCookie("sid", strings.Repeat("s", 32)))
 	app.Get("/", func(c *zinc.Context) error {
 		return c.String("ok")
 	})

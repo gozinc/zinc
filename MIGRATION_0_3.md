@@ -29,3 +29,11 @@ Informational headers do not consume the final status. Gzip flushes below MinLen
 Response header value slices belong to each response. This intentionally adds an allocation on common helpers that previously used mutable shared storage. Context release clears request-owned values and references immediately, including after panics.
 
 Accept negotiation now retains explicit `q=0` exclusions and applies them ahead of matching wildcards.
+
+## Signed cookie sessions
+
+Session responses are no longer buffered. `Session.Set` and `Session.Delete` now return errors and persist cookie headers immediately; call them before writing or flushing a response. Late mutations return `ErrSessionCommitted`, and cookies above 4096 bytes return `ErrSessionTooLarge`. Failed mutations leave the previous values intact. Check these errors before sending a successful response.
+
+Signing keys must contain at least 32 random bytes. Cookies use a versioned payload with authenticated server-side expiry. A positive MaxAge controls that lifetime; browser-session cookies (MaxAge zero) use Lifetime, defaulting to 24 hours. Removing a cookie from the browser is not server-side revocation.
+
+**Existing session cookies are invalidated by this format change.** Plan for users to sign in again. PreviousSecrets permits a deliberate key-rotation window for the new format; cookies verified with a previous key are signed again with the current key without extending their authenticated expiry. Remove previous keys when that window ends.
