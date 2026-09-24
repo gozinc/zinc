@@ -336,8 +336,9 @@ const markLine = (n: number) => ({
     box-shadow: 0 0 0 3px var(--sl-color-bg), 0 0 0 4.5px var(--z-zn);
   }
 
-  /* Hover lifts the station's ink instead of drawing a card around it. */
-  [role="tab"]:hover .marker {
+  /* Hover lifts the station's ink instead of drawing a card around it.
+     The active station is already filled, so hover leaves it alone. */
+  [role="tab"]:not([aria-selected="true"]):hover .marker {
     border-color: var(--z-muted);
     color: var(--z-text);
   }
