@@ -110,10 +110,10 @@ func (c *Context) Vary(fields ...string) *Context {
 
 // String writes a plain-text response without converting data to []byte.
 func (c *Context) String(data string) error {
-	if c.baseWriter && !c.written && c.status == http.StatusOK && c.request != nil && c.request.Method != http.MethodHead {
-		// Ordinary responses can write through the already-owned base without
-		// re-entering the interface facade. SetWriter and uncommon statuses use
-		// the general response path below.
+	if c.baseWriter && !c.written && c.request != nil && c.request.Method != http.MethodHead &&
+		(c.status == http.StatusOK || bodyAllowed(c.request.Method, c.responseStatus())) {
+		// Body-allowed responses can use the already-owned base writer.
+		// SetWriter, HEAD, and bodyless statuses use the general path below.
 		writer := &c.response.base
 		header := writer.Header()
 		if len(header[contentType]) == 0 {
