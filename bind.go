@@ -140,6 +140,9 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 			return wrapBindError("body", decodeErr)
 		}
 	case "application/x-www-form-urlencoded":
+		if err := c.limitFormBody(); err != nil {
+			return wrapBindError("form", err)
+		}
 		if err := req.ParseForm(); err != nil {
 			return wrapBindError("form", fmt.Errorf("parse form: %w", err))
 		}
@@ -147,6 +150,9 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 			return wrapBindError("form", err)
 		}
 	case "multipart/form-data":
+		if err := c.limitFormBody(); err != nil {
+			return wrapBindError("form", err)
+		}
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
 		}
@@ -221,6 +227,9 @@ func (b defaultBinder) BindForm(c *Context, v any) error {
 	req := c.Request()
 	if req == nil {
 		return wrapBindError("form", errors.New("request is nil"))
+	}
+	if err := c.limitFormBody(); err != nil {
+		return wrapBindError("form", err)
 	}
 	if requestMediaType(c.GetHeader(HeaderContentType)) == "multipart/form-data" {
 		if err := bindMultipartForm(val, plan, req); err != nil {

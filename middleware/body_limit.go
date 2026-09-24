@@ -116,36 +116,30 @@ type bodyLimitReadCloser struct {
 }
 
 func (r *bodyLimitReadCloser) Read(p []byte) (int, error) {
-	if r.read >= r.limit {
-		return 0, &BodyLimitError{
-			Limit:    r.limit,
-			Observed: r.read,
-			Source:   BodyLimitSourceBodyRead,
+	if len(p) == 0 {
+		return 0, nil
+	}
+	limitError := func() error {
+		return &BodyLimitError{Limit: r.limit, Observed: r.read, Source: BodyLimitSourceBodyRead}
+	}
+	if r.read > r.limit {
+		return 0, limitError()
+	}
+	if r.read == r.limit {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			r.read += int64(n)
+			return 0, limitError()
 		}
+		return 0, err
 	}
-
+	if remaining := r.limit - r.read; int64(len(p)) > remaining {
+		p = p[:int(remaining)]
+	}
 	n, err := r.reader.Read(p)
-	if n <= 0 {
-		return n, err
-	}
-
-	remaining := r.limit - r.read
-	if int64(n) <= remaining {
-		r.read += int64(n)
-		return n, err
-	}
-
 	r.read += int64(n)
-	allowed := int(remaining)
-	if allowed < 0 {
-		allowed = 0
-	}
-
-	return allowed, &BodyLimitError{
-		Limit:    r.limit,
-		Observed: r.read,
-		Source:   BodyLimitSourceBodyRead,
-	}
+	return n, err
 }
 
 func (r *bodyLimitReadCloser) Close() error {
