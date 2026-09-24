@@ -56,3 +56,7 @@ Whatever header you choose, trust only the addresses of the proxies that set it.
 ## Where this matters
 
 [Rate Limiter](/middleware/rate-limiter/)'s per-IP mode and the [RealIP](/middleware/utility/#realip) middleware both use `c.IP()`. Configure proxies before relying on either.
+
+Trust entries are validated and copied at application construction. Invalid IP addresses or CIDRs panic. Zinc walks forwarded addresses from right to left and stops at the first untrusted hop; values to its left are ignored. Malformed addresses encountered during that walk fall back to the direct peer. Configure every proxy you operate and ensure it appends or overwrites forwarding headers correctly.
+
+`Scheme()` accepts only `http` or `https` from the last `X-Forwarded-Proto` value supplied by a trusted direct peer. Direct TLS always returns `https`. Proxies should overwrite this header with the protocol they have verified.

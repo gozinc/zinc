@@ -32,10 +32,11 @@ type ProxyBalancer interface {
 
 // ProxyConfig controls upstream selection, rewriting, retries, and transport.
 type ProxyConfig struct {
-	Skipper        func(*zinc.Context) bool
-	Target         string
-	Targets        []*ProxyTarget
-	Balancer       ProxyBalancer
+	Skipper  func(*zinc.Context) bool
+	Target   string
+	Targets  []*ProxyTarget
+	Balancer ProxyBalancer
+	// Director runs after hop-by-hop and inbound forwarding headers are removed.
 	Director       func(*http.Request)
 	Modify         func(*http.Response) error
 	ModifyResponse func(*http.Response) error
@@ -90,12 +91,16 @@ func NewRandomBalancer(targets []*ProxyTarget) ProxyBalancer {
 }
 
 func newReverseProxy(config ProxyConfig) (*httputil.ReverseProxy, ProxyBalancer) {
+	if config.Retries < 0 {
+		panic("zincproxy: Retries must not be negative")
+	}
 	baseTarget, balancer := resolveProxyTargets(config)
 	rewriteRules := cloneRewriteRules(config.Rewrite)
 	regexRewriteRules := cloneRegexRewriteRules(config.RegexRewrite)
 
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			target := baseTarget
 			if selected, ok := req.Context().Value(proxyTargetContextKey{}).(*ProxyTarget); ok && selected != nil {
 				target = selected
@@ -105,14 +110,11 @@ func newReverseProxy(config ProxyConfig) (*httputil.ReverseProxy, ProxyBalancer)
 			}
 
 			rewriteProxyURL(req, target.URL, rewriteRules, regexRewriteRules)
+			pr.SetXForwarded()
+			if config.Director != nil {
+				config.Director(req)
+			}
 		},
-	}
-	if config.Director != nil {
-		defaultDirector := proxy.Director
-		proxy.Director = func(req *http.Request) {
-			defaultDirector(req)
-			config.Director(req)
-		}
 	}
 	proxy.ModifyResponse = chainProxyModifyResponse(config.Modify, config.ModifyResponse)
 	if config.Transport != nil {
@@ -315,6 +317,9 @@ func (t *proxyRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	// Never retry a consumed body without GetBody. Replaying a partial request
 	// would silently change application semantics at the upstream.
 	for attempt := 0; attempt <= t.retries; attempt++ {
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
 		if attempt > 0 && req.GetBody != nil {
 			body, err := req.GetBody()
 			if err != nil {
@@ -328,7 +333,19 @@ func (t *proxyRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			return resp, nil
 		}
 		lastErr = err
-		if attempt == t.retries || !canReplayBody || (t.filter != nil && !t.filter(c, err)) {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		retry := false
+		if t.filter != nil {
+			retry = t.filter(c, err)
+		} else {
+			switch req.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace, http.MethodPut, http.MethodDelete:
+				retry = true
+			}
+		}
+		if attempt == t.retries || !canReplayBody || !retry {
 			break
 		}
 	}

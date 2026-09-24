@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -802,11 +803,16 @@ func (c *Context) Scheme() string {
 		return "https"
 	}
 	if c.trustProxy() {
-		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-			if idx := strings.IndexByte(proto, ','); idx >= 0 {
-				return strings.TrimSpace(proto[:idx])
+		values := c.request.Header.Values("X-Forwarded-Proto")
+		if len(values) > 0 {
+			proto := values[len(values)-1]
+			if idx := strings.LastIndexByte(proto, ','); idx >= 0 {
+				proto = proto[idx+1:]
 			}
-			return strings.TrimSpace(proto)
+			proto = strings.TrimSpace(proto)
+			if proto == "http" || proto == "https" {
+				return proto
+			}
 		}
 	}
 	return "http"
@@ -821,7 +827,7 @@ func (c *Context) IP() string {
 	return ips[0]
 }
 
-// IPs returns the forwarded address chain only for trusted proxy peers;
+// IPs returns the verified suffix of the forwarded address chain for trusted peers;
 // otherwise it returns the direct remote address.
 func (c *Context) IPs() []string {
 	remote := c.RemoteIP()
@@ -835,22 +841,27 @@ func (c *Context) IPs() []string {
 	if header == "" {
 		header = DefaultConfig.ProxyHeader
 	}
-	raw := c.GetHeader(header)
+	raw := strings.Join(c.request.Header.Values(header), ",")
 	if raw == "" {
 		return []string{remote}
 	}
 	parts := strings.Split(raw, ",")
-	ips := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			ips = append(ips, part)
+	// Inspect from the direct peer towards the client. Anything before the
+	// first untrusted hop can have been supplied by that hop and is discarded.
+	start := len(parts) - 1
+	for i := len(parts) - 1; i >= 0; i-- {
+		part := strings.TrimSpace(parts[i])
+		addr, err := netip.ParseAddr(part)
+		if err != nil || addr.Zone() != "" {
+			return []string{remote}
+		}
+		parts[i] = addr.Unmap().String()
+		start = i
+		if !c.app.trustsAddress(addr) {
+			break
 		}
 	}
-	if len(ips) == 0 {
-		return []string{remote}
-	}
-	return ips
+	return parts[start:]
 }
 
 // RemoteIP returns the direct network peer, independent of proxy headers.
@@ -1081,10 +1092,39 @@ func (c *Context) materializePathParams() {
 }
 
 func (c *Context) trustProxy() bool {
-	if c.app == nil || len(c.app.config.TrustedProxies) == 0 {
+	if c.app == nil {
 		return false
 	}
-	return isTrustedProxy(c.RemoteIP(), c.app.config.TrustedProxies)
+	addr, err := netip.ParseAddr(c.RemoteIP())
+	return err == nil && c.app.trustsAddress(addr)
+}
+
+func (a *App) trustsAddress(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	for _, prefix := range a.trustedProxies {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+func compileTrustedProxies(values []string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		if addr, err := netip.ParseAddr(value); err == nil && addr.Zone() == "" {
+			addr = addr.Unmap()
+			prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+		} else if prefix, err := netip.ParsePrefix(value); err == nil {
+			if prefix.Addr().Is4In6() && prefix.Bits() >= 96 {
+				prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+			}
+			prefixes = append(prefixes, prefix.Masked())
+		} else {
+			panic("zinc: invalid trusted proxy: " + value)
+		}
+	}
+	return prefixes
 }
 
 func isTrustedProxy(ip string, trusted []string) bool {
