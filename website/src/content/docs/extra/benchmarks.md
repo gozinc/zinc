@@ -7,7 +7,7 @@ Zinc keeps its benchmark suite in the repository, so every performance claim can
 
 ## Latest results
 
-Apple M1 Pro, `go1.26.1`, Zinc commit `5f77c75`. Lower is better.
+Historical run: Apple M1 Pro, `go1.26.1`, Zinc commit `5f77c75`, before 0.3 hardening. Lower is better.
 
 | Framework | Fastest in |
 |---|---|
@@ -16,7 +16,7 @@ Apple M1 Pro, `go1.26.1`, Zinc commit `5f77c75`. Lower is better.
 | Chi | 5 of 77 |
 | Echo | 0 of 77 |
 
-Zinc was fastest, or within 2% of the fastest, in 63 rows. Static, parameter, and not-found routing allocate nothing per request.
+Zinc was fastest, or within 2% of the fastest, in 63 rows. These historical paths allocated nothing per request. Hardened response-header ownership adds one 16-byte allocation to the measured common string-response paths; the historical table is not a claim about the current revision.
 
 | Benchmark | Zinc | Gin | Echo | Chi |
 |---|---:|---:|---:|---:|

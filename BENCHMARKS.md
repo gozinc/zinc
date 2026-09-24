@@ -2,6 +2,8 @@
 
 This report compares Zinc with Gin, Echo, and Chi using equivalent in-process workloads through each framework's idiomatic API. Lower values are better.
 
+> Historical results for commit `5f77c75`, before 0.3 hardening. The zero-allocation response figures below do not describe the hardened implementation: request-owned header values now add 16 B / 1 allocation to common string responses. Re-run the suite for current comparisons.
+
 ## Run information
 
 - Date: `2026-07-31`

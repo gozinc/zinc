@@ -15,13 +15,15 @@ func TestRoutingFoldContractsWithAndWithoutCache(t *testing.T) {
 		app := NewWithConfig(cfg)
 		app.Get("/users/new", func(c *Context) error { return c.Send("static") })
 		app.Get("/users/{id}", func(c *Context) error { return c.Send(c.Param("id")) })
+		app.Get("/users/new/{part}", func(c *Context) error { return c.Send("literal:" + c.Param("part")) })
+		app.Get("/users/{id}/{part}", func(c *Context) error { return c.Send("parameter:" + c.Param("part")) })
 		app.Get("/k/new", func(c *Context) error { return c.Send("unicode-static") })
 		app.Get("/k/{id}/{part}/{third}", func(c *Context) error { return c.Send(c.Param("id") + "|" + c.Param("part") + "|" + c.Param("third")) })
 		for i := 0; i < 80; i++ {
 			app.Get(fmt.Sprintf("/r%d/{id}", i), func(c *Context) error { return c.Send(c.Param("id")) })
 		}
 		for pass := 0; pass < 4; pass++ {
-			for _, tt := range []struct{ path, want string }{{"/users/NEW", "static"}, {"/K/NEW", "unicode-static"}, {"/K/ABC/İ/XKZ", "ABC|İ|XKZ"}, {"/K/ABC/İ/XKZ/", "ABC|İ|XKZ"}} {
+			for _, tt := range []struct{ path, want string }{{"/users/NEW", "static"}, {"/users/NEW/ABC", "literal:ABC"}, {"/K/NEW", "unicode-static"}, {"/K/ABC/İ/XKZ", "ABC|İ|XKZ"}, {"/K/ABC/İ/XKZ/", "ABC|İ|XKZ"}} {
 				w := httptest.NewRecorder()
 				app.ServeHTTP(w, httptest.NewRequest("GET", tt.path, nil))
 				if w.Body.String() != tt.want {
