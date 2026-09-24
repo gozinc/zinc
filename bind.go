@@ -113,7 +113,7 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	}
 	req := c.Request()
 	if len(plan.queryFields) > 0 && req != nil && req.URL != nil && req.URL.RawQuery != "" {
-		if err := bindFieldsFromValues(val, plan.queryFields, c.QueryValues()); err != nil {
+		if err := bindFieldsFromQuery(val, plan.queryFields, c); err != nil {
 			return wrapBindError("query", err)
 		}
 	}
@@ -574,6 +574,15 @@ func bindErrorField(err error) string {
 // Opaque decoder errors may be application/codec failures. Classify known
 // malformed JSON and type errors without exposing decoder details to clients.
 func classifyJSONDecodeError(err error) error {
+	// The default codec returns these concrete errors directly. Avoid walking
+	// the error chain three times on the common malformed-request path while
+	// keeping the wrapped-error fallback for custom codecs.
+	switch typed := err.(type) {
+	case *json.SyntaxError:
+		return &BindError{Source: "body", Err: err}
+	case *json.UnmarshalTypeError:
+		return &BindError{Source: "body", Field: typed.Field, Err: err}
+	}
 	var syntax *json.SyntaxError
 	var mismatch *json.UnmarshalTypeError
 	if errors.As(err, &syntax) || errors.As(err, &mismatch) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
