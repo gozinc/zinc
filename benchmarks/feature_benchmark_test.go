@@ -889,7 +889,11 @@ func BenchmarkAPIUnauthorizedReject(b *testing.B) {
 }
 
 func TestBenchmarkStaticFixtureExists(t *testing.T) {
-	if _, err := http.Dir(benchmarkStaticRoot).Open(filepath.Base(benchmarkStaticTarget)); err != nil {
+	file, err := http.Dir(benchmarkStaticRoot).Open(filepath.Base(benchmarkStaticTarget))
+	if err != nil {
 		t.Fatalf("static fixture missing: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

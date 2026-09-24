@@ -20,10 +20,10 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.6",
-    "astro": "^7.1.6",
-    "sharp": "^0.35.2"
+    "astro": "^7.3.5",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
-    "wrangler": "4.129.0"
+    "wrangler": "4.138.0"
   }
 }

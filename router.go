@@ -305,23 +305,18 @@ func (r *Router) findInto(method, path string, ctx *Context) HandlerFunc {
 		}
 		return r.findDynamicInto(method, originalPath, ctx)
 	}
-	if handler := r.findDynamicInto(method, path, ctx); handler != nil {
-		return handler
-	}
-	if path != originalPath {
-		if handler := r.findDynamicInto(method, originalPath, ctx); handler != nil {
-			return handler
-		}
-	}
 	if lower, changed := lowercasePath(path); changed {
 		if handler := r.findFoldedInto(method, originalPath, lower, ctx); handler != nil {
 			return handler
 		}
+	} else if handler := r.findDynamicInto(method, path, ctx); handler != nil {
+		return handler
 	}
 	if path != originalPath {
 		if lower, changed := lowercasePath(originalPath); changed {
 			return r.findFoldedInto(method, originalPath, lower, ctx)
 		}
+		return r.findDynamicInto(method, originalPath, ctx)
 	}
 	return nil
 }
@@ -443,37 +438,22 @@ func (r *Router) dispatchInto(method, path string, needAllowed bool, ctx *Contex
 	}
 	// Capture offsets into the request path; materializing parameter strings would allocate.
 	captured := ctx.paramRangesScratch()
-	entry := r.lookupDynamicDispatch(method, mask, path, needAllowed, captured)
-	if path != originalPath && entry.route == nil && entry.allowed.empty() {
-		entry = r.lookupDynamicDispatch(method, mask, originalPath, needAllowed, captured)
+	// Normalize before traversing so literal edges inside parameterized routes
+	// keep precedence over wildcard siblings regardless of request spelling.
+	matchedPath := path
+	if !caseSensitive {
+		matchedPath, _ = lowercasePath(path)
 	}
-	if !caseSensitive && entry.route == nil {
-		if lower, changed := lowercasePath(path); changed {
-			foldedPath := lower
-			lowerEntry := r.lookupDynamicDispatch(method, mask, lower, needAllowed, captured)
-			if path != originalPath && lowerEntry.route == nil && lowerEntry.allowed.empty() {
-				if lowerOriginal, originalChanged := lowercasePath(originalPath); originalChanged {
-					foldedPath = lowerOriginal
-					lowerEntry = r.lookupDynamicDispatch(method, mask, lowerOriginal, needAllowed, captured)
-				}
-			}
-			if lowerEntry.route != nil || !lowerEntry.allowed.empty() {
-				if lowerEntry.route != nil {
-					remapFoldedParams(&lowerEntry.values, int(lowerEntry.route.paramCount), originalPath, foldedPath)
-				}
-				entry = lowerEntry
-			}
-		} else if path != originalPath {
-			if lowerOriginal, changed := lowercasePath(originalPath); changed {
-				lowerEntry := r.lookupDynamicDispatch(method, mask, lowerOriginal, needAllowed, captured)
-				if lowerEntry.route != nil || !lowerEntry.allowed.empty() {
-					if lowerEntry.route != nil {
-						remapFoldedParams(&lowerEntry.values, int(lowerEntry.route.paramCount), originalPath, lowerOriginal)
-					}
-					entry = lowerEntry
-				}
-			}
+	entry := r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
+	if path != originalPath && entry.route == nil && entry.allowed.empty() {
+		matchedPath = originalPath
+		if !caseSensitive {
+			matchedPath, _ = lowercasePath(originalPath)
 		}
+		entry = r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
+	}
+	if entry.route != nil && matchedPath != originalPath {
+		remapFoldedParams(&entry.values, int(entry.route.paramCount), originalPath, matchedPath)
 	}
 	if needAllowed && entry.route == nil {
 		entry.allowed.merge(r.lookupStaticAllowedMethods(originalPath, path, caseSensitive))

@@ -164,7 +164,7 @@ Binding supports path, query, header, JSON, XML, YAML, TOML, form, and multipart
 
 Zinc keeps benchmarks in the repository so performance claims can be checked against the code that produced them.
 
-In the latest Apple M1 Pro comparison, Zinc recorded the lowest latency in 62 of 77 comparable rows against Gin, Echo, and Chi. It was fastest or within 2% of the fastest result in 63 rows. Primary static, parameter, and not-found dispatch paths retained zero request-time allocations.
+The historical Apple M1 Pro comparison at commit `5f77c75` recorded the lowest latency in 62 of 77 comparable rows against Gin, Echo, and Chi. Those figures predate the 0.3 hardening work. Correct response-header ownership now adds one 16-byte allocation to the measured common string-response paths. See the benchmark report for run metadata and reproduce the suite against the revision you deploy.
 
 Results vary by workload and machine. See the [full benchmark report](./BENCHMARKS.md) for the environment, command, scorecard, and complete results.
 

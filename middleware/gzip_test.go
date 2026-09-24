@@ -6,6 +6,7 @@ package middleware
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -216,13 +217,25 @@ func TestGzipResponseWriterInterfaces(t *testing.T) {
 		t.Fatalf("push err=%v", err)
 	}
 
-	blocked := &gzipResponseWriter{
-		ResponseWriter: httptest.NewRecorder(),
-		method:         http.MethodGet,
-		status:         http.StatusNoContent,
+	// Older httptest recorders accept bodies that the HTTP transport rejects.
+	// Check delegation against the actual transport on every supported Go version.
+	writeErr := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blocked := &gzipResponseWriter{ResponseWriter: w, method: r.Method, status: http.StatusNoContent}
+		_, err := (gzipWriterOnly{w: blocked}).Write([]byte("raw"))
+		writeErr <- err
+	}))
+	defer server.Close()
+	response, err := server.Client().Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := (gzipWriterOnly{w: blocked}).Write([]byte("raw")); err == nil {
-		t.Fatal("expected no-body write error")
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+	if err := <-writeErr; !errors.Is(err, http.ErrBodyNotAllowed) {
+		t.Fatalf("no-body write error=%v", err)
 	}
 }
 
