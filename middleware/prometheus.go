@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,8 +24,10 @@ type PrometheusConfig struct {
 // PrometheusMetrics stores in-process counters and duration sums. Route labels
 // use registered patterns to avoid cardinality growth from path parameters.
 type PrometheusMetrics struct {
-	mu       sync.Mutex
-	requests map[prometheusRequestKey]*prometheusRequestValue
+	mu        sync.Mutex
+	maxSeries int
+	dropped   uint64
+	requests  map[prometheusRequestKey]*prometheusRequestValue
 }
 
 type prometheusRequestKey struct {
@@ -38,18 +41,27 @@ type prometheusRequestValue struct {
 	DurationSum float64
 }
 
-var defaultPrometheusMetrics = NewPrometheusMetrics()
+type prometheusContextKey struct{}
 
-// NewPrometheusMetrics creates an isolated metrics registry.
-func NewPrometheusMetrics() *PrometheusMetrics {
+// NewPrometheusMetrics creates an isolated registry with an optional series cap
+// (default 10,000). Further new series are dropped and counted.
+func NewPrometheusMetrics(maxSeries ...int) *PrometheusMetrics {
+	limit := 10000
+	if len(maxSeries) > 0 {
+		limit = maxSeries[0]
+	}
+	if limit < 1 {
+		panic("zinc: metrics series limit must be positive")
+	}
 	return &PrometheusMetrics{
-		requests: make(map[prometheusRequestKey]*prometheusRequestValue),
+		requests:  make(map[prometheusRequestKey]*prometheusRequestValue),
+		maxSeries: limit,
 	}
 }
 
-// Prometheus records requests in the supplied registry or the package default.
+// Prometheus records requests in the supplied registry or a new isolated registry.
 func Prometheus(metrics ...*PrometheusMetrics) zinc.Middleware {
-	cfg := PrometheusConfig{Metrics: defaultPrometheusMetrics}
+	cfg := PrometheusConfig{}
 	if len(metrics) > 0 {
 		cfg.Metrics = metrics[0]
 	}
@@ -62,6 +74,7 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 	now := cfg.Now
 
 	return func(c *zinc.Context) error {
+		c.Set(prometheusContextKey{}, cfg.Metrics)
 		if cfg.Skipper != nil && cfg.Skipper(c) {
 			return c.Next()
 		}
@@ -81,9 +94,15 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 		status := resolveRequestLogStatus(writer, c.LastError())
 		route := c.FullPath()
 		if route == "" {
-			route = c.Path()
+			route = "unmatched"
 		}
-		cfg.Metrics.Observe(c.Method(), route, status, now().Sub(start))
+		method := c.Method()
+		switch method {
+		case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace:
+		default:
+			method = "OTHER"
+		}
+		cfg.Metrics.Observe(method, route, status, now().Sub(start))
 
 		return err
 	}
@@ -91,12 +110,20 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 
 // PrometheusHandler serves the registry in Prometheus text format.
 func PrometheusHandler(metrics ...*PrometheusMetrics) zinc.HandlerFunc {
-	m := defaultPrometheusMetrics
+	var m *PrometheusMetrics
 	if len(metrics) > 0 && metrics[0] != nil {
 		m = metrics[0]
 	}
 	return func(c *zinc.Context) error {
-		return c.Data("text/plain; version=0.0.4; charset=utf-8", []byte(m.Text()))
+		registry := m
+		if registry == nil {
+			value, _ := c.Get(prometheusContextKey{})
+			registry, _ = value.(*PrometheusMetrics)
+		}
+		if registry == nil {
+			return c.Status(http.StatusServiceUnavailable).Send("Prometheus middleware is not configured")
+		}
+		return c.Data("text/plain; version=0.0.4; charset=utf-8", []byte(registry.Text()))
 	}
 }
 
@@ -119,6 +146,18 @@ func (m *PrometheusMetrics) Observe(method, route string, status int, duration t
 
 	value := m.requests[key]
 	if value == nil {
+		if m.maxSeries == 0 {
+			m.maxSeries = 10000
+		}
+		if len(m.requests) >= m.maxSeries {
+			m.dropped++
+			return
+		}
+		if m.requests == nil {
+			m.requests = make(map[prometheusRequestKey]*prometheusRequestValue)
+		}
+		key.Method = strings.Clone(key.Method)
+		key.Route = strings.Clone(key.Route)
 		value = &prometheusRequestValue{}
 		m.requests[key] = value
 	}
@@ -142,6 +181,7 @@ func (m *PrometheusMetrics) Text() string {
 	for key, value := range m.requests {
 		rows = append(rows, row{key: key, value: *value})
 	}
+	dropped := m.dropped
 	m.mu.Unlock()
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -178,12 +218,15 @@ func (m *PrometheusMetrics) Text() string {
 		out.WriteString(strconv.FormatUint(row.value.Count, 10))
 		out.WriteByte('\n')
 	}
+	out.WriteString("# TYPE zinc_http_metrics_dropped_total counter\nzinc_http_metrics_dropped_total ")
+	out.WriteString(strconv.FormatUint(dropped, 10))
+	out.WriteByte('\n')
 	return out.String()
 }
 
 func resolvePrometheusConfig(config PrometheusConfig) PrometheusConfig {
 	if config.Metrics == nil {
-		config.Metrics = defaultPrometheusMetrics
+		config.Metrics = NewPrometheusMetrics()
 	}
 	if config.Now == nil {
 		config.Now = time.Now

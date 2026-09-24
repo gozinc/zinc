@@ -59,3 +59,5 @@ With `AllowOrigins: ["*"]` and `AllowCredentials: true`, Zinc echoes back **what
 
 - [CSRF](/middleware/csrf/) protects cookie-authenticated endpoints from forged requests.
 - [Secure Headers](/middleware/secure/) sets the other browser security headers.
+
+Partial configurations default methods and headers. Empty origins allow `*` only when credentials are disabled; with credentials enabled, empty origins deny all cross-origin access. Wildcard origins combined with credentials panic during construction: list trusted origins explicitly. Negative `MaxAge` also fails at construction.

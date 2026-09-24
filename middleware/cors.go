@@ -120,8 +120,24 @@ func CORSWithOptions(options ...CORSOption) zinc.Middleware {
 // CORSWithConfig applies CORS response headers and terminates valid preflight
 // requests. Vary is always set to keep shared caches origin-safe.
 func CORSWithConfig(config CORSConfig) zinc.Middleware {
+	defaults := DefaultCORSConfig()
+	if len(config.AllowOrigins) == 0 && !config.AllowCredentials {
+		config.AllowOrigins = defaults.AllowOrigins
+	}
+	if len(config.AllowMethods) == 0 {
+		config.AllowMethods = defaults.AllowMethods
+	}
+	if len(config.AllowHeaders) == 0 {
+		config.AllowHeaders = defaults.AllowHeaders
+	}
+	if config.MaxAge < 0 {
+		panic("zinc: CORS MaxAge must not be negative")
+	}
 	allowOriginsMap := make(map[string]bool, len(config.AllowOrigins))
 	for _, origin := range config.AllowOrigins {
+		if origin == "*" && config.AllowCredentials {
+			panic("zinc: credentialed CORS requires explicit origins")
+		}
 		allowOriginsMap[origin] = true
 	}
 
@@ -144,11 +160,9 @@ func CORSWithConfig(config CORSConfig) zinc.Middleware {
 		}
 
 		allowOrigin := ""
-		if config.AllowOrigins[0] == "*" && !config.AllowCredentials {
+		if allowOriginsMap["*"] {
 			allowOrigin = "*"
 		} else if allowOriginsMap[origin] {
-			allowOrigin = origin
-		} else if allowOriginsMap["*"] {
 			allowOrigin = origin
 		} else {
 			return c.Next()

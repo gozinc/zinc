@@ -26,6 +26,8 @@ Labels include:
 - `route`
 - `status`
 
-Matched requests are labelled with the route pattern, such as `/users/{id}`, so one route is one series. Requests that match no route are labelled with their raw path, so scanners probing random URLs add a new series for each path. On public apps, attach the middleware to a [group](/guide/groups-and-middleware/) rather than `app.Use`. Group middleware only runs for matched routes, so only routed traffic is recorded.
+Matched requests use registered route patterns, such as `/users/{id}`. Unmatched requests use `unmatched`; nonstandard methods use `OTHER`. Random request paths and methods therefore do not create new series.
 
-Create a separate `NewPrometheusMetrics()` for each app in tests or multi-app processes.
+Each `Prometheus()` construction creates an isolated registry. `PrometheusHandler()` without an argument uses the registry attached by middleware on that request, including when collection is skipped. Without middleware or an explicit registry, the handler returns 503. Reusing one middleware instance intentionally shares its registry; supply explicit registries when composing multiple collectors.
+
+`NewPrometheusMetrics(maxSeries)` optionally sets a series cap (default 10,000). New series beyond the cap are dropped, counted by `zinc_http_metrics_dropped_total`. Existing series continue updating. Direct calls to `Observe` should use application-controlled labels.

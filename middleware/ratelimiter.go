@@ -4,7 +4,10 @@
 package middleware
 
 import (
+	"container/list"
+	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,7 +25,16 @@ type TokenBucket struct {
 
 // RateLimiterConfig contains rate-limiter policy and key selection.
 type RateLimiterConfig struct {
-	// Rate is the token refill rate per second
+	// MaxKeys bounds keyed buckets; zero uses 10,000. New keys are denied at capacity.
+	MaxKeys int
+	// IdleTTL is the minimum idle time before a fully refilled bucket expires.
+	// Zero uses five minutes. Active or depleted buckets are never evicted.
+	IdleTTL time.Duration
+	// MaxKeyBytes bounds retained key sizes; zero uses 256.
+	MaxKeyBytes int
+	// Now supplies the clock; nil uses time.Now.
+	Now func() time.Time
+	// Rate is the token refill rate per second (zero uses 10).
 	Rate float64
 	// Capacity is the maximum number of tokens in the bucket
 	Capacity float64
@@ -50,88 +62,128 @@ func newTokenBucket(rate, capacity float64) *TokenBucket {
 }
 
 // take attempts to take a token from the bucket
-func (tb *TokenBucket) take() bool {
+func (tb *TokenBucket) take() bool { return tb.takeAt(time.Now()) }
+
+func (tb *TokenBucket) refill(now time.Time) {
+	if now.After(tb.lastRefill) {
+		tb.tokens = math.Min(tb.capacity, tb.tokens+now.Sub(tb.lastRefill).Seconds()*tb.rate)
+		tb.lastRefill = now
+	}
+}
+
+func (tb *TokenBucket) takeAt(now time.Time) bool {
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
-
-	now := time.Now()
-	elapsed := now.Sub(tb.lastRefill).Seconds()
-	tb.lastRefill = now
-
-	// Refill tokens based on elapsed time
-	tb.tokens += elapsed * tb.rate
-	if tb.tokens > tb.capacity {
-		tb.tokens = tb.capacity
-	}
-
-	// Check if we can take a token
+	tb.refill(now)
 	if tb.tokens < 1 {
 		return false
 	}
-
-	// Take a token
 	tb.tokens--
 	return true
 }
 
-// RateLimiter returns token-bucket middleware. Keyed buckets currently remain
-// for the middleware lifetime; use a bounded key source for public traffic.
-func RateLimiter(config ...RateLimiterConfig) zinc.Middleware {
-	// Set default config
-	cfg := RateLimiterConfig{
-		Rate:       10,
-		Capacity:   10,
-		StatusCode: http.StatusTooManyRequests,
-		LimitReachedHandler: func(c *zinc.Context) error {
-			return c.Status(http.StatusTooManyRequests).Send("Rate limit exceeded")
-		},
-	}
+func (tb *TokenBucket) fullAt(now time.Time) bool {
+	tb.mutex.Lock()
+	defer tb.mutex.Unlock()
+	tb.refill(now)
+	return tb.tokens >= tb.capacity
+}
 
+type rateLimitEntry struct {
+	key    string
+	bucket *TokenBucket
+	seen   time.Time
+}
+
+// RateLimiter returns bounded token-bucket middleware. At capacity it rejects
+// new keys rather than evicting active quotas. No cleanup goroutine is required.
+func RateLimiter(config ...RateLimiterConfig) zinc.Middleware {
+	var cfg RateLimiterConfig
 	if len(config) > 0 {
 		cfg = config[0]
-		if cfg.StatusCode == 0 {
-			cfg.StatusCode = http.StatusTooManyRequests
-		}
-		if cfg.LimitReachedHandler == nil {
-			cfg.LimitReachedHandler = func(c *zinc.Context) error {
-				return c.Status(http.StatusTooManyRequests).Send("Rate limit exceeded")
-			}
-		}
 	}
-
-	// Store buckets by key
-	var buckets sync.Map
-
-	// Global bucket for global rate limiting
-	var globalBucket = newTokenBucket(cfg.Rate, cfg.Capacity)
-
-	// Return middleware
-	return func(c *zinc.Context) error {
-		var bucket *TokenBucket
-
-		// A custom key takes precedence over IP lookup; with neither, all
-		// requests share the global bucket.
-		if cfg.KeyGenerator != nil {
-			// Use custom key generator
-			key := cfg.KeyGenerator(c)
-			bucketInterface, _ := buckets.LoadOrStore(key, newTokenBucket(cfg.Rate, cfg.Capacity))
-			bucket = bucketInterface.(*TokenBucket)
-		} else if cfg.IPLookup != nil {
-			// Use IP-based rate limiting
-			ip := cfg.IPLookup(c)
-			bucketInterface, _ := buckets.LoadOrStore(ip, newTokenBucket(cfg.Rate, cfg.Capacity))
-			bucket = bucketInterface.(*TokenBucket)
-		} else {
-			// Use global rate limiting
-			bucket = globalBucket
+	if cfg.Rate == 0 {
+		cfg.Rate = 10
+	}
+	if cfg.Capacity == 0 {
+		cfg.Capacity = 10
+	}
+	if cfg.MaxKeys == 0 {
+		cfg.MaxKeys = 10000
+	}
+	if cfg.MaxKeyBytes == 0 {
+		cfg.MaxKeyBytes = 256
+	}
+	if cfg.IdleTTL == 0 {
+		cfg.IdleTTL = 5 * time.Minute
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.StatusCode == 0 {
+		cfg.StatusCode = http.StatusTooManyRequests
+	}
+	if cfg.Rate <= 0 || math.IsNaN(cfg.Rate) || math.IsInf(cfg.Rate, 0) ||
+		cfg.Capacity < 1 || math.IsNaN(cfg.Capacity) || math.IsInf(cfg.Capacity, 0) ||
+		cfg.MaxKeys < 1 || cfg.MaxKeyBytes < 1 || cfg.IdleTTL < 0 || cfg.StatusCode < 400 || cfg.StatusCode > 599 {
+		panic("zinc: invalid rate limiter configuration")
+	}
+	if cfg.LimitReachedHandler == nil {
+		cfg.LimitReachedHandler = func(c *zinc.Context) error { return c.Status(cfg.StatusCode).Send("Rate limit exceeded") }
+	}
+	newBucket := func(now time.Time) *TokenBucket {
+		return &TokenBucket{rate: cfg.Rate, capacity: cfg.Capacity, tokens: cfg.Capacity, lastRefill: now}
+	}
+	global := newBucket(cfg.Now())
+	keyFor := cfg.KeyGenerator
+	if keyFor == nil {
+		keyFor = cfg.IPLookup
+	}
+	var mu sync.Mutex
+	buckets := make(map[string]*list.Element)
+	order := list.New()
+	takeKey := func(key string, now time.Time) bool {
+		if len(key) > cfg.MaxKeyBytes {
+			return false
 		}
-
-		// Try to take a token
-		if !bucket.take() {
+		mu.Lock()
+		defer mu.Unlock()
+		// Bound cleanup work as well as retained state. Expiry never resets an
+		// unrefilled quota, even when IdleTTL is shorter than the refill period.
+		for n := 0; n < 16 && order.Len() > 0; n++ {
+			oldest := order.Back()
+			e := oldest.Value.(*rateLimitEntry)
+			if now.Sub(e.seen) < cfg.IdleTTL || !e.bucket.fullAt(now) {
+				break
+			}
+			delete(buckets, e.key)
+			order.Remove(oldest)
+		}
+		el := buckets[key]
+		if el == nil {
+			if len(buckets) >= cfg.MaxKeys {
+				return false
+			}
+			key = strings.Clone(key)
+			el = order.PushFront(&rateLimitEntry{key: key, bucket: newBucket(now), seen: now})
+			buckets[key] = el
+		}
+		e := el.Value.(*rateLimitEntry)
+		e.seen = now
+		order.MoveToFront(el)
+		return e.bucket.takeAt(now)
+	}
+	return func(c *zinc.Context) error {
+		now := cfg.Now()
+		var allowed bool
+		if keyFor == nil {
+			allowed = global.takeAt(now)
+		} else {
+			allowed = takeKey(keyFor(c), now)
+		}
+		if !allowed {
 			return cfg.LimitReachedHandler(c)
 		}
-
-		// Continue with the next middleware
 		return c.Next()
 	}
 }
