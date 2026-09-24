@@ -259,3 +259,29 @@ func TestConfinedDirFSRemainsConfinedDuringSymlinkReplacement(t *testing.T) {
 	}
 	readers.Wait()
 }
+
+func TestConfinedDirFSPinsOpenedDirectoryAcrossRename(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "public")
+	mustDo(t, os.Mkdir(root, 0o700))
+	mustDo(t, os.WriteFile(filepath.Join(root, "item.txt"), []byte("original"), 0o600))
+	filesystem := &confinedDirFS{path: root}
+	defer filesystem.Close()
+	first, err := filesystem.Open("item.txt")
+	mustDo(t, err)
+	mustDo(t, first.Close())
+
+	if err := os.Rename(root, filepath.Join(parent, "old-public")); err != nil {
+		t.Skipf("renaming an open directory is unsupported: %v", err)
+	}
+	mustDo(t, os.Mkdir(root, 0o700))
+	mustDo(t, os.WriteFile(filepath.Join(root, "item.txt"), []byte("replacement"), 0o600))
+	file, err := filesystem.Open("item.txt")
+	mustDo(t, err)
+	body, err := io.ReadAll(file)
+	mustDo(t, err)
+	mustDo(t, file.Close())
+	if string(body) != "original" {
+		t.Fatalf("retained root switched directories: %q", body)
+	}
+}
