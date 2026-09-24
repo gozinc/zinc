@@ -1,12 +1,13 @@
 ---
 // The 29 first-party middleware, laid out as a periodic table and grouped by job.
+// Each family is cast in a real metal chosen for what it does.
 type Group = "protect" | "observe" | "control" | "transport";
 
-const groups: { id: Group; name: string }[] = [
-  { id: "protect", name: "Protect" },
-  { id: "observe", name: "Observe" },
-  { id: "control", name: "Control" },
-  { id: "transport", name: "Transport" },
+const groups: { id: Group; name: string; metal: string; symbol: string }[] = [
+  { id: "protect", name: "Protect", metal: "iron", symbol: "Fe" }, // armour
+  { id: "observe", name: "Observe", metal: "copper", symbol: "Cu" }, // carries the signals
+  { id: "control", name: "Control", metal: "titanium", symbol: "Ti" }, // holds under load
+  { id: "transport", name: "Transport", metal: "aluminium", symbol: "Al" }, // light and fast
 ];
 
 const elements: [string, string, string, Group, string][] = [
@@ -42,7 +43,7 @@ const elements: [string, string, string, Group, string][] = [
 ];
 
 const count = (g: Group) => elements.filter((e) => e[3] === g).length;
-const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: "CTL", transport: "TRN" };
+const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, (typeof groups)[number]>;
 ---
 
 <section class="elements" data-elements>
@@ -50,12 +51,17 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
     <div>
       <p class="kicker">Middleware</p>
       <h2>A periodic table of production parts.</h2>
+      <p class="cast">
+        Each family is cast in its own metal: {groups.map((g, i) => (
+          <>{i > 0 && (i === groups.length - 1 ? ", and " : ", ")}{g.name} in <span class="metal" data-group={g.id}>{g.metal}</span></>
+        ))}. Hover any part to galvanize it.
+      </p>
     </div>
     <div class="filters" role="radiogroup" aria-label="Filter middleware">
       <button type="button" role="radio" aria-checked="true" data-filter="all">All <span>{elements.length}</span></button>
       {groups.map((g) => (
         <button type="button" role="radio" aria-checked="false" data-filter={g.id} data-group={g.id}>
-          <b aria-hidden="true">{stamp[g.id]}</b>{g.name} <span>{count(g.id)}</span>
+          <i class="swatch" aria-hidden="true"></i>{g.name} <span>{count(g.id)}</span>
         </button>
       ))}
     </div>
@@ -65,7 +71,7 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
     {elements.map(([sym, name, fn, group, slug], i) => (
       <li data-group={group} data-first={i === 0 || elements[i - 1][3] !== group ? "" : undefined}>
         <a href={`/middleware/${slug}/`}>
-          <span class="top"><span class="num">{i + 1}</span><span class="grp" title={groups.find((g) => g.id === group)?.name}>{stamp[group]}</span></span>
+          <span class="top"><span class="num">{i + 1}</span><span class="grp" title={`${metal[group].name}: ${metal[group].metal}`}>{metal[group].symbol}</span></span>
           <span class="sym">{sym}</span>
           <span class="name">{name}</span>
           <span class="fn">{fn}</span>
@@ -89,21 +95,45 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
 </script>
 
 <style>
-  /* Brushed zinc plates. Category is stamped as text, not colour. */
-  .elements {
-    --plate-top: #f7f8f9;
-    --plate-bottom: #e4e8eb;
-    --plate-edge: #cdd2d7;
-    --plate-brush: rgba(20, 24, 28, 0.022);
-    --plate-bevel: rgba(255, 255, 255, 0.85);
+  /* Each family is a different metal. Every tile and chip reads its finish from
+     these variables; hover galvanizes any metal in zinc. */
+  [data-group="protect"] {
+    /* iron: cool, blued grey */
+    --plate-top: #e3e7eb; --plate-bottom: #c5ccd4; --plate-edge: #aab3bd;
+    --metal-ink: #2c3947; --plate-brush: rgba(20, 30, 40, 0.035); --plate-bevel: rgba(255, 255, 255, 0.75);
+  }
+  [data-group="observe"] {
+    /* copper: warm and rosy */
+    --plate-top: #f1d7c4; --plate-bottom: #d9a684; --plate-edge: #c58c68;
+    --metal-ink: #6a321a; --plate-brush: rgba(90, 40, 10, 0.04); --plate-bevel: rgba(255, 240, 228, 0.8);
+  }
+  [data-group="control"] {
+    /* titanium: grey with its faint violet sheen */
+    --plate-top: #e5e3ec; --plate-bottom: #c6c1d4; --plate-edge: #aca6c0;
+    --metal-ink: #3b3456; --plate-brush: rgba(40, 30, 70, 0.035); --plate-bevel: rgba(255, 255, 255, 0.75);
+  }
+  [data-group="transport"] {
+    /* aluminium: the brightest, near-white silver */
+    --plate-top: #fbfbfc; --plate-bottom: #e3e6e8; --plate-edge: #c8cdd1;
+    --metal-ink: #2d3337; --plate-brush: rgba(20, 24, 28, 0.03); --plate-bevel: rgba(255, 255, 255, 0.95);
   }
 
-  :global(:root:not([data-theme="light"])) .elements {
-    --plate-top: #1d2125;
-    --plate-bottom: #15181b;
-    --plate-edge: #2b3036;
-    --plate-brush: rgba(255, 255, 255, 0.018);
-    --plate-bevel: rgba(255, 255, 255, 0.045);
+  /* In the dark theme the same metals, darker and aged. */
+  :global(:root:not([data-theme="light"])) [data-group="protect"] {
+    --plate-top: #232a31; --plate-bottom: #191d22; --plate-edge: #36404b;
+    --metal-ink: #b9c7d6; --plate-brush: rgba(180, 210, 240, 0.025); --plate-bevel: rgba(200, 220, 240, 0.06);
+  }
+  :global(:root:not([data-theme="light"])) [data-group="observe"] {
+    --plate-top: #33241c; --plate-bottom: #231913; --plate-edge: #5b3b2a;
+    --metal-ink: #e2a57e; --plate-brush: rgba(255, 190, 150, 0.025); --plate-bevel: rgba(255, 200, 170, 0.07);
+  }
+  :global(:root:not([data-theme="light"])) [data-group="control"] {
+    --plate-top: #29273a; --plate-bottom: #1d1c28; --plate-edge: #403c57;
+    --metal-ink: #c3bbe3; --plate-brush: rgba(200, 190, 255, 0.025); --plate-bevel: rgba(210, 200, 255, 0.06);
+  }
+  :global(:root:not([data-theme="light"])) [data-group="transport"] {
+    --plate-top: #2d3134; --plate-bottom: #212427; --plate-edge: #474d52;
+    --metal-ink: #eef1f3; --plate-brush: rgba(255, 255, 255, 0.03); --plate-bevel: rgba(255, 255, 255, 0.08);
   }
 
   .head {
@@ -131,6 +161,24 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
     text-wrap: balance;
   }
 
+  .cast {
+    color: var(--z-muted);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin: 0.9rem 0 0;
+    max-width: 52ch;
+  }
+
+  .metal {
+    background: linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    border: 1px solid var(--plate-edge);
+    border-radius: 4px;
+    color: var(--metal-ink);
+    font: 500 0.82em/1 var(--sl-font-mono);
+    padding: 0.12em 0.4em;
+    white-space: nowrap;
+  }
+
   .filters {
     display: flex;
     flex-wrap: wrap;
@@ -151,10 +199,13 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
     transition: color 120ms ease, border-color 120ms ease;
   }
 
-  .filters button b {
-    color: var(--z-soft);
-    font: 500 0.62rem/1 var(--sl-font-mono);
-    letter-spacing: 0.06em;
+  .swatch {
+    background: linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    border: 1px solid var(--plate-edge);
+    border-radius: 3px;
+    box-shadow: inset 0 1px 0 var(--plate-bevel);
+    height: 0.85rem;
+    width: 0.85rem;
   }
 
   .filters button span {
@@ -248,12 +299,14 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
 
   .num,
   .grp {
-    color: var(--z-muted);
+    color: color-mix(in srgb, var(--metal-ink) 72%, transparent);
     font: 500 0.64rem/1 var(--sl-font-mono);
   }
 
   .grp {
-    letter-spacing: 0.06em;
+    color: var(--metal-ink);
+    font-weight: 600;
+    opacity: 0.8;
   }
 
   .table a:hover .num,
@@ -264,6 +317,7 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
 
   .sym {
     align-self: center;
+    color: var(--metal-ink);
     font: 400 clamp(1.1rem, 1.9vw, 1.55rem)/1 var(--z-font-display);
     letter-spacing: -0.02em;
   }
@@ -278,7 +332,7 @@ const stamp: Record<Group, string> = { protect: "PRT", observe: "OBS", control: 
   }
 
   .fn {
-    color: var(--z-muted);
+    color: color-mix(in srgb, var(--metal-ink) 72%, transparent);
     font: 400 0.62rem/1.4 var(--sl-font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
