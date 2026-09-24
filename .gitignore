@@ -24,9 +24,7 @@ website/pnpm-debug.log*
 .vercel
 .env*
 
-# Local performance investigations
-/audits/
-/PERFORMANCE_0_3_PLAN.md
-
 # Local benchmark run history (zincbench)
 /benchmarks/results/
+audits
+tmp
