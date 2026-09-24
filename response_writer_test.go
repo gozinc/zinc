@@ -107,12 +107,20 @@ func TestWrapResponseWriterOptionalInterfaces(t *testing.T) {
 	}
 
 	plain := WrapResponseWriter(&wrappedTestResponseWriter{})
-	plain.(http.Flusher).Flush()
-	if _, _, err := plain.(http.Hijacker).Hijack(); err == nil {
-		t.Fatal("hijack should fail when unsupported")
+	if _, ok := plain.(http.Flusher); ok {
+		t.Fatal("unsupported Flusher advertised")
 	}
-	if err := plain.(http.Pusher).Push("/asset.js", nil); !errors.Is(err, http.ErrNotSupported) {
-		t.Fatalf("push err=%v", err)
+	if _, ok := plain.(http.Hijacker); ok {
+		t.Fatal("unsupported Hijacker advertised")
+	}
+	if _, ok := plain.(http.Pusher); ok {
+		t.Fatal("unsupported Pusher advertised")
+	}
+	if err := http.NewResponseController(plain).Flush(); !errors.Is(err, http.ErrNotSupported) {
+		t.Fatalf("flush: %v", err)
+	}
+	if plain.Written() {
+		t.Fatal("unsupported flush committed the response")
 	}
 
 	serverConn, clientConn := net.Pipe()

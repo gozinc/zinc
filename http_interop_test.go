@@ -34,8 +34,8 @@ func TestHandleHTTPPreservesStandardContracts(t *testing.T) {
 		if r != request {
 			t.Fatal("standard handler did not receive the original request")
 		}
-		if w != writer {
-			t.Fatal("standard handler did not receive the original response writer")
+		if w.(interface{ Unwrap() http.ResponseWriter }).Unwrap() != writer {
+			t.Fatal("standard handler cannot unwrap to the original response writer")
 		}
 		if got := r.PathValue("id"); got != "42" {
 			t.Fatalf("path value=%q", got)

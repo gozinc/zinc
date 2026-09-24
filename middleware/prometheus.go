@@ -69,6 +69,7 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 		baseWriter := c.Writer()
 		writer := zinc.WrapResponseWriter(baseWriter)
 		c.SetWriter(writer)
+		defer c.SetWriter(baseWriter)
 
 		start := now()
 		err := c.Next()

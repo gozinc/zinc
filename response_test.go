@@ -307,7 +307,7 @@ func TestResponseInternalHelpers(t *testing.T) {
 	if len(ranges) != 3 {
 		t.Fatalf("ranges=%v", ranges)
 	}
-	if ranges[0].mediaType != "broken" || ranges[1].mediaType != "application/xml" || ranges[2].mediaType != "text/*" {
+	if ranges[0].mediaType != "application/xml" || ranges[1].mediaType != "text/*" || ranges[2].mediaType != "*/*" || ranges[2].q != 0 {
 		t.Fatalf("ranges=%v", ranges)
 	}
 	if acceptSpecificity("*/*") != 0 || acceptSpecificity("text/*") != 1 || acceptSpecificity("application/json") != 2 {

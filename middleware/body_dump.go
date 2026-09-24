@@ -97,6 +97,7 @@ func BodyDumpWithConfig(config BodyDumpConfig) zinc.Middleware {
 		baseWriter := c.Writer()
 		writer := newBodyDumpCaptureResponseWriter(baseWriter, cfg.MaxResponseBytes)
 		c.SetWriter(writer)
+		defer c.SetWriter(baseWriter)
 
 		err = c.Next()
 
@@ -188,6 +189,10 @@ func newBodyDumpCaptureResponseWriter(w http.ResponseWriter, limit int64) *bodyD
 }
 
 func (w *bodyDumpCaptureResponseWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if w.status == 0 {
 		w.status = code
 	}
@@ -225,10 +230,10 @@ func (w *bodyDumpCaptureResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(bodyDumpWriterOnly{w: w}, r)
 }
 
-func (w *bodyDumpCaptureResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+func (w *bodyDumpCaptureResponseWriter) Flush() { _ = w.FlushError() }
+
+func (w *bodyDumpCaptureResponseWriter) FlushError() error {
+	return http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func (w *bodyDumpCaptureResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {

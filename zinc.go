@@ -23,7 +23,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Context only after handler errors have reached the configured error handler.
 func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(a.serverHeader) > 0 {
-		w.Header()[HeaderServer] = a.serverHeader
+		w.Header().Set(HeaderServer, a.config.ServerHeader)
 	}
 
 	ctx := NewContext(w, r)
@@ -146,6 +146,10 @@ func (a *App) handleError(ctx *Context, err error) {
 		return
 	}
 	if ctx != nil {
+		if ctx.errorHandled {
+			return
+		}
+		ctx.errorHandled = true
 		ctx.lastErr = err
 	}
 	a.config.ErrorHandler(ctx, err)
@@ -200,7 +204,6 @@ func (m *mountedHandler) serve(c *Context) {
 		mountedRequest.URL.RawPath = mountedRequest.URL.Path
 	}
 	m.handler.ServeHTTP(c.Writer(), mountedRequest)
-	c.written = true
 }
 
 func stripMountPrefix(path, prefix string) string {

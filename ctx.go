@@ -23,6 +23,8 @@ import (
 // pooled and must not be retained or used after the handler returns.
 type Context struct {
 	writer       http.ResponseWriter
+	response     responseWriterSet
+	errorHandled bool
 	request      *http.Request
 	PathParams   params
 	inlineParams [inlineParamSlotCount]param
@@ -90,7 +92,8 @@ func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	// release clears request-owned references before pooling. Keep reset focused
 	// on state that handlers mutate without release-time retention concerns.
 	c.initPathParams()
-	c.writer = w
+	c.writer = c.response.wrap(w, c)
+	c.errorHandled = false
 	c.request = r
 	c.written = false
 	c.index = -1
@@ -100,15 +103,6 @@ func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	c.routeIndex = -1
 	c.routeIndexed = false
 	c.lastErr = nil
-	for i := 0; i < c.paramCount; i++ {
-		c.PathParams[i] = emptyParam
-	}
-	c.paramCount = 0
-	if len(c.store) > 0 {
-		for key := range c.store {
-			delete(c.store, key)
-		}
-	}
 }
 
 func (c *Context) release() {
@@ -119,6 +113,7 @@ func (c *Context) release() {
 		_ = c.request.MultipartForm.RemoveAll()
 	}
 	c.writer = nil
+	c.response.base = wrappedResponseWriter{}
 	c.request = nil
 	c.handlers = nil
 	c.prefixDone = c.prefixDone[:0]
@@ -129,6 +124,12 @@ func (c *Context) release() {
 	c.sameSite = 0
 	c.paramPath = ""
 	c.paramRoute = nil
+	clear(c.PathParams[:c.paramCount])
+	c.paramCount = 0
+	clear(c.store)
+	c.app = nil
+	c.lastErr = nil
+	c.routeInfo = routeMeta{}
 	contextPool.Put(c)
 }
 
@@ -139,7 +140,15 @@ func (c *Context) Writer() http.ResponseWriter {
 
 // SetWriter replaces the response writer used by subsequent handlers.
 func (c *Context) SetWriter(w http.ResponseWriter) {
-	c.writer = w
+	if w == nil {
+		panic("zinc: response writer is nil")
+	}
+	if owned, ok := w.(interface{ contextOwner() *Context }); ok && owned.contextOwner() == c {
+		c.writer = w
+		return
+	}
+	set := new(responseWriterSet)
+	c.writer = set.wrap(w, c)
 }
 
 // Request returns the current net/http request.

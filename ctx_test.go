@@ -89,10 +89,13 @@ func TestContextReleaseResetDoesNotLeakRequestState(t *testing.T) {
 	ctx.Set("dirty", true)
 
 	ctx.release()
+	if ctx.app != nil || ctx.lastErr != nil || len(ctx.store) != 0 || ctx.paramCount != 0 || ctx.routeInfo.path != "" {
+		t.Fatal("released Context retains request-owned state")
+	}
 	reused := NewContext(secondWriter, secondRequest)
 	defer reused.release()
 
-	if reused.writer != secondWriter || reused.request != secondRequest {
+	if reused.writer.(interface{ Unwrap() http.ResponseWriter }).Unwrap() != secondWriter || reused.request != secondRequest {
 		t.Fatal("writer or request leaked across context reuse")
 	}
 	if reused.queryParams != nil || reused.handlers != nil || reused.body != nil || reused.bodyRead || reused.bodyErr != nil {
@@ -191,7 +194,7 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 	}
 	ctx.SetWriter(resp)
 	ctx.SetRequest(req)
-	if ctx.Writer() != resp || ctx.Request() != req {
+	if ctx.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap() != resp || ctx.Request() != req {
 		t.Fatal("raw writer/request helpers failed")
 	}
 }

@@ -49,6 +49,7 @@ func GzipWithConfig(config GzipConfig) zinc.Middleware {
 		}
 
 		if !requestAcceptsGzip(c.GetHeader(zinc.HeaderAcceptEncoding)) {
+			appendVary(c.Writer().Header(), zinc.HeaderAcceptEncoding)
 			return c.Next()
 		}
 
@@ -60,6 +61,7 @@ func GzipWithConfig(config GzipConfig) zinc.Middleware {
 			minLength:      config.MinLength,
 		}
 		c.SetWriter(writer)
+		defer c.SetWriter(baseWriter)
 
 		err := c.Next()
 		if err != nil {
@@ -124,6 +126,10 @@ func (w *gzipResponseWriter) WriteHeader(code int) {
 	if w.wroteHeader || w.status != 0 {
 		return
 	}
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(code)
+		return
+	}
 	w.status = code
 	if !gzipBodyAllowed(w.method, code) {
 		w.writeRawHeader()
@@ -131,6 +137,9 @@ func (w *gzipResponseWriter) WriteHeader(code int) {
 }
 
 func (w *gzipResponseWriter) Write(p []byte) (int, error) {
+	if w.wroteHeader && w.writer == nil {
+		return w.ResponseWriter.Write(p)
+	}
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
@@ -169,13 +178,25 @@ func (w *gzipResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(gzipWriterOnly{w: w}, r)
 }
 
-func (w *gzipResponseWriter) Flush() {
+func (w *gzipResponseWriter) Flush() { _ = w.FlushError() }
+
+func (w *gzipResponseWriter) FlushError() error {
 	if w.writer != nil {
-		_ = w.writer.Flush()
+		if err := w.writer.Flush(); err != nil {
+			return err
+		}
+	} else {
+		// Flush commits the currently buffered short response as identity. Later
+		// writes must keep that representation instead of switching to gzip.
+		w.writeRawHeader()
+		if w.buffer.Len() > 0 {
+			if _, err := w.ResponseWriter.Write(w.buffer.Bytes()); err != nil {
+				return err
+			}
+			w.buffer.Reset()
+		}
 	}
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	return http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func (w *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
@@ -232,6 +253,7 @@ func (w *gzipResponseWriter) startGzip() error {
 }
 
 func (w *gzipResponseWriter) writeRawHeader() {
+	appendVary(w.Header(), zinc.HeaderAcceptEncoding)
 	if w.wroteHeader {
 		return
 	}
