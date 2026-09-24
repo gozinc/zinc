@@ -49,10 +49,6 @@ type SSEvent struct {
 var nullBytes = []byte("null")
 
 var (
-	plainTextHeader             = []string{plainText}
-	jsonHeader                  = []string{jsonType}
-	xmlHeader                   = []string{xmlType}
-	htmlHeader                  = []string{htmlType}
 	statusNotFoundBytes         = []byte(http.StatusText(http.StatusNotFound))
 	statusMethodNotAllowedBytes = []byte(http.StatusText(http.StatusMethodNotAllowed))
 )
@@ -114,36 +110,11 @@ func (c *Context) Vary(fields ...string) *Context {
 
 // String writes a plain-text response without converting data to []byte.
 func (c *Context) String(data string) error {
-	if c.written {
-		return ErrResponseAlreadySent
+	writer, writeBody, err := c.prepareResponse(plainText)
+	if err != nil || !writeBody {
+		return err
 	}
-	c.written = true
-
-	writer := c.Writer()
-	header := writer.Header()
-	if len(header[contentType]) == 0 {
-		header[contentType] = plainTextHeader
-	}
-
-	status := c.status
-	if status == 0 {
-		status = http.StatusOK
-	}
-	method := ""
-	if c.request != nil {
-		method = c.request.Method
-	}
-	if !bodyAllowed(method, status) {
-		if status != http.StatusOK {
-			writer.WriteHeader(status)
-		}
-		return nil
-	}
-	if status != http.StatusOK {
-		writer.WriteHeader(status)
-	}
-
-	_, err := io.WriteString(writer, data)
+	_, err = io.WriteString(writer, data)
 	return err
 }
 
@@ -217,6 +188,9 @@ func (c *Context) writeJSON(v any, indent string) error {
 
 	if err := c.app.config.JSONCodec.Encode(writer, v, indent); err != nil {
 		return err
+	}
+	if !c.written {
+		writer.WriteHeader(c.responseStatus())
 	}
 	return nil
 }
@@ -329,14 +303,19 @@ func (c *Context) Accepts(types ...string) string {
 	}
 
 	ranges := parseAcceptHeader(header)
-	for _, accept := range ranges {
-		for _, offer := range offers {
-			if acceptMatches(accept.mediaType, offer.mediaType) {
-				return offer.raw
+	best, bestQ, bestSpecificity, bestIndex := "", 0.0, -1, len(ranges)+len(header)
+	for _, offer := range offers {
+		q, specificity, index := 0.0, -1, bestIndex
+		for _, accept := range ranges {
+			if acceptMatches(accept.mediaType, offer.mediaType) && (accept.specificity > specificity || (accept.specificity == specificity && accept.index < index)) {
+				q, specificity, index = accept.q, accept.specificity, accept.index
 			}
 		}
+		if q > 0 && (q > bestQ || (q == bestQ && (specificity > bestSpecificity || (specificity == bestSpecificity && index < bestIndex)))) {
+			best, bestQ, bestSpecificity, bestIndex = offer.raw, q, specificity, index
+		}
 	}
-	return ""
+	return best
 }
 
 // Negotiate selects an offered representation or returns ErrNotAcceptable.
@@ -363,7 +342,10 @@ func (c *Context) NoContent() error {
 	if c.status == 0 || c.status == http.StatusOK {
 		c.status = http.StatusNoContent
 	}
-	_, _, err := c.prepareResponse("")
+	writer, _, err := c.prepareResponse("")
+	if err == nil {
+		writer.WriteHeader(c.responseStatus())
+	}
 	return err
 }
 
@@ -371,7 +353,6 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 	if c.written {
 		return ErrResponseAlreadySent
 	}
-	c.written = true
 
 	writer := c.Writer()
 	header := writer.Header()
@@ -379,7 +360,7 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 		header.Set(HeaderAllow, allowHeader)
 	}
 	if len(header[contentType]) == 0 {
-		header[contentType] = plainTextHeader
+		header.Set(contentType, plainText)
 	}
 	if !bodyAllowed(c.Method(), status) {
 		writer.WriteHeader(status)
@@ -408,7 +389,6 @@ func (c *Context) Redirect(code int, location string) error {
 	if c.written {
 		return ErrResponseAlreadySent
 	}
-	c.written = true
 	c.Location(location)
 	c.Writer().WriteHeader(code)
 	return nil
@@ -497,26 +477,20 @@ func (c *Context) writeCookie(cookie *http.Cookie) {
 }
 
 func (c *Context) writeResponse(ct string, writeBody func() error) error {
-	if c.written {
-		return ErrResponseAlreadySent
+	writer, allowed, err := c.prepareResponse(ct)
+	if err != nil || !allowed {
+		return err
 	}
-	c.written = true
-	if ct != "" && c.Writer().Header().Get(contentType) == "" {
-		c.Writer().Header().Set(contentType, ct)
-	}
-	status := c.responseStatus()
-	if !bodyAllowed(c.Method(), status) {
-		if status != http.StatusOK {
-			c.Writer().WriteHeader(status)
+	if writeBody != nil {
+		if err := writeBody(); err != nil {
+			return err
+		}
+		if !c.written {
+			writer.WriteHeader(c.responseStatus())
 		}
 		return nil
 	}
-	if status != http.StatusOK {
-		c.Writer().WriteHeader(status)
-	}
-	if writeBody != nil {
-		return writeBody()
-	}
+	writer.WriteHeader(c.responseStatus())
 	return nil
 }
 
@@ -524,70 +498,30 @@ func (c *Context) prepareResponse(ct string) (http.ResponseWriter, bool, error) 
 	if c.written {
 		return nil, false, ErrResponseAlreadySent
 	}
-	c.written = true
-
 	writer := c.Writer()
-	if ct != "" {
-		header := writer.Header()
-		if len(header[contentType]) == 0 {
-			switch ct {
-			case plainText:
-				header[contentType] = plainTextHeader
-			case jsonType:
-				header[contentType] = jsonHeader
-			case xmlType:
-				header[contentType] = xmlHeader
-			case htmlType:
-				header[contentType] = htmlHeader
-			default:
-				header.Set(contentType, ct)
-			}
-		}
+	if ct != "" && len(writer.Header()[contentType]) == 0 {
+		// Header values are mutable and owned by this response, never shared.
+		writer.Header().Set(contentType, ct)
 	}
-
 	status := c.responseStatus()
-	method := ""
-	if c.request != nil {
-		method = c.request.Method
-	}
-	if !bodyAllowed(method, status) {
-		if status != http.StatusOK {
-			writer.WriteHeader(status)
-		}
+	if !bodyAllowed(c.Method(), status) {
+		writer.WriteHeader(status)
 		return writer, false, nil
 	}
-
-	if status != http.StatusOK {
-		writer.WriteHeader(status)
-	}
+	// Defer the selected status until an actual write. Encoding and file-open
+	// failures can still produce an error response before commitment.
 	return writer, true, nil
 }
 
 func (c *Context) prepareSSE() (http.ResponseWriter, bool, error) {
-	writer := c.Writer()
 	if c.written {
+		writer := c.Writer()
 		if mediaTypeOnly(writer.Header().Get(contentType)) != eventStream {
 			return nil, false, ErrResponseAlreadySent
 		}
 		return writer, bodyAllowed(c.Method(), c.responseStatus()), nil
 	}
-
-	c.written = true
-	header := writer.Header()
-	if len(header[contentType]) == 0 {
-		header.Set(contentType, eventStream)
-	}
-	status := c.responseStatus()
-	if !bodyAllowed(c.Method(), status) {
-		if status != http.StatusOK {
-			writer.WriteHeader(status)
-		}
-		return writer, false, nil
-	}
-	if status != http.StatusOK {
-		writer.WriteHeader(status)
-	}
-	return writer, true, nil
+	return c.prepareResponse(eventStream)
 }
 
 func (c *Context) writeSSEEvent(w io.Writer, event SSEvent) error {
@@ -678,7 +612,7 @@ func parseAcceptHeader(header string) []acceptRange {
 		} else {
 			mediaType = strings.ToLower(mediaType)
 		}
-		if mediaType == "" {
+		if !strings.Contains(mediaType, "/") {
 			continue
 		}
 
@@ -690,7 +624,7 @@ func parseAcceptHeader(header string) []acceptRange {
 			}
 			q = parsed
 		}
-		if q <= 0 {
+		if !(q >= 0 && q <= 1) {
 			continue
 		}
 
@@ -809,7 +743,6 @@ func (c *Context) serveFileWithDisposition(filePath string, filesystem fs.FS, di
 	if c.written {
 		return ErrResponseAlreadySent
 	}
-	c.written = true
 	if name != "" && disposition != "" {
 		c.SetHeader(HeaderContentDisposition, fmt.Sprintf("%s; filename=%q", disposition, name))
 	}

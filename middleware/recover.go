@@ -6,6 +6,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 
 	"github.com/0mjs/zinc"
@@ -60,6 +61,9 @@ func RecoverWithConfig(config RecoverConfig) zinc.Middleware {
 
 		defer func() {
 			if value := recover(); value != nil {
+				if value == http.ErrAbortHandler {
+					panic(value)
+				}
 				recoverErr := &RecoverError{
 					Value: value,
 					Stack: captureRecoverStack(cfg),

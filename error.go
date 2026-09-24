@@ -106,6 +106,11 @@ func defaultErrorHandler(c *Context, err error) {
 		return
 	}
 
+	// Discard representation headers prepared by a helper that failed before
+	// commitment. HTTPError headers are applied afterwards.
+	c.Writer().Header().Del(HeaderContentType)
+	c.Writer().Header().Del(HeaderContentLength)
+	c.Writer().Header().Del(HeaderContentDisposition)
 	if httpErr, ok := err.(*HTTPError); ok {
 		writeHTTPError(c, httpErr)
 		return

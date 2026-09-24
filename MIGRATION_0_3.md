@@ -17,3 +17,15 @@ Trailing slashes in grouped routes are preserved when strict routing is enabled.
 Content-Length no longer permits allocating buffers above the configured budget. Multipart temporary files belong to the request and are removed when its Context is released; save uploads during the handler.
 
 `Decompress()` now limits expansion using the application's body budget, falling back to 4 MiB when no positive budget exists. A positive `MaxDecompressedSize` overrides that default. `Context.BodyLimit()` exposes the application budget for middleware implementing body transformations.
+
+## Responses and returned errors
+
+`Context.Writer()` is now an instrumented writer, including after `SetWriter`. Use its `Unwrap() http.ResponseWriter` method or `http.ResponseController` to reach the underlying writer; pointer equality with the server's original writer is not guaranteed. Supported Flusher, Hijacker, and Pusher capabilities are preserved without advertising capabilities absent from the transport.
+
+Selecting a status or preparing an encoder does not commit a response. Actual writes, final headers, flushes, or a successful hijack do. Errors before commitment can produce an error response; errors after partial output do not append another body. The configured error handler runs at most once per request, including when middleware calls `Context.Error` and propagates the same error.
+
+Informational headers do not consume the final status. Gzip flushes below MinLength send buffered bytes as identity and retain that representation for subsequent writes. `Vary: Accept-Encoding` also covers identity responses. Recovery preserves `http.ErrAbortHandler`.
+
+Response header value slices belong to each response. This intentionally adds an allocation on common helpers that previously used mutable shared storage. Context release clears request-owned values and references immediately, including after panics.
+
+Accept negotiation now retains explicit `q=0` exclusions and applies them ahead of matching wildcards.

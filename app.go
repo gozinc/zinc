@@ -565,7 +565,6 @@ func Wrap(h http.Handler) HandlerFunc {
 	return func(c *Context) error {
 		c.populateRequestPathValues()
 		h.ServeHTTP(c.Writer(), c.Request())
-		c.written = true
 		return nil
 	}
 }
