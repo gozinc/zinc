@@ -115,6 +115,9 @@ func (c *Context) release() {
 	if c == nil {
 		return
 	}
+	if c.request != nil && c.request.MultipartForm != nil {
+		_ = c.request.MultipartForm.RemoveAll()
+	}
 	c.writer = nil
 	c.request = nil
 	c.handlers = nil
@@ -425,6 +428,9 @@ func (c *Context) FormValue(name string) string {
 	if c.request == nil {
 		return ""
 	}
+	if err := c.limitFormBody(); err != nil {
+		return ""
+	}
 	return c.request.FormValue(name)
 }
 
@@ -432,6 +438,9 @@ func (c *Context) FormValue(name string) string {
 func (c *Context) FormFile(name string) (*multipart.FileHeader, error) {
 	if c.request == nil {
 		return nil, errors.New("request is nil")
+	}
+	if err := c.limitFormBody(); err != nil {
+		return nil, err
 	}
 	file, header, err := c.request.FormFile(name)
 	if err != nil {
@@ -459,6 +468,9 @@ func (c *Context) FormFiles(name string) ([]*multipart.FileHeader, error) {
 func (c *Context) MultipartForm() (*multipart.Form, error) {
 	if c.request == nil {
 		return nil, errors.New("request is nil")
+	}
+	if err := c.limitFormBody(); err != nil {
+		return nil, err
 	}
 	if c.request.MultipartForm != nil {
 		return c.request.MultipartForm, nil
@@ -544,6 +556,9 @@ func (c *Context) BodyString() (string, error) {
 }
 
 func (c *Context) postFormValues() url.Values {
+	if err := c.limitFormBody(); err != nil {
+		return nil
+	}
 	if c.request == nil {
 		return url.Values{}
 	}
@@ -635,10 +650,10 @@ func (c *Context) readAndCacheBodyBytes() ([]byte, error) {
 
 	reader := io.Reader(c.request.Body)
 	if c.app != nil && c.app.config.BodyLimit > 0 {
-		reader = io.LimitReader(reader, c.app.config.BodyLimit+1)
+		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(^uint64(0)>>1)-1)+1)
 	}
 
-	body, readErr := readAllBody(reader, c.request.ContentLength)
+	body, readErr := readAllBody(reader, c.bodyPreallocation())
 	if readErr == nil && c.app != nil && c.app.config.BodyLimit > 0 && int64(len(body)) > c.app.config.BodyLimit {
 		readErr = ErrRequestEntityTooLarge
 		body = nil
@@ -701,10 +716,10 @@ func (c *Context) readAndCacheBody(decode func(io.Reader) error) (int, error, er
 
 	reader := io.Reader(c.request.Body)
 	if c.app != nil && c.app.config.BodyLimit > 0 {
-		reader = io.LimitReader(reader, c.app.config.BodyLimit+1)
+		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(^uint64(0)>>1)-1)+1)
 	}
 
-	capture := newBodyCaptureReader(reader, c.request.ContentLength)
+	capture := newBodyCaptureReader(reader, c.bodyPreallocation())
 	var decodeErr error
 	if decode != nil {
 		decodeErr = decode(capture)
@@ -747,7 +762,7 @@ type bodyCaptureReader struct {
 
 func newBodyCaptureReader(reader io.Reader, contentLength int64) *bodyCaptureReader {
 	capture := &bodyCaptureReader{reader: reader}
-	if contentLength > 0 && contentLength <= int64(^uint(0)>>1) {
+	if contentLength > 0 && contentLength <= bodyReadPreallocateLimit {
 		capture.buffer.Grow(int(contentLength))
 	}
 	return capture
@@ -1099,4 +1114,57 @@ func cloneRequestURI(u *url.URL) string {
 		return ""
 	}
 	return u.RequestURI()
+}
+
+// BodyLimit returns the configured binding budget, or zero without an app.
+// Middleware can use it for limits on transformed request bodies.
+func (c *Context) BodyLimit() int64 {
+	if c.app == nil {
+		return 0
+	}
+	return c.app.config.BodyLimit
+}
+
+func (c *Context) bodyPreallocation() int64 {
+	n := min(c.request.ContentLength, bodyReadPreallocateLimit)
+	if limit := c.BodyLimit(); limit > 0 {
+		n = min(n, limit)
+	}
+	return n
+}
+
+// limitFormBody bounds both form values and uploaded files without buffering
+// an entire multipart request. A prior limit error remains visible on reuse.
+func (c *Context) limitFormBody() error {
+	req := c.request
+	if req == nil || req.Body == nil || c.BodyLimit() <= 0 {
+		return nil
+	}
+	if body, ok := req.Body.(*formLimitReader); ok {
+		return body.err
+	}
+	if req.ContentLength > c.BodyLimit() {
+		return ErrRequestEntityTooLarge
+	}
+	req.Body = &formLimitReader{ReadCloser: http.MaxBytesReader(nil, req.Body, c.BodyLimit())}
+	return nil
+}
+
+type formLimitReader struct {
+	io.ReadCloser
+	err error
+}
+
+func (r *formLimitReader) Read(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	n, err := r.ReadCloser.Read(p)
+	if _, exceeded := err.(*http.MaxBytesError); exceeded {
+		err = errors.Join(ErrRequestEntityTooLarge, err)
+	}
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
 }

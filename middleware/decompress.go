@@ -25,13 +25,14 @@ type DecompressConfig struct {
 	MaxDecompressedSize int64
 }
 
-// Decompress accepts gzip request bodies without an expansion limit.
+// Decompress accepts gzip request bodies using the application body limit.
 func Decompress() zinc.Middleware {
 	return DecompressWithConfig(DecompressConfig{})
 }
 
 // DecompressWithConfig transparently exposes gzip input to downstream handlers.
-// MaxDecompressedSize should be set for untrusted input to bound expansion.
+// A zero MaxDecompressedSize uses the application body limit, or 4 MiB when
+// the application has no positive limit. Set a positive value to override it.
 func DecompressWithConfig(config DecompressConfig) zinc.Middleware {
 	if config.MaxDecompressedSize < 0 {
 		panic("zincdecompress: MaxDecompressedSize must be greater than or equal to zero")
@@ -60,11 +61,18 @@ func DecompressWithConfig(config DecompressConfig) zinc.Middleware {
 			return errors.Join(zinc.ErrBadRequest, fmt.Errorf("%w: %v", ErrDecompressInvalidBody, err))
 		}
 
+		limit := config.MaxDecompressedSize
+		if limit == 0 {
+			limit = c.BodyLimit()
+		}
+		if limit <= 0 {
+			limit = 4 << 20
+		}
 		bodyReader := io.Reader(reader)
-		if config.MaxDecompressedSize > 0 {
+		if limit > 0 {
 			bodyReader = &decompressedLimitReader{
 				reader:    reader,
-				remaining: config.MaxDecompressedSize,
+				remaining: limit,
 			}
 		}
 
