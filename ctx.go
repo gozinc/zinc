@@ -29,6 +29,7 @@ type Context struct {
 	queryParams  url.Values
 	written      bool
 	handlers     []HandlerFunc
+	prefixDone   []int
 	index        int
 	store        map[any]any
 	status       int
@@ -117,6 +118,7 @@ func (c *Context) release() {
 	c.writer = nil
 	c.request = nil
 	c.handlers = nil
+	c.prefixDone = c.prefixDone[:0]
 	c.queryParams = nil
 	c.body = nil
 	c.bodyRead = false

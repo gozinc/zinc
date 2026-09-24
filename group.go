@@ -57,7 +57,7 @@ func (g *Group) Route(prefix string, fn func(*Group), handlers ...HandlerFunc) *
 
 // Mount delegates a subtree below the group to a standard HTTP handler.
 func (g *Group) Mount(prefix string, h http.Handler) {
-	g.app.Mount(joinPaths(g.prefix, prefix), h)
+	g.app.mount(joinPaths(g.prefix, prefix), h, g.middleware)
 }
 
 // Add registers handlers and panics when the route declaration is invalid.
@@ -172,22 +172,24 @@ func (g *Group) Any(path string, handlers ...HandlerFunc) {
 
 // Static serves a filesystem directory below the group.
 func (g *Group) Static(prefix, root string, opts ...StaticOption) error {
-	return g.app.Static(joinPaths(g.prefix, prefix), root, opts...)
+	return g.StaticFS(prefix, confinedDirFS(root), opts...)
 }
 
 // StaticFS serves an fs.FS below the group.
 func (g *Group) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
-	return g.app.StaticFS(joinPaths(g.prefix, prefix), filesystem, opts...)
+	return g.app.staticFS(joinPaths(g.prefix, prefix), filesystem, g.middleware, opts...)
 }
 
 // File serves one operating-system file below the group.
 func (g *Group) File(routePath, file string) error {
-	return g.app.File(joinPaths(g.prefix, routePath), file)
+	g.Get(routePath, func(c *Context) error { return c.File(file) })
+	return nil
 }
 
 // FileFS serves one file from an fs.FS below the group.
 func (g *Group) FileFS(routePath, file string, filesystem fs.FS) error {
-	return g.app.FileFS(joinPaths(g.prefix, routePath), file, filesystem)
+	g.Get(routePath, func(c *Context) error { return c.FileFS(file, filesystem) })
+	return nil
 }
 
 // joinPaths joins URL route prefixes without inheriting OS path semantics.
@@ -201,15 +203,9 @@ func joinPaths(a, b string) string {
 	if !strings.HasPrefix(b, "/") {
 		b = "/" + b
 	}
-	if a == "" || a == "/" {
-		return path.Clean(b)
-	}
-	joined := path.Join(a, b)
-	if joined == "." {
-		return "/"
-	}
-	if !strings.HasPrefix(joined, "/") {
-		joined = "/" + joined
+	joined := path.Join("/", a, b)
+	if strings.HasSuffix(b, "/") && joined != "/" {
+		joined += "/"
 	}
 	return joined
 }

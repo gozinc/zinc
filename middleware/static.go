@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"strings"
 
 	"github.com/0mjs/zinc"
@@ -88,7 +87,7 @@ func resolveStaticConfig(config StaticConfig) StaticConfig {
 		if config.Root == "" {
 			panic("zincstatic: Root or Filesystem is required")
 		}
-		config.Filesystem = os.DirFS(config.Root)
+		config.Filesystem = staticRootFS(config.Root)
 	}
 	config.Prefix = normalizeStaticPrefix(config.Prefix)
 	return config
@@ -101,20 +100,23 @@ func staticRequestName(requestPath, prefix string) (string, bool) {
 		}
 		requestPath = strings.TrimPrefix(requestPath, prefix)
 	}
-	for _, segment := range strings.Split(requestPath, "/") {
-		if segment == ".." {
-			return "", false
-		}
+	if strings.ContainsAny(requestPath, "\\\x00") {
+		return "", false
 	}
-	requestPath = path.Clean("/" + requestPath)
-	name := strings.TrimPrefix(requestPath, "/")
+	name := strings.TrimSuffix(strings.TrimPrefix(requestPath, "/"), "/")
 	if name == "" {
 		name = "."
 	}
-	if name != "." && !fs.ValidPath(name) {
-		return "", false
+	return name, fs.ValidPath(name)
+}
+
+type staticRootFS string
+
+func (root staticRootFS) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, fs.ErrInvalid
 	}
-	return name, true
+	return os.OpenInRoot(string(root), name)
 }
 
 func staticFileExists(filesystem fs.FS, name string) bool {
