@@ -1,14 +1,35 @@
 ---
-// Figures from BENCHMARKS.md (Apple M1 Pro, go1.26.1, commit 5f77c75). ns/op, lower is better.
+// Reads the published results from the repository's BENCHMARKS.md at build
+// time, so the homepage follows the report. ns/op, lower is better.
+import fs from "node:fs";
+import path from "node:path";
+
 const frameworks = ["Zinc", "Gin", "Echo", "Chi"];
-const workloads = [
-  { id: "hello", name: "Hello world", bench: "HelloWorld", ns: [65.27, 89.27, 138.2, 198.9] },
-  { id: "param", name: "Route param", bench: "RouterParam", ns: [80.65, 94.61, 132.4, 345.9] },
-  { id: "chain", name: "Middleware chain", bench: "MiddlewareChain", ns: [365.1, 424.2, 540.5, 950.0] },
-  { id: "api", name: "API request", bench: "APIHappyPath", ns: [1186, 3024, 2287, 1737] },
-  { id: "parallel", name: "Parallel param", bench: "ParallelRouterParam", ns: [13.68, 53.86, 56.11, 315.4] },
-  { id: "notfound", name: "Not found", bench: "NotFound", ns: [72.18, 58.46, 598.0, 349.5] },
+const source = [path.resolve(process.cwd(), "../BENCHMARKS.md"), path.resolve(process.cwd(), "BENCHMARKS.md")].find((p) => fs.existsSync(p));
+const md = source ? fs.readFileSync(source, "utf8") : "";
+
+const results = [...md.matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| (\w+) \|$/gm)].map((m) => ({
+  bench: m[1],
+  ns: [m[2], m[3], m[4], m[5]].map((v) => parseFloat(v.replace(/,/g, ""))),
+  winner: m[6],
+}));
+const field = (label: string) => md.match(new RegExp(`${label}: \`([^\`]+)\``))?.[1] ?? "";
+const run = { commit: field("Zinc commit"), go: field("Go"), machine: field("Machine"), date: field("Date") };
+const historical = /Historical results/i.test(md);
+const wins = Object.fromEntries(frameworks.map((f) => [f, results.filter((r) => r.winner === f).length]));
+const runDate = run.date ? new Date(run.date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }) : "";
+
+const picks = [
+  ["hello", "Hello world", "HelloWorld"],
+  ["param", "Route param", "RouterParam"],
+  ["chain", "Middleware chain", "MiddlewareChain"],
+  ["api", "API request", "APIHappyPath"],
+  ["parallel", "Parallel param", "ParallelRouterParam"],
+  ["notfound", "Not found", "NotFound"],
 ];
+const workloads = picks
+  .map(([id, name, bench]) => ({ id, name, bench, ns: results.find((r) => r.bench === bench)?.ns }))
+  .filter((w): w is { id: string; name: string; bench: string; ns: number[] } => !!w.ns);
 
 const fmt = (n: number) => (n >= 1000 ? n.toLocaleString("en-US") : n.toFixed(n < 100 ? 2 : 1));
 const rows = (ns: number[]) => {
@@ -28,11 +49,21 @@ const first = workloads[0];
 <section class="bench">
   <div class="summary">
     <p class="kicker">Measured, in the repo</p>
-    <p class="hero-num"><strong>62</strong><span>/ 77</span></p>
+    <p class="hero-num"><strong>{wins.Zinc}</strong><span>/ {results.length}</span></p>
     <p class="caption">
-      Benchmarks where Zinc recorded the lowest latency against Gin, Echo, and Chi. Gin led 10 and Chi led 5.
+      Scenarios where Zinc recorded the lowest latency against Gin, Echo, and Chi.
+      Gin led {wins.Gin}, Chi {wins.Chi}, and Echo {wins.Echo}.
     </p>
-    <p class="env">Apple M1 Pro · go1.26.1 · commit 5f77c75</p>
+    <ol class="winmap" aria-label={`${wins.Zinc} of ${results.length} scenarios won by Zinc`}>
+      {results.map((r) => (
+        <li data-zinc={r.winner === "Zinc" ? "" : undefined} title={`${r.bench}: ${r.winner} fastest · Zinc ${fmt(r.ns[0])} ns`}></li>
+      ))}
+    </ol>
+    <p class="legend"><span><i class="z"></i>Zinc fastest</span><span><i></i>A rival fastest</span></p>
+    <p class="env">
+      <span class="when">{historical && <span class="hist">Historical run</span>}{runDate}</span>
+      <span>{run.machine} · {run.go} · commit {run.commit}</span>
+    </p>
     <a class="more" href="/extra/benchmarks/">Full benchmark report →</a>
   </div>
 
@@ -83,6 +114,17 @@ const first = workloads[0];
     };
 
     buttons.forEach((b) => b.addEventListener("click", () => show(b.dataset.workload!)));
+
+    // Bars grow from zero the first time the chart scrolls into view.
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      root.classList.add("await");
+      const seen = new IntersectionObserver((entries) => {
+        if (!entries[0].isIntersecting) return;
+        root.classList.add("shown");
+        seen.disconnect();
+      }, { threshold: 0.35 });
+      seen.observe(root);
+    }
   });
 </script>
 
@@ -130,10 +172,75 @@ const first = workloads[0];
     max-width: 34ch;
   }
 
+  /* One square per scenario: filled where Zinc was fastest. */
+  .winmap {
+    display: grid;
+    gap: 3px;
+    grid-template-columns: repeat(auto-fill, minmax(9px, 1fr));
+    list-style: none;
+    margin: 0 0 0.6rem;
+    max-width: 22rem;
+    padding: 0;
+  }
+
+  .winmap li {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px var(--sl-color-hairline-light);
+    margin: 0;
+  }
+
+  .winmap li[data-zinc] {
+    background: var(--z-zn);
+    box-shadow: none;
+  }
+
+  .legend {
+    color: var(--z-soft);
+    display: flex;
+    flex-wrap: wrap;
+    font: 400 0.7rem/1 var(--sl-font-mono);
+    gap: 0.4rem 1rem;
+    margin: 0 0 1.25rem;
+  }
+
+  .legend span {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.4rem;
+  }
+
+  .legend i {
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px var(--sl-color-hairline-light);
+    height: 9px;
+    width: 9px;
+  }
+
+  .legend i.z {
+    background: var(--z-zn);
+    box-shadow: none;
+  }
+
   .env {
     color: var(--z-soft);
-    font: 400 0.7rem/1.4 var(--sl-font-mono);
+    display: grid;
+    font: 400 0.7rem/1.6 var(--sl-font-mono);
+    gap: 0.45rem;
     margin: 0 0 1.5rem;
+  }
+
+  .when {
+    align-items: center;
+    display: flex;
+  }
+
+  .hist {
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 4px;
+    color: var(--z-muted);
+    margin-right: 0.5rem;
+    padding: 0.1rem 0.4rem;
   }
 
   .more {
@@ -224,6 +331,10 @@ const first = workloads[0];
     border-left: 1px solid var(--sl-color-hairline-light);
     display: block;
     height: 1.35rem;
+  }
+
+  :global(.await):not(:global(.shown)) .bar {
+    width: 0 !important;
   }
 
   .bar {

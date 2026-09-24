@@ -1,12 +1,52 @@
 ---
+// One request's journey through Zinc. Stages are in execution order: app
+// middleware runs before routing, then binding, then the response.
 import { Code } from "astro:components";
 import zincFrost from "../../themes/zinc-frost.json";
 
-const tabs = [
+interface Line { dir: "in" | "out" | "meta"; text: string }
+interface Stage {
+  id: string;
+  name: string;
+  blurb: string;
+  file: string;
+  href: string;
+  code: string;
+  mark: number; // 1-based line to highlight
+  note: string;
+  exchange: Line[];
+}
+
+const stages: Stage[] = [
   {
-    id: "routing",
-    name: "Routing",
-    blurb: "Go 1.22 brace patterns, groups, and scoped 404s. Static, param, and not-found dispatch allocate nothing.",
+    id: "middleware",
+    name: "Middleware",
+    blurb: "Wraps every request first: IDs, logs, recovery, and security headers from 29 first-party pieces.",
+    file: "main.go",
+    href: "/middleware/overview/",
+    code: `app.Use(
+	middleware.RequestID(),
+	middleware.RequestLogger(),
+	middleware.Recover(),
+	middleware.Secure(),
+)
+
+api := app.Group("/api", middleware.ContextTimeout(5*time.Second))`,
+    mark: 2,
+    note: "Every response carries an ID that your logs share.",
+    exchange: [
+      { dir: "in", text: "GET /api/users/42" },
+      { dir: "out", text: "200 OK" },
+      { dir: "meta", text: "X-Request-Id: 9f2c4e1a7b3d5c8e0a6f1b2c3d4e5f60" },
+      { dir: "meta", text: "X-Content-Type-Options: nosniff" },
+      { dir: "meta", text: "X-Frame-Options: SAMEORIGIN" },
+    ],
+  },
+  {
+    id: "route",
+    name: "Route",
+    blurb: "Brace patterns and groups, the same syntax as Go 1.22's net/http, pick the handler.",
+    file: "routes.go",
     href: "/guide/routing/",
     code: `api := app.Group("/api", requireAuth)
 
@@ -14,14 +54,20 @@ api.Get("/users/{id}", func(c *zinc.Context) error {
 	return c.JSON(zinc.Map{"id": c.Param("id")})
 })
 
-api.Get("/files/{path...}", serveFile)
-
 app.RouteNotFound("/api/{tail...}", apiNotFound)`,
+    mark: 4,
+    note: "{id} is captured from the path and read with c.Param.",
+    exchange: [
+      { dir: "in", text: "GET /api/users/42" },
+      { dir: "out", text: "200 OK" },
+      { dir: "meta", text: '{"id":"42"}' },
+    ],
   },
   {
-    id: "binding",
-    name: "Binding",
-    blurb: "Path, query, header, JSON, XML, YAML, TOML, form, and multipart input into one struct.",
+    id: "bind",
+    name: "Bind",
+    blurb: "Path, query, headers, and bodies decode into one typed struct, then your validator runs.",
+    file: "users.go",
     href: "/guide/binding/",
     code: `type CreateUser struct {
 	Name  string \`json:"name"\`
@@ -35,94 +81,146 @@ app.Post("/users", func(c *zinc.Context) error {
 	}
 	return c.Status(zinc.StatusCreated).JSON(in)
 })`,
+    mark: 8,
+    note: "Decodes the body into CreateUser; bad input becomes a 400.",
+    exchange: [
+      { dir: "in", text: 'POST /users  {"name":"Ada","email":"ada@example.com"}' },
+      { dir: "out", text: "201 Created" },
+      { dir: "meta", text: '{"name":"Ada","email":"ada@example.com"}' },
+    ],
   },
   {
-    id: "errors",
-    name: "Errors",
-    blurb: "Handlers return errors. One handler turns them into responses, so failure paths stay short.",
+    id: "respond",
+    name: "Respond",
+    blurb: "Handlers return errors. One error handler shapes every failure, so the happy path stays short.",
+    file: "users.go",
     href: "/guide/errors/",
-    code: `cfg := zinc.DefaultConfig
-cfg.ErrorHandler = func(c *zinc.Context, err error) {
-	var he *zinc.HTTPError
-	if !errors.As(err, &he) {
-		he = zinc.ErrInternalServerError
+    code: `app.Get("/users/{id}", func(c *zinc.Context) error {
+	user, err := users.Find(c.Param("id"))
+	if err != nil {
+		return zinc.ErrNotFound.WithMessage("user not found")
 	}
-	_ = c.Status(he.Code).JSON(zinc.Map{"error": he.Error()})
-}
-
-app := zinc.NewWithConfig(cfg)`,
-  },
-  {
-    id: "middleware",
-    name: "Middleware",
-    blurb: "29 first-party middleware for security, observability, and transport, composed per app or per group.",
-    href: "/middleware/overview/",
-    code: `app.Use(
-	middleware.RequestID(),
-	middleware.RequestLogger(),
-	middleware.Recover(),
-	middleware.Secure(),
-)
-
-api := app.Group("/api", middleware.BodyLimit(1<<20))
-api.Use(middleware.ContextTimeout(5 * time.Second))`,
+	return c.JSON(user)
+})`,
+    mark: 4,
+    note: "Return an error; the error handler writes the response.",
+    exchange: [
+      { dir: "in", text: "GET /users/nope" },
+      { dir: "out", text: "404 Not Found" },
+      { dir: "meta", text: "user not found" },
+    ],
   },
 ];
+
+// Tabs become four spaces: line numbers sit at the start of each line and
+// would otherwise shift the tab stops.
+const markLine = (n: number) => ({
+  line(this: any, node: any, line: number) {
+    if (line === n) this.addClassToHast(node, "mark");
+  },
+});
 ---
 
-<section class="features" data-tabs>
+<section class="journey" data-journey>
   <div class="head">
     <p class="kicker">What you get</p>
     <h2>Everything a service needs. Nothing it doesn't.</h2>
+    <p class="lede">Follow one request through Zinc, from the first middleware to the response.</p>
   </div>
 
   <div class="body">
-    <div class="tablist" role="tablist" aria-label="Zinc features">
-      {tabs.map((t, i) => (
-        <button role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1} data-tab={t.id}>
-          <strong>{t.name}</strong>
-          <span>{t.blurb}</span>
-        </button>
+    <ol class="stations" role="tablist" aria-label="Stages of a request" aria-orientation="vertical">
+      {stages.map((s, i) => (
+        <li>
+          <button role="tab" id={`stage-${s.id}`} aria-controls={`pane-${s.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1} data-stage={i}>
+            <span class="marker" aria-hidden="true">{i + 1}</span>
+            <span class="text">
+              <strong>{s.name}</strong>
+              <span>{s.blurb}</span>
+            </span>
+            <span class="timer" aria-hidden="true"></span>
+          </button>
+        </li>
       ))}
-    </div>
+    </ol>
 
-    <div class="panels">
-      {tabs.map((t, i) => (
-        <div role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={i !== 0} data-panel={t.id}>
-          <div class="plate">
-            <div class="plate-head">
-              <span>{t.name.toLowerCase()}.go</span>
-              <a href={t.href}>Read the guide →</a>
+    <div class="plate">
+      <div class="files" aria-hidden="true">
+        {stages.map((s, i) => (
+          <button type="button" tabindex="-1" data-file={i} class={i === 0 ? "on" : ""}>{s.file}<em>{s.name}</em></button>
+        ))}
+      </div>
+
+      <div class="panes">
+        {stages.map((s, i) => (
+          <div class="pane" role="tabpanel" id={`pane-${s.id}`} aria-labelledby={`stage-${s.id}`} hidden={i !== 0} data-pane={i}>
+            <div class="code"><Code code={s.code.replace(/\t/g, "    ")} lang="go" theme={zincFrost as any} transformers={[markLine(s.mark)]} /></div>
+            <p class="annot"><span class="ln">L{s.mark}</span>{s.note}<a href={s.href}>Guide →</a></p>
+            <div class="exchange" aria-label="What this code does over HTTP">
+              {s.exchange.map((l) => (
+                <p class={l.dir}><span class="dir" aria-hidden="true">{l.dir === "in" ? "→" : l.dir === "out" ? "←" : " "}</span>{l.text}</p>
+              ))}
             </div>
-            <Code code={t.code} lang="go" theme={zincFrost as any} />
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   </div>
 </section>
 
 <script>
-  document.querySelectorAll<HTMLElement>("[data-tabs]").forEach((root) => {
+  const DWELL = 7000; // ms per stage while the section plays by itself
+
+  document.querySelectorAll<HTMLElement>("[data-journey]").forEach((root) => {
     const tabs = [...root.querySelectorAll<HTMLButtonElement>("[role=tab]")];
-    const select = (tab: HTMLButtonElement, focus = false) => {
-      tabs.forEach((t) => {
-        const on = t === tab;
-        t.setAttribute("aria-selected", String(on));
-        t.tabIndex = on ? 0 : -1;
-        root.querySelector<HTMLElement>(`[data-panel="${t.dataset.tab}"]`)!.hidden = !on;
+    const files = [...root.querySelectorAll<HTMLButtonElement>("[data-file]")];
+    const panes = [...root.querySelectorAll<HTMLElement>("[data-pane]")];
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let active = 0;
+    let playing = !reduced;
+    let paused = false;
+    let timer = 0;
+
+    const select = (i: number, focus = false) => {
+      active = (i + tabs.length) % tabs.length;
+      tabs.forEach((t, k) => {
+        t.setAttribute("aria-selected", String(k === active));
+        t.tabIndex = k === active ? 0 : -1;
+        t.dataset.done = String(k < active);
       });
-      if (focus) tab.focus();
+      files.forEach((f, k) => f.classList.toggle("on", k === active));
+      panes.forEach((p, k) => (p.hidden = k !== active));
+      root.style.setProperty("--progress", String(active / (tabs.length - 1)));
+      if (focus) tabs[active].focus();
+      schedule();
     };
-    tabs.forEach((tab, i) => {
-      tab.addEventListener("click", () => select(tab));
-      tab.addEventListener("keydown", (e) => {
+
+    const schedule = () => {
+      clearTimeout(timer);
+      root.classList.toggle("playing", playing && !paused);
+      if (playing && !paused) timer = window.setTimeout(() => select(active + 1), DWELL);
+    };
+
+    const stop = () => { playing = false; schedule(); };
+
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => { stop(); select(i); });
+      t.addEventListener("keydown", (e) => {
         const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
         if (!step) return;
-        e.preventDefault();
-        select(tabs[(i + step + tabs.length) % tabs.length], true);
+        e.preventDefault(); stop(); select(active + step, true);
       });
     });
+    files.forEach((f, i) => f.addEventListener("click", () => { stop(); select(i); }));
+    root.addEventListener("pointerenter", () => { paused = true; schedule(); });
+    root.addEventListener("pointerleave", () => { paused = false; schedule(); });
+    root.addEventListener("focusin", () => { paused = true; schedule(); });
+
+    new IntersectionObserver((entries) => {
+      paused = !entries[0].isIntersecting;
+      schedule();
+    }).observe(root);
+    select(0);
   });
 </script>
 
@@ -138,137 +236,368 @@ api.Use(middleware.ContextTimeout(5 * time.Second))`,
     color: var(--z-text);
     font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
     letter-spacing: -0.035em;
-    margin: 0 0 2.25rem;
+    margin: 0;
     max-width: 22ch;
     text-wrap: balance;
   }
 
-  /* Both columns share one row height: the code plate always matches the tab list. */
+  .lede {
+    color: var(--z-muted);
+    font-size: 1rem;
+    margin: 0.9rem 0 2.25rem;
+  }
+
   .body {
     align-items: stretch;
     display: grid;
-    gap: 1.5rem;
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
   }
 
-  .tablist {
-    border-top: 1px solid var(--sl-color-hairline);
+  /* The pipeline: four stations on one track, filled up to the current stage. */
+  .stations {
+    --track-x: 1.05rem;
     display: grid;
+    align-content: space-between;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+  }
+
+  .stations::before,
+  .stations::after {
+    content: "";
+    left: var(--track-x);
+    position: absolute;
+    top: 1.6rem;
+    width: 2px;
+    transform: translateX(-50%);
+  }
+
+  .stations::before {
+    background: var(--sl-color-hairline-light);
+    bottom: 1.6rem;
+  }
+
+  .stations::after {
+    background: var(--z-text);
+    height: calc((100% - 3.2rem) * var(--progress, 0));
+    transition: height 480ms cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+
+  .stations li {
+    margin: 0;
   }
 
   [role="tab"] {
+    align-items: start;
     background: transparent;
     border: 0;
-    border-bottom: 1px solid var(--sl-color-hairline);
+    border-radius: 10px;
     color: var(--z-muted);
     cursor: pointer;
     display: grid;
     font: inherit;
-    gap: 0.35rem;
-    padding: 1.05rem 1rem 1.05rem 1.1rem;
+    gap: 0.25rem 1rem;
+    grid-template-columns: 2.1rem minmax(0, 1fr);
+    padding: 0.75rem 0.9rem 0.85rem 0;
     position: relative;
     text-align: left;
-    transition: background 140ms ease;
-  }
-
-  [role="tab"] strong {
-    color: var(--z-body);
-    font-size: 1rem;
-    font-weight: 600;
-  }
-
-  [role="tab"] span {
-    font-size: 0.86rem;
-    line-height: 1.5;
+    transition: background 160ms ease;
+    width: 100%;
   }
 
   [role="tab"]:hover {
     background: var(--z-zn-soft);
   }
 
-  [role="tab"][aria-selected="true"] {
-    background: var(--z-panel);
+  .marker {
+    align-items: center;
+    background: var(--sl-color-bg);
+    border: 1.5px solid var(--sl-color-hairline-light);
+    border-radius: 50%;
+    color: var(--z-muted);
+    display: flex;
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    height: 2.1rem;
+    justify-content: center;
+    position: relative;
+    transition: background 240ms ease, border-color 240ms ease, color 240ms ease;
+    width: 2.1rem;
+    z-index: 1;
   }
 
-  [role="tab"][aria-selected="true"] strong {
+  [data-done="true"] .marker {
+    border-color: var(--z-text);
     color: var(--z-text);
   }
 
-  [role="tab"][aria-selected="true"]::before {
+  [aria-selected="true"] .marker {
     background: var(--z-text);
+    border-color: var(--z-text);
+    color: var(--sl-color-bg);
+  }
+
+  .text {
+    display: grid;
+    gap: 0.3rem;
+    padding-top: 0.35rem;
+  }
+
+  .text strong {
+    color: var(--z-body);
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .text span {
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+
+  [aria-selected="true"] .text strong {
+    color: var(--z-text);
+  }
+
+  /* While the section plays by itself, the current stage shows its remaining time. */
+  .timer {
+    background: var(--sl-color-hairline);
     border-radius: 1px;
-    bottom: 1rem;
+    grid-column: 2;
+    height: 2px;
+    margin-top: 0.5rem;
+    opacity: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .timer::after {
+    background: var(--z-muted);
     content: "";
-    left: 0;
+    inset: 0;
     position: absolute;
-    top: 1rem;
-    width: 2px;
+    transform: scaleX(0);
+    transform-origin: left;
   }
 
-  .panels,
-  [role="tabpanel"] {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+  .playing [aria-selected="true"] .timer {
+    opacity: 1;
   }
 
-  .panels {
-    height: 100%;
+  .playing [aria-selected="true"] .timer::after {
+    animation: dwell 7000ms linear forwards;
   }
 
-  [role="tabpanel"] {
-    flex: 1;
+  @keyframes dwell {
+    to {
+      transform: scaleX(1);
+    }
   }
 
-  [role="tabpanel"][hidden] {
-    display: none;
-  }
-
+  /* The editor plate. */
   .plate {
+    --rule: #252a31;
     background: var(--z-plate);
-    border: 1px solid var(--z-plate-line);
-    border-radius: 10px;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    color: var(--z-plate-ink);
     display: flex;
-    flex: 1;
     flex-direction: column;
+    min-width: 0;
     overflow: hidden;
   }
 
-  .plate-head {
-    align-items: center;
+  .files {
     background: var(--z-plate-bar);
-    border-bottom: 1px solid var(--z-plate-line);
+    border-bottom: 1px solid var(--rule);
     display: flex;
-    font: 400 0.72rem/1 var(--sl-font-mono);
-    justify-content: space-between;
-    padding: 0.75rem 1.2rem;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
-  .plate-head span {
-    color: var(--z-plate-ink);
-  }
-
-  .plate-head a {
+  .files button {
+    align-items: baseline;
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--rule);
     color: var(--z-plate-mute);
-    font-family: var(--sl-font);
-    font-size: 0.8rem;
-    text-decoration: none;
+    cursor: pointer;
+    display: flex;
+    font: 400 0.74rem/1 var(--sl-font-mono);
+    gap: 0.5rem;
+    padding: 0.8rem 1.1rem;
+    position: relative;
+    white-space: nowrap;
   }
 
-  .plate-head a:hover {
-    color: var(--z-plate-ink);
+  .files em {
+    font: 500 0.62rem/1 var(--sl-font-mono);
+    font-style: normal;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+    text-transform: uppercase;
   }
 
-  .plate :global(.astro-code) {
+  .files button.on {
+    background: var(--z-plate);
+    color: #eceff4;
+  }
+
+  .files button.on::after {
+    background: var(--z-plate);
+    bottom: -1px;
+    content: "";
+    height: 1px;
+    left: 0;
+    position: absolute;
+    right: 0;
+  }
+
+  .panes {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .pane {
+    animation: swap 320ms ease both;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .pane[hidden] {
+    display: none;
+  }
+
+  @keyframes swap {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  .code {
+    flex: 1;
+  }
+
+  .code :global(.astro-code) {
     background: var(--z-plate) !important;
     border: 0;
     border-radius: 0;
+    counter-reset: ln;
     font-size: 0.8rem;
-    line-height: 1.75;
-    flex: 1;
+    line-height: 1.8;
     margin: 0;
     overflow-x: auto;
-    padding: 1.25rem 1.3rem;
+    padding: 1.1rem 0;
+  }
+
+  .code :global(.line) {
+    counter-increment: ln;
+    display: inline-block;
+    min-width: 100%;
+    padding: 0 1.3rem 0 0;
+  }
+
+  .code :global(.line)::before {
+    color: #414955;
+    content: counter(ln);
+    display: inline-block;
+    margin-right: 1.1rem;
+    text-align: right;
+    width: 2.4rem;
+  }
+
+  /* The highlighted line, with its note just below the code. */
+  .code :global(.line.mark) {
+    background: rgba(136, 192, 208, 0.09);
+    box-shadow: inset 2px 0 0 #88c0d0;
+  }
+
+  .code :global(.line.mark)::before {
+    color: #88c0d0;
+  }
+
+  .annot {
+    align-items: baseline;
+    border-top: 1px solid var(--rule);
+    color: #aeb8c6;
+    display: flex;
+    flex-wrap: wrap;
+    font: 400 0.84rem/1.5 var(--sl-font);
+    gap: 0.4rem 0.75rem;
+    margin: 0;
+    padding: 0.8rem 1.3rem;
+  }
+
+  .ln {
+    color: #88c0d0;
+    font: 500 0.7rem/1 var(--sl-font-mono);
+  }
+
+  .annot a {
+    color: var(--z-plate-mute);
+    margin-left: auto;
+    text-decoration: none;
+  }
+
+  .annot a:hover {
+    color: #eceff4;
+  }
+
+  /* What the code does over the wire. */
+  .exchange {
+    background: #0f1114;
+    border-top: 1px solid var(--rule);
+    font: 400 0.76rem/1.55 var(--sl-font-mono);
+    padding: 0.85rem 1.3rem 1rem;
+  }
+
+  .exchange p {
+    color: var(--z-plate-mute);
+    display: flex;
+    gap: 0.7rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .exchange .dir {
+    flex: none;
+    width: 0.8rem;
+  }
+
+  .exchange .in {
+    color: #d8dee9;
+  }
+
+  .exchange .in .dir {
+    color: #88c0d0;
+  }
+
+  .exchange .out {
+    color: #a3be8c;
+    font-weight: 500;
+  }
+
+  .exchange .meta {
+    color: #8f9aa8;
+  }
+
+  .pane:not([hidden]) .exchange p {
+    animation: line-in 260ms ease both;
+  }
+
+  .pane:not([hidden]) .exchange p:nth-child(2) { animation-delay: 180ms; }
+  .pane:not([hidden]) .exchange p:nth-child(3) { animation-delay: 260ms; }
+  .pane:not([hidden]) .exchange p:nth-child(4) { animation-delay: 320ms; }
+  .pane:not([hidden]) .exchange p:nth-child(5) { animation-delay: 380ms; }
+
+  @keyframes line-in {
+    from {
+      opacity: 0;
+    }
   }
 
   @media (max-width: 60rem) {
@@ -276,27 +605,20 @@ api.Use(middleware.ContextTimeout(5 * time.Second))`,
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .tablist {
-      border-top: 0;
-      display: flex;
-      gap: 0.4rem;
-      overflow-x: auto;
+    .stations {
+      gap: 0.25rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pane,
+    .pane:not([hidden]) .exchange p {
+      animation: none;
     }
 
-    [role="tab"] {
-      border: 1px solid var(--sl-color-hairline);
-      border-radius: 999px;
-      flex: none;
-      padding: 0.5rem 0.9rem;
-    }
-
-    [role="tab"] span,
-    [role="tab"][aria-selected="true"]::before {
-      display: none;
-    }
-
-    [role="tab"][aria-selected="true"] {
-      border-color: var(--z-muted);
+    .stations::after,
+    .marker {
+      transition: none;
     }
   }
 </style>

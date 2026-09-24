@@ -1,5 +1,13 @@
 ---
 // Cross-section of a galvanized stack: your code, a thin Zinc coat, net/http steel.
+import { Code } from "astro:components";
+import zincFrost from "../../themes/zinc-frost.json";
+
+const contracts = [
+  { code: "server.Handler = app", note: "Run it on a server you configure" },
+  { code: 'app.HandleHTTP("GET /metrics", promhttp.Handler())', note: "Serve a route with any standard handler" },
+  { code: "app.UseHTTP(otelhttp.NewMiddleware(\"api\"))", note: "Wrap the app in standard middleware" },
+];
 ---
 
 <section class="coat">
@@ -12,9 +20,12 @@
       plug straight in.
     </p>
     <ul class="contracts">
-      <li><code>server.Handler = app</code><span>Run it on a server you configure</span></li>
-      <li><code>app.HandleHTTP("GET /metrics", h)</code><span>Mount any standard handler</span></li>
-      <li><code>app.UseHTTP(tracing)</code><span>Wrap the app in standard middleware</span></li>
+      {contracts.map((c) => (
+        <li>
+          <span class="note">{c.note}</span>
+          <div class="snippet"><Code code={c.code} lang="go" theme={zincFrost as any} /></div>
+        </li>
+      ))}
     </ul>
     <a class="more" href="/guide/http-interoperability/">Zinc and net/http →</a>
   </div>
@@ -80,32 +91,42 @@
   }
 
   .contracts {
-    border-top: 1px solid var(--sl-color-hairline);
+    display: grid;
+    gap: 0.9rem;
     list-style: none;
-    margin: 0 0 1.5rem;
+    margin: 0 0 1.6rem;
     padding: 0;
   }
 
   .contracts li {
-    align-items: baseline;
-    border-bottom: 1px solid var(--sl-color-hairline);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem 1rem;
-    justify-content: space-between;
+    display: grid;
+    gap: 0.4rem;
     margin: 0;
-    padding: 0.8rem 0;
   }
 
-  .contracts code {
-    background: none;
-    border: 0;
-    padding: 0;
-  }
-
-  .contracts span {
+  .note {
     color: var(--z-muted);
     font-size: 0.85rem;
+  }
+
+  /* One-line code plates, the same dark finish as every code block. */
+  .snippet {
+    background: var(--z-plate);
+    border: 1px solid #252a31;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .snippet :global(.astro-code) {
+    background: var(--z-plate) !important;
+    border: 0;
+    border-radius: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 0;
+    overflow-x: auto;
+    padding: 0.7rem 0.95rem;
+    scrollbar-width: none;
   }
 
   .more {
