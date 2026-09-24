@@ -91,3 +91,16 @@ Malformed tokens are treated differently from missing tokens so you can distingu
 ## When to customize `ParseTokenFunc`
 
 Use `ParseTokenFunc` only when Zinc's normal `KeyFunc` + `NewClaims` path is too small for your needs. Most apps should stick to the standard config flow.
+
+For a production token policy, explicitly pin allowed algorithms, issuer, audience, and required expiry:
+
+```go
+ParserOptions: []jwt.ParserOption{
+    jwt.WithValidMethods([]string{"HS256"}),
+    jwt.WithIssuer("https://issuer.example"),
+    jwt.WithAudience("my-api"),
+    jwt.WithExpirationRequired(),
+},
+```
+
+These are options for `JWTConfig`; use the issuer and audience from your own token contract. The default parser validates expiry when present but does not require every token to contain it. Signature validity alone does not grant application permissions.

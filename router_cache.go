@@ -90,10 +90,6 @@ func NewRouteCache(size int) *RouteCache {
 	return &RouteCache{size: size}
 }
 
-func (rc *RouteCache) get(key routeCacheKey) (routeCacheEntry, bool) {
-	return rc.getWithMask(key, methodMaskFor(key.method))
-}
-
 // getWithMask reads snapshots without locking. Once a snapshot exists, only
 // paths admitted after the freeze require an overlay lock.
 func (rc *RouteCache) getWithMask(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
@@ -139,10 +135,6 @@ func (rc *RouteCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
 		return hot.entry, true
 	}
 	return routeCacheEntry{}, false
-}
-
-func (rc *RouteCache) set(key routeCacheKey, entry routeCacheEntry) {
-	rc.setWithMask(key, methodMaskFor(key.method), entry)
 }
 
 // setWithMask inserts into the mutable ring or the post-snapshot overlay. At
@@ -196,10 +188,6 @@ func (rc *RouteCache) setWithMask(key routeCacheKey, mask methodMask, entry rout
 	if hot := rc.hot.Load(); hot != nil && hot.key == victim {
 		rc.hot.Store(nil)
 	}
-}
-
-func (rc *RouteCache) setMiss(key routeCacheKey, entry routeCacheEntry) {
-	rc.setMissWithMask(key, methodMaskFor(key.method), entry)
 }
 
 func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {

@@ -83,8 +83,8 @@ if errors.As(err, &be) {
 }
 ```
 
-:::caution[Return 400, not 500]
-A `BindError` is not an HTTP error, so returning it unchanged gives the client `500 Internal Server Error`. Wrap it with `zinc.ErrBadRequest.WithCause(err)` in the handler, or map it once in a [custom error handler](/guide/errors/#map-binding-errors-to-400). Oversized bodies are the exception: they already return `413 Request Entity Too Large`.
+:::note[Binding error responses]
+The default handler returns a generic 400 for `BindError`, preserving HTTP causes such as a 413 body limit. Known JSON syntax/type errors are classified as binding errors. Invalid JSON destinations and opaque codec failures remain 500 errors. Validation errors follow your validator's error policy; wrap them in an HTTP error or handle their type centrally.
 :::
 
 ## Validation
@@ -143,3 +143,7 @@ Binding reads at most `Config.BodyLimit` bytes, 4 MB by default. Larger bodies r
 - [Errors](/guide/errors/) turns binding and validation failures into consistent responses.
 - [Request Data](/guide/request/) reads single values without a struct.
 - [Binding API](/api/binding/) documents `RequestBinder` for replacing the decoder.
+
+Struct targets passed to `All` consistently merge path, query, then body for JSON, XML, YAML, and TOML. Scalar/map YAML and TOML targets and plain text remain body-only. Validation runs once after the combined bind. Source-specific operations each validate immediately; use `All` for the supported combined phase or a custom `RequestBinder` when composing other sources.
+
+Path, query, header, and form scalar fields support `encoding.TextUnmarshaler`, including `time.Time` and custom IDs. Optional scalar pointers stay nil when absent and are allocated when present; explicit zero values remain distinguishable from absence. Conversion errors retain their source and field. Use request DTOs: exported untagged fields still participate, and later `All` sources can overwrite earlier values.

@@ -24,6 +24,7 @@ app.Get("/users/{id}", func(c *zinc.Context) error {
 |---|---|
 | A Zinc HTTP error, such as `zinc.ErrNotFound` | Its status code, with its message as a plain-text body |
 | An error that wraps a Zinc HTTP error | The same, found with `errors.As` |
+| `*zinc.BindError` without an HTTP cause | `400 Bad Request`, without decoder details |
 | Any other error | `500 Internal Server Error`, without the error text |
 
 Unknown errors never leak their message to clients, so returning `err` straight from a database call is safe. It is just not very informative. Log it, or map it in a [custom handler](#a-custom-error-handler).
@@ -94,7 +95,7 @@ Copy `zinc.DefaultConfig` and change fields, as above. A bare `zinc.Config{...}`
 
 ### Map binding errors to 400
 
-By default a failed bind becomes a `500`, because `*zinc.BindError` is not an HTTP error. Handle it once in the error handler, and handlers can return bind errors unchanged:
+The default handler maps `*zinc.BindError` to a generic `400 Bad Request`, while preserving HTTP causes such as a body limit (413). Known JSON syntax/type errors are binding errors; opaque codec failures and invalid JSON destinations remain internal errors (500). Customize the response format once in your error handler:
 
 ```go
 cfg.ErrorHandler = func(c *zinc.Context, err error) {
@@ -124,3 +125,5 @@ Without help, Go's HTTP server catches a handler panic, logs it, and drops the c
 - [Binding](/guide/binding/) for the errors that binding and validation return.
 - [Recover](/middleware/recover/) for turning panics into errors.
 - [Errors API](/api/errors/) for the full `HTTPError` type.
+
+HTTP error modifiers copy the error. `errors.Is(derived, zinc.ErrUnauthorized)` does not identify a derived copy by its original sentinel. Use `errors.As` and inspect `HTTPError.Code`, or match an application cause attached with `WithCause`. Validation errors are application-defined: return an HTTP error from the validator or map your validation type in a custom error handler.

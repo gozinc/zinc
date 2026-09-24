@@ -102,10 +102,7 @@ func KeyAuthWithConfig(config KeyAuthConfig) zinc.Middleware {
 			return cfg.ErrorHandler(c, ErrKeyAuthKeyInvalid)
 		}
 
-		c.Set(keyAuthStateContextKey, KeyAuthState{
-			Key:    credentials.Key,
-			Source: credentials.Source,
-		})
+		c.Set(keyAuthStateContextKey, KeyAuthState(credentials))
 		return cfg.SuccessHandler(c)
 	}
 }

@@ -260,10 +260,3 @@ func TestBasicAuthSkipper(t *testing.T) {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
-
-func mustNoErrBasicAuth(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

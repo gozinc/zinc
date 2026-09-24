@@ -122,6 +122,12 @@ func defaultErrorHandler(c *Context, err error) {
 		return
 	}
 
+ var bindErr *BindError
+ if errors.As(err,&bindErr) {
+  _ = c.Status(http.StatusBadRequest).String(http.StatusText(http.StatusBadRequest))
+  return
+ }
+
 	_ = c.Status(http.StatusInternalServerError).String(http.StatusText(http.StatusInternalServerError))
 }
 

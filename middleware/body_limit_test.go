@@ -184,13 +184,6 @@ func TestBodyLimitErrorMatching(t *testing.T) {
 	}
 }
 
-func mustNoErrBodyLimit(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func newMultipartRequestBodyLimit(t *testing.T, method, target, field, filename, content string) *http.Request {
 	t.Helper()
 

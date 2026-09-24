@@ -51,19 +51,6 @@ type RateLimiterConfig struct {
 	LimitReachedHandler zinc.RouteHandler
 }
 
-// newTokenBucket creates a new token bucket rate limiter
-func newTokenBucket(rate, capacity float64) *TokenBucket {
-	return &TokenBucket{
-		rate:       rate,
-		capacity:   capacity,
-		tokens:     capacity,
-		lastRefill: time.Now(),
-	}
-}
-
-// take attempts to take a token from the bucket
-func (tb *TokenBucket) take() bool { return tb.takeAt(time.Now()) }
-
 func (tb *TokenBucket) refill(now time.Time) {
 	if now.After(tb.lastRefill) {
 		tb.tokens = math.Min(tb.capacity, tb.tokens+now.Sub(tb.lastRefill).Seconds()*tb.rate)

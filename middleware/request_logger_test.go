@@ -203,13 +203,6 @@ func TestRequestLoggerSkipper(t *testing.T) {
 	}
 }
 
-func mustNoErr(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestDefaultRequestLoggerConfig(t *testing.T) {
 	cfg := DefaultRequestLoggerConfig()
 	if !cfg.HandleError {

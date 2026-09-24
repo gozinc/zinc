@@ -392,13 +392,6 @@ func TestCaptureResponseWriterReadFromAndOptionalInterfaces(t *testing.T) {
 	}
 }
 
-func mustNoErrBodyDump(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 type failingReadCloser struct {
 	data     []byte
 	pos      int

@@ -143,10 +143,3 @@ func gzipBody(t *testing.T, body string) *bytes.Reader {
 	}
 	return bytes.NewReader(buf.Bytes())
 }
-
-func mustNoErrDecompress(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

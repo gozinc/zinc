@@ -4,6 +4,7 @@
 package zinc
 
 import (
+	"encoding"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -68,6 +69,7 @@ func (e *bindFieldError) Unwrap() error {
 // deliberately contains data only, so cached plans remain safe for concurrent use.
 type fieldSetter struct {
 	kind             fieldSetterKind
+	elem             *fieldSetter
 	bits             int
 	elemBits         int
 	unsupportedKind  reflect.Kind
@@ -80,6 +82,8 @@ type fieldSetterKind uint8
 
 const (
 	fieldSetterString fieldSetterKind = iota
+	fieldSetterText
+	fieldSetterPointer
 	fieldSetterBool
 	fieldSetterInt
 	fieldSetterUint
@@ -100,6 +104,8 @@ var bindingPlanCache sync.Map
 
 // Cache the exact FileHeader types because other structs and pointers are not
 // valid multipart targets even when they have a similar shape.
+var textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+
 var multipartFileHeaderType = reflect.TypeOf(multipart.FileHeader{})
 var multipartFileHeaderPtrType = reflect.TypeOf((*multipart.FileHeader)(nil))
 
@@ -202,7 +208,16 @@ func bindingFieldName(field reflect.StructField, tag string) (string, bool) {
 	return name, true
 }
 
-func compileFieldSetter(typ reflect.Type) fieldSetter {
+func compileFieldSetter(typ reflect.Type) fieldSetter { return compileFieldSetterDepth(typ, 0) }
+
+func compileFieldSetterDepth(typ reflect.Type, depth int) fieldSetter {
+	if depth >= 16 {
+		return fieldSetter{kind: fieldSetterUnsupportedKind, unsupportedKind: typ.Kind()}
+	}
+	if typ.Kind() != reflect.Interface && (typ.Implements(textUnmarshalerType) || (typ.Kind() != reflect.Pointer && reflect.PointerTo(typ).Implements(textUnmarshalerType))) {
+		return fieldSetter{kind: fieldSetterText}
+	}
+
 	switch typ.Kind() {
 	case reflect.String:
 		return fieldSetter{kind: fieldSetterString}
@@ -222,6 +237,8 @@ func compileFieldSetter(typ reflect.Type) fieldSetter {
 		if typ == multipartFileHeaderPtrType {
 			return fieldSetter{kind: fieldSetterFileHeaderPtr}
 		}
+		elem := compileFieldSetterDepth(typ.Elem(), depth+1)
+		return fieldSetter{kind: fieldSetterPointer, elem: &elem}
 	case reflect.Slice:
 		if typ.Elem() == multipartFileHeaderType {
 			return fieldSetter{kind: fieldSetterSliceFileHeaderValue}
@@ -335,6 +352,32 @@ func (s fieldSetter) set(value reflect.Value, inputs []string) error {
 	// Conversion is strict: strconv bit sizes match the destination exactly and
 	// overflow is returned instead of truncating data.
 	switch s.kind {
+	case fieldSetterText:
+		target := value
+		if value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				target = reflect.New(value.Type().Elem())
+				if err := target.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(inputs[0])); err != nil {
+					return err
+				}
+				value.Set(target)
+				return nil
+			}
+		} else {
+			target = value.Addr()
+		}
+		return target.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(inputs[0]))
+	case fieldSetterPointer:
+		if value.IsNil() {
+			target := reflect.New(value.Type().Elem())
+			if err := s.elem.set(target.Elem(), inputs); err != nil {
+				return err
+			}
+			value.Set(target)
+			return nil
+		}
+		return s.elem.set(value.Elem(), inputs)
+
 	case fieldSetterString:
 		value.SetString(inputs[0])
 	case fieldSetterBool:

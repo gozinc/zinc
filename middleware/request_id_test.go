@@ -117,10 +117,3 @@ func TestRequestIDSkipper(t *testing.T) {
 		t.Fatalf("response request id=%q", got)
 	}
 }
-
-func mustNoErrRequestID(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

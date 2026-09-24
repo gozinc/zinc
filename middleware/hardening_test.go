@@ -783,13 +783,6 @@ func mustParseProxyURLHardening(t *testing.T, rawURL string) *url.URL {
 	return parsed
 }
 
-func mustNoErrHardening(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func assertPanicHardening(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

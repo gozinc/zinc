@@ -187,9 +187,9 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 		t.Fatal("request id helper failed")
 	}
 
-	valueCtx := stdctx.WithValue(ctx.Context(), "key", "value")
+	valueCtx := stdctx.WithValue(ctx.Context(), contextTestKey("key"), "value")
 	ctx.SetContext(valueCtx)
-	if got := ctx.Context().Value("key"); got != "value" {
+	if got := ctx.Context().Value(contextTestKey("key")); got != "value" {
 		t.Fatalf("context value=%v", got)
 	}
 	ctx.SetWriter(resp)
@@ -1177,7 +1177,7 @@ func TestContextNilRequestFallbacks(t *testing.T) {
 	if c.Context() != stdctx.Background() {
 		t.Fatal("expected background context when request is nil")
 	}
-	c.SetContext(stdctx.WithValue(stdctx.Background(), "k", "v"))
+	c.SetContext(stdctx.WithValue(stdctx.Background(), contextTestKey("k"), "v"))
 
 	if c.Method() != "" || c.Path() != "" || c.OriginalURL() != "" {
 		t.Fatalf("unexpected request metadata: method=%q path=%q url=%q", c.Method(), c.Path(), c.OriginalURL())
@@ -1448,24 +1448,6 @@ func TestContextParamMutationHelpersBeyondInline(t *testing.T) {
 	}
 }
 
-func TestIsTrustedProxyBranches(t *testing.T) {
-	if isTrustedProxy("", []string{"10.0.0.1"}) {
-		t.Fatal("empty ip should never be trusted")
-	}
-	if isTrustedProxy("not-an-ip", []string{"10.0.0.1"}) {
-		t.Fatal("invalid ip should never be trusted")
-	}
-	if !isTrustedProxy("203.0.113.5", []string{"203.0.113.5"}) {
-		t.Fatal("exact ip should be trusted")
-	}
-	if !isTrustedProxy("10.0.0.8", []string{"10.0.0.0/24"}) {
-		t.Fatal("cidr should trust matching ip")
-	}
-	if isTrustedProxy("10.0.0.8", []string{"bad-cidr"}) {
-		t.Fatal("invalid cidr should not trust ip")
-	}
-}
-
 type fixedBody struct {
 	data     []byte
 	read     bool
@@ -1484,3 +1466,5 @@ func (b *fixedBody) Read(p []byte) (int, error) {
 func (b *fixedBody) Close() error {
 	return b.closeErr
 }
+
+type contextTestKey string

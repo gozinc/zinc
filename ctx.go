@@ -8,6 +8,7 @@ import (
 	stdctx "context"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -48,7 +49,6 @@ type Context struct {
 	paramPath    string
 	paramCount   int
 	paramRanges  paramRanges
-	matchRanges  paramRanges
 	paramRoute   *radixRoute
 }
 
@@ -660,7 +660,7 @@ func (c *Context) readAndCacheBodyBytes() ([]byte, error) {
 
 	reader := io.Reader(c.request.Body)
 	if c.app != nil && c.app.config.BodyLimit > 0 {
-		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(^uint64(0)>>1)-1)+1)
+		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(math.MaxInt64-1))+1)
 	}
 
 	body, readErr := readAllBody(reader, c.bodyPreallocation())
@@ -726,7 +726,7 @@ func (c *Context) readAndCacheBody(decode func(io.Reader) error) (int, error, er
 
 	reader := io.Reader(c.request.Body)
 	if c.app != nil && c.app.config.BodyLimit > 0 {
-		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(^uint64(0)>>1)-1)+1)
+		reader = io.LimitReader(reader, min(c.app.config.BodyLimit, int64(math.MaxInt64-1))+1)
 	}
 
 	capture := newBodyCaptureReader(reader, c.bodyPreallocation())
@@ -984,13 +984,6 @@ func (c *Context) ensurePathParamCapacity(count int) {
 	c.PathParams = grown
 }
 
-func (c *Context) setParam(key, value string) {
-	c.ensurePathParamCapacity(c.paramCount + 1)
-	c.PathParams[c.paramCount] = param{key: key, value: value, start: directParamStart}
-	c.paramCount++
-	c.paramRoute = nil
-}
-
 func (c *Context) applyRouteParams(path string, route *radixRoute, values paramRanges) {
 	count := int(route.paramCount)
 	c.ensurePathParamCapacity(count)
@@ -1125,29 +1118,6 @@ func compileTrustedProxies(values []string) []netip.Prefix {
 		}
 	}
 	return prefixes
-}
-
-func isTrustedProxy(ip string, trusted []string) bool {
-	if len(trusted) == 0 || ip == "" {
-		return false
-	}
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	for _, candidate := range trusted {
-		if strings.Contains(candidate, "/") {
-			_, network, err := net.ParseCIDR(candidate)
-			if err == nil && network.Contains(parsed) {
-				return true
-			}
-			continue
-		}
-		if parsed.Equal(net.ParseIP(candidate)) {
-			return true
-		}
-	}
-	return false
 }
 
 func cloneURL(u *url.URL) *url.URL {

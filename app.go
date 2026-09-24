@@ -645,10 +645,6 @@ func handlerPC(handler HandlerFunc) uintptr {
 	return value.Pointer()
 }
 
-func handlerName(handler HandlerFunc) string {
-	return handlerNameFromPC(handlerPC(handler))
-}
-
 func handlerNameFromPC(pc uintptr) string {
 	if pc == 0 {
 		return ""
