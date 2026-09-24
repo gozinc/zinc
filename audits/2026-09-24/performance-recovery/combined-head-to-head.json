@@ -1,0 +1,1943 @@
+{
+  "code_revision": "d0070d4",
+  "docs_test_revision": "a618480",
+  "go": "go1.27.1",
+  "os_arch": "darwin/arm64",
+  "cpu": "Apple M1 Pro",
+  "samples_per_framework_per_scenario": 10,
+  "benchtime": "100ms",
+  "scenarios": 77,
+  "outright_lowest_median_ns_op_wins": {
+    "Zinc": 55,
+    "Gin": 15,
+    "Echo": 2,
+    "Chi": 5
+  },
+  "rows": {
+    "APIBindHeaderQueryJSON": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 1903.0,
+          "bytes": 989.0,
+          "allocs": 17.0
+        },
+        "Chi": {
+          "ns": 2549.5,
+          "bytes": 2470.0,
+          "allocs": 27.0
+        },
+        "Echo": {
+          "ns": 2214.5,
+          "bytes": 892.0,
+          "allocs": 15.0
+        },
+        "Gin": {
+          "ns": 5746.5,
+          "bytes": 2078.5,
+          "allocs": 28.0
+        }
+      }
+    },
+    "APIBindInvalidJSON": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 1289.0,
+          "bytes": 744.0,
+          "allocs": 28.0
+        },
+        "Chi": {
+          "ns": 1173.0,
+          "bytes": 1312.0,
+          "allocs": 22.0
+        },
+        "Echo": {
+          "ns": 1165.5,
+          "bytes": 1000.0,
+          "allocs": 22.0
+        },
+        "Gin": {
+          "ns": 1071.0,
+          "bytes": 944.0,
+          "allocs": 20.0
+        }
+      }
+    },
+    "APIBindJSONHappyPath": {
+      "winner": "Echo",
+      "medians": {
+        "Zinc": {
+          "ns": 1987.5,
+          "bytes": 909.0,
+          "allocs": 16.0
+        },
+        "Chi": {
+          "ns": 2830.5,
+          "bytes": 3774.0,
+          "allocs": 30.0
+        },
+        "Echo": {
+          "ns": 1854.0,
+          "bytes": 812.0,
+          "allocs": 14.0
+        },
+        "Gin": {
+          "ns": 4339.0,
+          "bytes": 2230.0,
+          "allocs": 25.0
+        }
+      }
+    },
+    "APIBindMultipartHappyPath": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 14817.0,
+          "bytes": 18233.5,
+          "allocs": 132.0
+        },
+        "Chi": {
+          "ns": 14785.5,
+          "bytes": 18600.5,
+          "allocs": 134.0
+        },
+        "Echo": {
+          "ns": 14101.5,
+          "bytes": 18223.5,
+          "allocs": 132.0
+        },
+        "Gin": {
+          "ns": 13528.5,
+          "bytes": 18234.0,
+          "allocs": 132.0
+        }
+      }
+    },
+    "APIBindValidationFailure": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 570.55,
+          "bytes": 224.0,
+          "allocs": 7.0
+        },
+        "Chi": {
+          "ns": 989.9,
+          "bytes": 923.0,
+          "allocs": 9.0
+        },
+        "Echo": {
+          "ns": 771.55,
+          "bytes": 554.0,
+          "allocs": 7.0
+        },
+        "Gin": {
+          "ns": 1478.0,
+          "bytes": 554.0,
+          "allocs": 7.0
+        }
+      }
+    },
+    "APIHappyPath": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 1378.5,
+          "bytes": 657.0,
+          "allocs": 8.0
+        },
+        "Chi": {
+          "ns": 2261.0,
+          "bytes": 3124.0,
+          "allocs": 21.0
+        },
+        "Echo": {
+          "ns": 1545.0,
+          "bytes": 688.0,
+          "allocs": 10.0
+        },
+        "Gin": {
+          "ns": 3308.0,
+          "bytes": 1667.0,
+          "allocs": 17.0
+        }
+      }
+    },
+    "APIParamQueryJSON": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 1103.5,
+          "bytes": 657.0,
+          "allocs": 8.0
+        },
+        "Chi": {
+          "ns": 1166.0,
+          "bytes": 1281.0,
+          "allocs": 11.0
+        },
+        "Echo": {
+          "ns": 1366.0,
+          "bytes": 688.0,
+          "allocs": 10.0
+        },
+        "Gin": {
+          "ns": 2876.5,
+          "bytes": 1331.0,
+          "allocs": 15.0
+        }
+      }
+    },
+    "APIUnauthorizedReject": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 53.245,
+          "bytes": 0.0,
+          "allocs": 0.0
+        },
+        "Chi": {
+          "ns": 206.95,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 58.754999999999995,
+          "bytes": 0.0,
+          "allocs": 0.0
+        },
+        "Gin": {
+          "ns": 52.46,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "HelloWorld": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 95.185,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 221.7,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 168.3,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 192.65,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "JSONResponse": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 626.55,
+          "bytes": 144.0,
+          "allocs": 3.0
+        },
+        "Chi": {
+          "ns": 936.95,
+          "bytes": 512.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 621.5999999999999,
+          "bytes": 144.0,
+          "allocs": 3.0
+        },
+        "Gin": {
+          "ns": 619.5,
+          "bytes": 256.0,
+          "allocs": 4.0
+        }
+      }
+    },
+    "LargeJSONBind": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 140766.0,
+          "bytes": 82782.0,
+          "allocs": 1090.0
+        },
+        "Chi": {
+          "ns": 198294.5,
+          "bytes": 130631.5,
+          "allocs": 1102.5
+        },
+        "Echo": {
+          "ns": 185512.0,
+          "bytes": 130278.0,
+          "allocs": 1101.0
+        },
+        "Gin": {
+          "ns": 201218.0,
+          "bytes": 130438.5,
+          "allocs": 1102.0
+        }
+      }
+    },
+    "LargeJSONResponse": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 44586.5,
+          "bytes": 209.0,
+          "allocs": 3.0
+        },
+        "Chi": {
+          "ns": 44963.0,
+          "bytes": 576.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 45498.0,
+          "bytes": 208.0,
+          "allocs": 3.0
+        },
+        "Gin": {
+          "ns": 48542.5,
+          "bytes": 18748.5,
+          "allocs": 4.0
+        }
+      }
+    },
+    "LargeRouteSetMethodMismatch": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 127.75,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 343.75,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 960.5,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 93.305,
+          "bytes": 16.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "LargeRouteSetNotFound": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 110.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 361.1,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 876.0,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 76.885,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "LargeRouteSetParam": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 113.5,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 424.45,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 189.15,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 160.3,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "LargeRouteSetParamMixed": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 139.35,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 474.05,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 212.60000000000002,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 184.45,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "LargeRouteSetStatic": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 91.83500000000001,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 239.5,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 182.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 165.45,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "LargeRouteSetStaticMixed": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 96.925,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 293.04999999999995,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 202.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 187.8,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "MiddlewareChain": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 255.85000000000002,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 1072.0,
+          "bytes": 2209.0,
+          "allocs": 12.0
+        },
+        "Echo": {
+          "ns": 361.2,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 577.8,
+          "bytes": 384.0,
+          "allocs": 3.0
+        }
+      }
+    },
+    "NestedGroupMethodMismatch": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 177.8,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 1104.5,
+          "bytes": 808.0,
+          "allocs": 8.0
+        },
+        "Echo": {
+          "ns": 314.25,
+          "bytes": 48.0,
+          "allocs": 3.0
+        },
+        "Gin": {
+          "ns": 203.95,
+          "bytes": 64.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "NestedGroupMiddlewareAPI": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 1425.0,
+          "bytes": 657.0,
+          "allocs": 8.0
+        },
+        "Chi": {
+          "ns": 2962.5,
+          "bytes": 3205.0,
+          "allocs": 24.0
+        },
+        "Echo": {
+          "ns": 1659.0,
+          "bytes": 689.0,
+          "allocs": 10.0
+        },
+        "Gin": {
+          "ns": 3557.5,
+          "bytes": 1668.0,
+          "allocs": 17.0
+        }
+      }
+    },
+    "NestedGroupNotFound": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 101.5,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 1052.5,
+          "bytes": 808.0,
+          "allocs": 8.0
+        },
+        "Echo": {
+          "ns": 198.6,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 172.85000000000002,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "NestedGroupParam": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 171.05,
+          "bytes": 20.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 1151.5,
+          "bytes": 773.0,
+          "allocs": 9.0
+        },
+        "Echo": {
+          "ns": 214.25,
+          "bytes": 20.0,
+          "allocs": 2.0
+        },
+        "Gin": {
+          "ns": 189.14999999999998,
+          "bytes": 52.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "NestedGroupStatic": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 89.25,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 868.35,
+          "bytes": 768.0,
+          "allocs": 7.0
+        },
+        "Echo": {
+          "ns": 172.8,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 241.9,
+          "bytes": 184.0,
+          "allocs": 3.0
+        }
+      }
+    },
+    "NotFound": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 115.4,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 352.25,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 833.35,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 80.555,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "ParallelAPIHappyPath": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 329.0,
+          "bytes": 528.0,
+          "allocs": 6.0
+        },
+        "Chi": {
+          "ns": 1325.0,
+          "bytes": 2977.0,
+          "allocs": 18.0
+        },
+        "Echo": {
+          "ns": 408.4,
+          "bytes": 560.0,
+          "allocs": 8.0
+        },
+        "Gin": {
+          "ns": 904.35,
+          "bytes": 1489.0,
+          "allocs": 14.0
+        }
+      }
+    },
+    "ParallelMiddlewareChain": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 86.225,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 944.05,
+          "bytes": 2209.0,
+          "allocs": 12.0
+        },
+        "Echo": {
+          "ns": 97.725,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 209.4,
+          "bytes": 384.0,
+          "allocs": 3.0
+        }
+      }
+    },
+    "ParallelRouterParam": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 37.334999999999994,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 310.04999999999995,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 53.754999999999995,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 72.17,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ParallelStaticRoute": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 35.185,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 166.8,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 61.54,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 57.35,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "Param10": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 281.6,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 1255.5,
+          "bytes": 1320.0,
+          "allocs": 7.0
+        },
+        "Echo": {
+          "ns": 408.65,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 371.75,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "Param5": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 168.2,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 567.5,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 240.75,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 202.2,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "QueryParams": {
+      "winner": "Echo",
+      "medians": {
+        "Zinc": {
+          "ns": 466.25,
+          "bytes": 464.0,
+          "allocs": 6.0
+        },
+        "Chi": {
+          "ns": 591.75,
+          "bytes": 816.0,
+          "allocs": 7.0
+        },
+        "Echo": {
+          "ns": 353.54999999999995,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 537.05,
+          "bytes": 496.0,
+          "allocs": 6.0
+        }
+      }
+    },
+    "RouteRegistrationParam": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 55140.5,
+          "bytes": 81696.0,
+          "allocs": 801.0
+        },
+        "Chi": {
+          "ns": 68642.5,
+          "bytes": 92051.0,
+          "allocs": 1404.0
+        },
+        "Echo": {
+          "ns": 178704.5,
+          "bytes": 155857.0,
+          "allocs": 1936.0
+        },
+        "Gin": {
+          "ns": 48634.5,
+          "bytes": 47928.0,
+          "allocs": 1415.0
+        }
+      }
+    },
+    "RouteRegistrationStatic": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 63035.0,
+          "bytes": 85912.0,
+          "allocs": 699.0
+        },
+        "Chi": {
+          "ns": 87534.5,
+          "bytes": 123568.5,
+          "allocs": 1828.0
+        },
+        "Echo": {
+          "ns": 353057.5,
+          "bytes": 186025.0,
+          "allocs": 2361.0
+        },
+        "Gin": {
+          "ns": 70391.5,
+          "bytes": 54272.0,
+          "allocs": 2323.0
+        }
+      }
+    },
+    "RouterParam": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 111.80000000000001,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 366.6,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 167.15,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 161.5,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "RouterParamCold": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 151.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 442.3,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 184.15,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 159.1,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/GPlusAPI13": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 155.45,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 429.0,
+          "bytes": 652.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 201.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 242.3,
+          "bytes": 131.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/GitHubAPI203": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 176.95,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 540.2,
+          "bytes": 657.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 236.2,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 217.64999999999998,
+          "bytes": 49.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/NestedAPI36": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 155.64999999999998,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 429.85,
+          "bytes": 610.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 204.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 186.7,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/ParamsAny24": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 193.75,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 572.8,
+          "bytes": 690.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 238.35,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 203.2,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/ParseAPI26": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 149.5,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 390.35,
+          "bytes": 588.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 192.3,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 175.95,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetAll/Static157": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 94.08000000000001,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 302.1,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 203.3,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 185.60000000000002,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/GPlusAPI13": {
+      "winner": "Chi",
+      "medians": {
+        "Zinc": {
+          "ns": 7885.0,
+          "bytes": 9744.0,
+          "allocs": 107.0
+        },
+        "Chi": {
+          "ns": 7566.5,
+          "bytes": 8656.0,
+          "allocs": 138.0
+        },
+        "Echo": {
+          "ns": 41888.5,
+          "bytes": 18576.0,
+          "allocs": 242.0
+        },
+        "Gin": {
+          "ns": 8573.5,
+          "bytes": 6892.0,
+          "allocs": 167.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/GitHubAPI203": {
+      "winner": "Chi",
+      "medians": {
+        "Zinc": {
+          "ns": 122603.5,
+          "bytes": 130761.0,
+          "allocs": 1447.0
+        },
+        "Chi": {
+          "ns": 117445.0,
+          "bytes": 105008.0,
+          "allocs": 1751.0
+        },
+        "Echo": {
+          "ns": 345233.0,
+          "bytes": 313921.0,
+          "allocs": 4024.0
+        },
+        "Gin": {
+          "ns": 122336.0,
+          "bytes": 89022.0,
+          "allocs": 2576.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/NestedAPI36": {
+      "winner": "Chi",
+      "medians": {
+        "Zinc": {
+          "ns": 19520.0,
+          "bytes": 27216.0,
+          "allocs": 267.0
+        },
+        "Chi": {
+          "ns": 15516.0,
+          "bytes": 15720.0,
+          "allocs": 262.0
+        },
+        "Echo": {
+          "ns": 54593.5,
+          "bytes": 40608.0,
+          "allocs": 551.0
+        },
+        "Gin": {
+          "ns": 21082.5,
+          "bytes": 16691.0,
+          "allocs": 455.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/ParamsAny24": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 20041.5,
+          "bytes": 24256.0,
+          "allocs": 301.0
+        },
+        "Chi": {
+          "ns": 19781.0,
+          "bytes": 22456.0,
+          "allocs": 363.0
+        },
+        "Echo": {
+          "ns": 59092.0,
+          "bytes": 52112.0,
+          "allocs": 649.0
+        },
+        "Gin": {
+          "ns": 19079.5,
+          "bytes": 19941.0,
+          "allocs": 458.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/ParseAPI26": {
+      "winner": "Chi",
+      "medians": {
+        "Zinc": {
+          "ns": 12336.5,
+          "bytes": 17208.0,
+          "allocs": 171.0
+        },
+        "Chi": {
+          "ns": 11318.0,
+          "bytes": 12400.0,
+          "allocs": 195.0
+        },
+        "Echo": {
+          "ns": 41547.0,
+          "bytes": 26944.0,
+          "allocs": 340.0
+        },
+        "Gin": {
+          "ns": 13102.0,
+          "bytes": 10879.0,
+          "allocs": 312.0
+        }
+      }
+    },
+    "ScenarioRouteSetBuild/Static157": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 45491.0,
+          "bytes": 71656.0,
+          "allocs": 343.0
+        },
+        "Chi": {
+          "ns": 65309.5,
+          "bytes": 86216.0,
+          "allocs": 1182.0
+        },
+        "Echo": {
+          "ns": 196309.5,
+          "bytes": 146505.0,
+          "allocs": 1517.0
+        },
+        "Gin": {
+          "ns": 78072.0,
+          "bytes": 49706.0,
+          "allocs": 1695.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/GPlusAPI13": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 126.95,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 448.75,
+          "bytes": 416.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 972.15,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 188.65,
+          "bytes": 144.0,
+          "allocs": 3.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/GitHubAPI203": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 125.65,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 335.0,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 967.25,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 162.6,
+          "bytes": 80.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/NestedAPI36": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 125.75,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 341.6,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 975.1,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 176.05,
+          "bytes": 80.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/ParamsAny24": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 123.5,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 332.5,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 973.9000000000001,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 113.4,
+          "bytes": 16.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/ParseAPI26": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 124.85,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 332.29999999999995,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 975.5,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 157.8,
+          "bytes": 64.0,
+          "allocs": 2.0
+        }
+      }
+    },
+    "ScenarioRouteSetMethodMismatch/Static157": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 123.55,
+          "bytes": 32.0,
+          "allocs": 2.0
+        },
+        "Chi": {
+          "ns": 371.20000000000005,
+          "bytes": 384.0,
+          "allocs": 3.0
+        },
+        "Echo": {
+          "ns": 980.55,
+          "bytes": 472.0,
+          "allocs": 11.0
+        },
+        "Gin": {
+          "ns": 103.65,
+          "bytes": 16.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/GPlusAPI13": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 103.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 361.2,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 819.0,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 66.85499999999999,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/GitHubAPI203": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 100.55,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 356.5,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 818.35,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 122.7,
+          "bytes": 64.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/NestedAPI36": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 102.7,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 358.35,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 820.55,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 121.65,
+          "bytes": 64.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/ParamsAny24": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 101.80000000000001,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 386.7,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 834.1,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 81.72,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/ParseAPI26": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 102.85,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 359.5,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 824.1500000000001,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 111.30000000000001,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetNotFound/Static157": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 115.85,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 367.0,
+          "bytes": 416.0,
+          "allocs": 5.0
+        },
+        "Echo": {
+          "ns": 824.1,
+          "bytes": 440.0,
+          "allocs": 9.0
+        },
+        "Gin": {
+          "ns": 66.96000000000001,
+          "bytes": 0.0,
+          "allocs": 0.0
+        }
+      }
+    },
+    "ScenarioRouteSetParam/GPlusAPI13": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 154.4,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 448.95,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 197.55,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 174.10000000000002,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetParam/GitHubAPI203": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 176.95,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 576.2,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 252.45,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 211.95,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetParam/NestedAPI36": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 165.2,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 518.5,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 219.25,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 191.2,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetParam/ParamsAny24": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 182.0,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 571.35,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 243.95,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 216.39999999999998,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetParam/ParseAPI26": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 143.35,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 462.85,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 189.75,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 174.8,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/GPlusAPI13": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 90.0,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 235.0,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 168.95,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 239.45,
+          "bytes": 176.0,
+          "allocs": 3.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/GitHubAPI203": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 96.81,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 236.7,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 176.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 155.64999999999998,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/NestedAPI36": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 87.815,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 238.10000000000002,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 177.5,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 153.05,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/ParamsAny24": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 92.235,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 235.3,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 166.1,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 154.9,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/ParseAPI26": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 88.33,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 242.89999999999998,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 180.05,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 154.5,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "ScenarioRouteSetStatic/Static157": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 92.465,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 270.35,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 193.55,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 166.60000000000002,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "StaticFileHit": {
+      "winner": "Chi",
+      "medians": {
+        "Zinc": {
+          "ns": 16590.5,
+          "bytes": 981.0,
+          "allocs": 15.0
+        },
+        "Chi": {
+          "ns": 15177.0,
+          "bytes": 1761.0,
+          "allocs": 22.0
+        },
+        "Echo": {
+          "ns": 30291.0,
+          "bytes": 1201.0,
+          "allocs": 17.0
+        },
+        "Gin": {
+          "ns": 26234.5,
+          "bytes": 1321.0,
+          "allocs": 26.0
+        }
+      }
+    },
+    "StaticFileNotFound": {
+      "winner": "Gin",
+      "medians": {
+        "Zinc": {
+          "ns": 1648.0,
+          "bytes": 593.0,
+          "allocs": 8.0
+        },
+        "Chi": {
+          "ns": 2029.0,
+          "bytes": 1425.0,
+          "allocs": 16.0
+        },
+        "Echo": {
+          "ns": 3237.0,
+          "bytes": 713.0,
+          "allocs": 12.0
+        },
+        "Gin": {
+          "ns": 1032.5,
+          "bytes": 192.0,
+          "allocs": 6.0
+        }
+      }
+    },
+    "StaticRoute": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 107.4,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 198.5,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 158.5,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 141.1,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "StaticRouteCold": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 91.91499999999999,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 263.35,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 193.15,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 169.15,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "WildcardTail": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 113.45,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 402.25,
+          "bytes": 704.0,
+          "allocs": 4.0
+        },
+        "Echo": {
+          "ns": 166.35000000000002,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 156.65,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    },
+    "WildcardTailNotFound": {
+      "winner": "Zinc",
+      "medians": {
+        "Zinc": {
+          "ns": 99.19,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Chi": {
+          "ns": 219.4,
+          "bytes": 368.0,
+          "allocs": 2.0
+        },
+        "Echo": {
+          "ns": 162.89999999999998,
+          "bytes": 16.0,
+          "allocs": 1.0
+        },
+        "Gin": {
+          "ns": 154.75,
+          "bytes": 48.0,
+          "allocs": 1.0
+        }
+      }
+    }
+  }
+}
