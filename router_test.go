@@ -322,6 +322,46 @@ func TestRouteCachePromotesStablePartialCacheAndKeepsOverlayAdaptive(t *testing.
 	}
 }
 
+func TestRouteCachePromotesSmallStableWorkingSet(t *testing.T) {
+	const workingSetSize = 8
+	cache := NewRouteCache(64)
+	phaseA := make([]routeCacheKey, workingSetSize)
+	phaseB := make([]routeCacheKey, workingSetSize)
+	for i := range phaseA {
+		phaseA[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/small-a/%d", i)}
+		phaseB[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/small-b/%d", i)}
+		cache.set(phaseA[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
+	}
+	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
+		for _, key := range phaseA {
+			if _, ok := cache.get(key); !ok {
+				t.Fatalf("phase A key missing: %+v", key)
+			}
+		}
+	}
+	firstSnapshot := cache.snapshot.Load()
+	if firstSnapshot == nil {
+		t.Fatal("expected small stable working set to promote")
+	}
+
+	for i, key := range phaseB {
+		cache.set(key, routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 101)}})
+	}
+	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
+		for _, key := range phaseB {
+			if _, ok := cache.get(key); !ok {
+				t.Fatalf("phase B key missing: %+v", key)
+			}
+		}
+	}
+	if cache.snapshot.Load() == firstSnapshot {
+		t.Fatal("expected stable small overlay to replace the snapshot")
+	}
+	if _, ok := cache.get(phaseA[0]); ok {
+		t.Fatal("old working set remained after replacement")
+	}
+}
+
 func TestRouteCacheRepromotesStableOverlay(t *testing.T) {
 	cache := NewRouteCache(256)
 	phaseA := make([]routeCacheKey, routeCacheMinRoutes)

@@ -11,7 +11,9 @@ if err := app.Static("/assets", "./public"); err != nil {
 }
 ```
 
-`GET /assets/css/app.css` now serves `./public/css/app.css`. The returned error reports invalid arguments. A directory that does not exist is not detected until a request arrives, so check the path at startup if a wrong deploy path should stop the process.
+`GET /assets/css/app.css` now serves `./public/css/app.css`. A directory that does not exist is not detected until a request arrives, so check the path at startup if a wrong deploy path should stop the process.
+
+Zinc opens one confined directory handle on the first file request and retains it for later requests. Symlinks remain inside that directory. If you rename or replace the directory after the first request, the mount continues to serve the original directory until the app is recreated. Use `StaticFS` with a filesystem you manage if assets must switch without restarting. `app.Shutdown(ctx)` releases the handle after requests drain. If another `http.Server` serves the app as an `http.Handler`, call `app.Close()` after that server stops to release the handle. `StaticFS` uses the filesystem you supply; you retain ownership of it.
 
 ## A single file
 

@@ -110,6 +110,18 @@ func (c *Context) Vary(fields ...string) *Context {
 
 // String writes a plain-text response without converting data to []byte.
 func (c *Context) String(data string) error {
+	if c.baseWriter && !c.written && c.request != nil && c.request.Method != http.MethodHead &&
+		(c.status == http.StatusOK || bodyAllowed(c.request.Method, c.responseStatus())) {
+		// Body-allowed responses can use the already-owned base writer.
+		// SetWriter, HEAD, and bodyless statuses use the general path below.
+		writer := &c.response.base
+		header := writer.Header()
+		if len(header[contentType]) == 0 {
+			header[contentType] = []string{plainText}
+		}
+		_, err := writer.WriteString(data)
+		return err
+	}
 	writer, writeBody, err := c.prepareResponse(plainText)
 	if err != nil || !writeBody {
 		return err
@@ -354,13 +366,42 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 		return ErrResponseAlreadySent
 	}
 
+	// The common default 404/405 can use the already-owned base writer.
+	// SetWriter and HEAD keep the general path so their response semantics stay
+	// unchanged.
+	if c.baseWriter && c.request != nil && c.request.Method != http.MethodHead &&
+		(status == http.StatusNotFound || status == http.StatusMethodNotAllowed) {
+		writer := &c.response.base
+		header := writer.Header()
+		if allowHeader != "" {
+			if len(header[contentType]) == 0 {
+				// Both values belong to this response. Separate capacities prevent
+				// appending to one header from modifying the other.
+				values := []string{allowHeader, plainText}
+				header[HeaderAllow] = values[:1:1]
+				header[contentType] = values[1:2:2]
+			} else {
+				header[HeaderAllow] = []string{allowHeader}
+			}
+		} else if len(header[contentType]) == 0 {
+			header[contentType] = []string{plainText}
+		}
+		writer.WriteHeader(status)
+		if status == http.StatusNotFound {
+			_, err := writer.Write(statusNotFoundBytes)
+			return err
+		}
+		_, err := writer.Write(statusMethodNotAllowedBytes)
+		return err
+	}
+
 	writer := c.Writer()
 	header := writer.Header()
 	if len(allowHeader) != 0 {
-		header.Set(HeaderAllow, allowHeader)
+		header[HeaderAllow] = []string{allowHeader}
 	}
 	if len(header[contentType]) == 0 {
-		header.Set(contentType, plainText)
+		header[contentType] = []string{plainText}
 	}
 	if !bodyAllowed(c.Method(), status) {
 		writer.WriteHeader(status)
@@ -499,9 +540,12 @@ func (c *Context) prepareResponse(ct string) (http.ResponseWriter, bool, error) 
 		return nil, false, ErrResponseAlreadySent
 	}
 	writer := c.Writer()
-	if ct != "" && len(writer.Header()[contentType]) == 0 {
-		// Header values are mutable and owned by this response, never shared.
-		writer.Header().Set(contentType, ct)
+	if ct != "" {
+		header := writer.Header()
+		if len(header[contentType]) == 0 {
+			// The key is already canonical. Keep the value slice request-owned.
+			header[contentType] = []string{ct}
+		}
 	}
 	status := c.responseStatus()
 	if !bodyAllowed(c.Method(), status) {

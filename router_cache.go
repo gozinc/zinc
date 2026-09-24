@@ -61,6 +61,11 @@ type routeCacheReadSnapshot struct {
 
 const routeCacheMinRoutes = 64
 
+// A small, stable working set benefits from lock-free snapshot reads even when
+// the router has fewer than routeCacheMinRoutes dynamic routes. Keep this
+// separate from the threshold for caching Router.Find dynamic lookups.
+const routeCacheSnapshotMinEntries = 8
+
 // Oversized request keys remain routable without being retained.
 const routeCacheMaxKeyBytes = 4096
 
@@ -206,7 +211,7 @@ func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry 
 // caches continue adapting instead of freezing a possibly transient workload.
 func (rc *RouteCache) recordHit() {
 	count := atomic.LoadUint32(&rc.count)
-	if count < routeCacheMinRoutes ||
+	if count < routeCacheSnapshotMinEntries ||
 		uint64(count)*routeCacheFreezeCapacityDenominator >
 			uint64(rc.size)*routeCacheFreezeCapacityNumerator {
 		return
@@ -228,7 +233,7 @@ func (rc *RouteCache) recordOverlayHit(expectedSnapshot *routeCacheReadSnapshot)
 		return
 	}
 	overlayCount := count - frozenCount
-	if overlayCount < routeCacheMinRoutes ||
+	if overlayCount < routeCacheSnapshotMinEntries ||
 		uint64(overlayCount)*routeCacheFreezeCapacityDenominator >
 			uint64(rc.size)*routeCacheFreezeCapacityNumerator ||
 		uint64(overlayCount)*routeCacheRebaseSizeDenominator <

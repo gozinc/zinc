@@ -25,6 +25,7 @@ import (
 // pooled and must not be retained or used after the handler returns.
 type Context struct {
 	writer       http.ResponseWriter
+	baseWriter   bool
 	response     responseWriterSet
 	errorHandled bool
 	request      *http.Request
@@ -94,6 +95,7 @@ func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	// on state that handlers mutate without release-time retention concerns.
 	c.initPathParams()
 	c.writer = c.response.wrap(w, c)
+	c.baseWriter = true
 	c.errorHandled = false
 	c.request = r
 	c.written = false
@@ -114,6 +116,7 @@ func (c *Context) release() {
 		_ = c.request.MultipartForm.RemoveAll()
 	}
 	c.writer = nil
+	c.baseWriter = false
 	c.response.base = wrappedResponseWriter{}
 	c.request = nil
 	c.handlers = nil
@@ -144,6 +147,7 @@ func (c *Context) SetWriter(w http.ResponseWriter) {
 	if w == nil {
 		panic("zinc: response writer is nil")
 	}
+	c.baseWriter = false
 	if owned, ok := w.(interface{ contextOwner() *Context }); ok && owned.contextOwner() == c {
 		c.writer = w
 		return

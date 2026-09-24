@@ -28,10 +28,11 @@ type bindingPlan struct {
 // bindingField keeps both the wire name and Go field label: the former locates
 // input while the latter makes conversion errors actionable.
 type bindingField struct {
-	index  int
-	name   string
-	label  string
-	setter fieldSetter
+	index      int
+	name       string
+	headerName string
+	label      string
+	setter     fieldSetter
 }
 
 // bindFieldError carries source and field attribution through the binder without
@@ -179,11 +180,18 @@ func compileBindingField(index int, field reflect.StructField, setter fieldSette
 	if !ok {
 		return bindingField{}, false
 	}
+	headerName := ""
+	if tag == "header" {
+		// Keep the source name for map binding, but precompute the canonical
+		// key used by net/http request headers.
+		headerName = http.CanonicalHeaderKey(name)
+	}
 	return bindingField{
-		index:  index,
-		name:   name,
-		label:  field.Name,
-		setter: setter,
+		index:      index,
+		name:       name,
+		headerName: headerName,
+		label:      field.Name,
+		setter:     setter,
 	}, true
 }
 
@@ -293,10 +301,10 @@ func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.
 	if len(fields) == 0 || len(header) == 0 {
 		return nil
 	}
-	// Header.Values preserves repeated header lines and canonicalizes lookup via
-	// net/http rather than duplicating MIME header rules here.
+	// Names were canonicalized while compiling the immutable binding plan.
+	// Direct lookup preserves repeated header lines without per-request work.
 	for _, field := range fields {
-		inputs := header.Values(field.name)
+		inputs := header[field.headerName]
 		if len(inputs) == 0 {
 			continue
 		}

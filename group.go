@@ -172,7 +172,12 @@ func (g *Group) Any(path string, handlers ...HandlerFunc) {
 
 // Static serves a filesystem directory below the group.
 func (g *Group) Static(prefix, root string, opts ...StaticOption) error {
-	return g.StaticFS(prefix, confinedDirFS(root), opts...)
+	filesystem := &confinedDirFS{path: root}
+	if err := g.StaticFS(prefix, filesystem, opts...); err != nil {
+		return err
+	}
+	g.app.staticRoots = append(g.app.staticRoots, filesystem)
+	return nil
 }
 
 // StaticFS serves an fs.FS below the group.

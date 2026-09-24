@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 )
 
 // StaticConfig controls directory serving and index behaviour.
@@ -37,9 +38,16 @@ func WithStaticIndex(index string) StaticOption {
 	}
 }
 
-// Static serves root from the operating-system filesystem below prefix.
+// Static serves root from the operating-system filesystem below prefix. The
+// confined directory handle is retained after its first use and released by
+// Shutdown or Close.
 func (a *App) Static(prefix, root string, opts ...StaticOption) error {
-	return a.StaticFS(prefix, confinedDirFS(root), opts...)
+	filesystem := &confinedDirFS{path: root}
+	if err := a.StaticFS(prefix, filesystem, opts...); err != nil {
+		return err
+	}
+	a.staticRoots = append(a.staticRoots, filesystem)
+	return nil
 }
 
 // StaticFS serves filesystem below prefix.
@@ -102,15 +110,56 @@ func newStaticHandler(filesystem fs.FS, cfg StaticConfig) http.Handler {
 	})
 }
 
-// confinedDirFS opens each file through an OS root without retaining a root
-// descriptor for the application's lifetime. Symlinks cannot escape root.
-type confinedDirFS string
+// confinedDirFS retains one OS root per static mount after its first open.
+// Root.Open keeps every request confined, including symlink traversal.
+type confinedDirFS struct {
+	path   string
+	mu     sync.RWMutex
+	root   *os.Root
+	closed bool
+}
 
-func (root confinedDirFS) Open(name string) (fs.File, error) {
+func (filesystem *confinedDirFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, fs.ErrInvalid
 	}
-	return os.OpenInRoot(string(root), name)
+	filesystem.mu.RLock()
+	if filesystem.closed {
+		filesystem.mu.RUnlock()
+		return nil, os.ErrClosed
+	}
+	if root := filesystem.root; root != nil {
+		file, err := root.Open(name)
+		filesystem.mu.RUnlock()
+		return file, err
+	}
+	filesystem.mu.RUnlock()
+
+	filesystem.mu.Lock()
+	defer filesystem.mu.Unlock()
+	if filesystem.closed {
+		return nil, os.ErrClosed
+	}
+	if filesystem.root == nil {
+		root, err := os.OpenRoot(filesystem.path)
+		if err != nil {
+			return nil, err
+		}
+		filesystem.root = root
+	}
+	return filesystem.root.Open(name)
+}
+
+func (filesystem *confinedDirFS) Close() error {
+	filesystem.mu.Lock()
+	defer filesystem.mu.Unlock()
+	filesystem.closed = true
+	if filesystem.root == nil {
+		return nil
+	}
+	err := filesystem.root.Close()
+	filesystem.root = nil
+	return err
 }
 
 // staticPathName consumes URL.Path, which net/http has already decoded. Never

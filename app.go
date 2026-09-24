@@ -167,6 +167,7 @@ type App struct {
 	server           *http.Server
 	serverMu         sync.Mutex
 	serverHeader     []string
+	staticRoots      []*confinedDirFS
 	defaultErrors    bool
 }
 
@@ -312,7 +313,8 @@ func (a *App) serve(ln net.Listener, certFile, keyFile string) error {
 	return err
 }
 
-// Shutdown gracefully stops the active server. It is a no-op before serving.
+// Shutdown gracefully stops the active server and releases confined static
+// roots after requests drain. It is a no-op before serving.
 func (a *App) Shutdown(ctx context.Context) error {
 	a.serverMu.Lock()
 	srv := a.server
@@ -320,7 +322,31 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if srv == nil {
 		return nil
 	}
-	return srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		return err
+	}
+	return a.closeStaticRoots()
+}
+
+// Close stops the active server and releases confined static roots. Call it
+// after externally managed servers have stopped serving this App.
+func (a *App) Close() error {
+	a.serverMu.Lock()
+	srv := a.server
+	a.serverMu.Unlock()
+	var err error
+	if srv != nil {
+		err = srv.Close()
+	}
+	return errors.Join(err, a.closeStaticRoots())
+}
+
+func (a *App) closeStaticRoots() error {
+	var err error
+	for _, root := range a.staticRoots {
+		err = errors.Join(err, root.Close())
+	}
+	return err
 }
 
 // Use appends Zinc middleware in registration order.

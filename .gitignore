@@ -23,5 +23,6 @@ website/pnpm-debug.log*
 
 .vercel
 .env*
+
 audits
 tmp
