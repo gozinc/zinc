@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -40,11 +39,15 @@ func WithStaticIndex(index string) StaticOption {
 
 // Static serves root from the operating-system filesystem below prefix.
 func (a *App) Static(prefix, root string, opts ...StaticOption) error {
-	return a.StaticFS(prefix, os.DirFS(root), opts...)
+	return a.StaticFS(prefix, confinedDirFS(root), opts...)
 }
 
 // StaticFS serves filesystem below prefix.
 func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
+	return a.staticFS(prefix, filesystem, nil, opts...)
+}
+
+func (a *App) staticFS(prefix string, filesystem fs.FS, middleware []HandlerFunc, opts ...StaticOption) error {
 	if filesystem == nil {
 		return errors.New("filesystem is nil")
 	}
@@ -52,7 +55,7 @@ func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) er
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	a.Mount(prefix, newStaticHandler(filesystem, cfg))
+	a.mount(prefix, newStaticHandler(filesystem, cfg), middleware)
 	return nil
 }
 
@@ -99,33 +102,26 @@ func newStaticHandler(filesystem fs.FS, cfg StaticConfig) http.Handler {
 	})
 }
 
-// staticPathName converts a URL path to a valid fs.FS name. Backslashes and
-// explicit parent segments are rejected before path cleaning to prevent
-// platform-dependent traversal.
+// confinedDirFS opens each file through an OS root without retaining a root
+// descriptor for the application's lifetime. Symlinks cannot escape root.
+type confinedDirFS string
+
+func (root confinedDirFS) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, fs.ErrInvalid
+	}
+	return os.OpenInRoot(string(root), name)
+}
+
+// staticPathName consumes URL.Path, which net/http has already decoded. Never
+// decode it a second time or normalize it differently from authorization.
 func staticPathName(requestPath string) (string, error) {
-	if requestPath == "" {
-		return ".", nil
-	}
-
-	unescaped, err := url.PathUnescape(requestPath)
-	if err != nil {
+	if strings.ContainsAny(requestPath, "\\\x00") {
 		return "", fs.ErrInvalid
 	}
-
-	if strings.IndexByte(unescaped, '\x00') >= 0 {
-		return "", fs.ErrInvalid
-	}
-
-	unescaped = strings.ReplaceAll(unescaped, "\\", "/")
-	for _, segment := range strings.Split(unescaped, "/") {
-		if segment == ".." {
-			return "", fs.ErrInvalid
-		}
-	}
-
-	cleaned := path.Clean("/" + unescaped)
-	name := strings.TrimPrefix(cleaned, "/")
-	if name == "" || name == "." {
+	name := strings.TrimPrefix(requestPath, "/")
+	name = strings.TrimSuffix(name, "/")
+	if name == "" {
 		return ".", nil
 	}
 	if !fs.ValidPath(name) {

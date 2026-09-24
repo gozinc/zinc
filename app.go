@@ -134,6 +134,7 @@ type mountedHandler struct {
 	prefix     string
 	prefixPath string
 	handler    http.Handler
+	chain      []HandlerFunc
 	info       routeMeta
 }
 
@@ -346,7 +347,7 @@ func (a *App) UseHTTP(middleware ...HTTPMiddleware) {
 // UsePrefix applies Zinc middleware only to requests below a segment boundary.
 func (a *App) UsePrefix(prefix string, handlers ...HandlerFunc) {
 	prefix = normalizeRegisteredPrefix(prefix)
-	a.prefixMiddleware = append(a.prefixMiddleware, prefixMiddleware{prefix: prefix, handlers: append([]HandlerFunc(nil), handlers...)})
+	a.prefixMiddleware = append(a.prefixMiddleware, prefixMiddleware{prefix: prefix, handlers: append(append([]HandlerFunc(nil), handlers...), appDispatchHandler)})
 }
 
 // rebuildMiddlewareChain keeps the global-only request path allocation-free.
@@ -377,12 +378,25 @@ func (a *App) Route(prefix string, fn func(*Group), handlers ...HandlerFunc) *Gr
 
 // Mount delegates a path subtree to h. More specific mounts take precedence.
 func (a *App) Mount(prefix string, h http.Handler) {
+	a.mount(prefix, h, nil)
+}
+
+func (a *App) mount(prefix string, h http.Handler, middleware []HandlerFunc) {
+	if h == nil {
+		panic("zinc: HTTP handler is nil")
+	}
 	prefix = normalizeRegisteredPrefix(prefix)
 	entry := mountedHandler{
 		prefix:     storedPrefix(prefix, a.config.CaseSensitive),
 		prefixPath: prefix,
 		handler:    h,
 		info:       newRouteMeta(methodUse, prefix, "", Wrap(h), nil, true),
+	}
+	if len(middleware) > 0 {
+		entry.chain = append(append([]HandlerFunc(nil), middleware...), func(c *Context) error {
+			entry.serve(c)
+			return nil
+		})
 	}
 	a.mounts = append(a.mounts, entry)
 	sort.SliceStable(a.mounts, func(i, j int) bool {

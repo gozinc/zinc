@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -28,54 +29,17 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 	ctx.app = a
 
-	if len(a.middlewareChain) > 0 && len(a.prefixMiddleware) == 0 {
+	defer ctx.release()
+	if len(a.middlewareChain) > 0 {
 		ctx.setHandlers(a.middlewareChain)
 		if err := ctx.Next(); err != nil {
 			a.handleError(ctx, err)
 		}
-		ctx.release()
 		return
 	}
-
-	if len(a.middleware) > 0 || len(a.prefixMiddleware) > 0 {
-		handlers := a.preHandlersForPath(r.URL.Path)
-		if len(handlers) > 0 {
-			ctx.setHandlers(handlers)
-			if err := ctx.Next(); err != nil {
-				a.handleError(ctx, err)
-			}
-			ctx.release()
-			return
-		}
-	}
-
-	if err := a.dispatch(ctx); err != nil {
+	if err := appDispatchHandler(ctx); err != nil {
 		a.handleError(ctx, err)
 	}
-	ctx.release()
-}
-
-// preHandlersForPath builds a per-request chain only when prefix middleware is
-// configured. Applications with global middleware use the prebuilt chain.
-func (a *App) preHandlersForPath(path string) []HandlerFunc {
-	count := len(a.middleware)
-	for _, entry := range a.prefixMiddleware {
-		if pathHasPrefix(path, entry.prefix, a.config.CaseSensitive) {
-			count += len(entry.handlers)
-		}
-	}
-	if count == 0 {
-		return nil
-	}
-	handlers := make([]HandlerFunc, 0, count+1)
-	handlers = append(handlers, a.middleware...)
-	for _, entry := range a.prefixMiddleware {
-		if pathHasPrefix(path, entry.prefix, a.config.CaseSensitive) {
-			handlers = append(handlers, entry.handlers...)
-		}
-	}
-	handlers = append(handlers, appDispatchHandler)
-	return handlers
 }
 
 // dispatch applies protocol-level routing policy around the router: automatic
@@ -96,6 +60,10 @@ func (a *App) dispatch(ctx *Context) error {
 
 	if mount := a.matchMount(path); mount != nil {
 		ctx.setRoute(mount.info)
+		if len(mount.chain) > 0 {
+			ctx.setHandlers(mount.chain)
+			return ctx.Next()
+		}
 		mount.serve(ctx)
 		return nil
 	}
@@ -185,6 +153,15 @@ func (a *App) handleError(ctx *Context, err error) {
 
 func appDispatchHandler(c *Context) error {
 	if c != nil && c.app != nil {
+		// Re-evaluate after each prefix chain: a rewrite can enter another
+		// protected scope, including one registered earlier. Run each once.
+		for i, entry := range c.app.prefixMiddleware {
+			if !slices.Contains(c.prefixDone, i) && pathHasPrefix(c.Path(), entry.prefix, c.app.config.CaseSensitive) {
+				c.prefixDone = append(c.prefixDone, i)
+				c.setHandlers(entry.handlers)
+				return c.Next()
+			}
+		}
 		return c.app.dispatch(c)
 	}
 	return nil

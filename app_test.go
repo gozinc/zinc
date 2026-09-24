@@ -662,9 +662,6 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 		if app.middlewareChain != nil {
 			t.Fatalf("middlewareChain=%v", app.middlewareChain)
 		}
-		if handlers := app.preHandlersForPath("/x"); handlers != nil {
-			t.Fatalf("pre handlers=%v", handlers)
-		}
 	})
 
 	t.Run("listen tls reaches serveTLS branch", func(t *testing.T) {
