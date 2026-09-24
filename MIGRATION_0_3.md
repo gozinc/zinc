@@ -37,3 +37,11 @@ Session responses are no longer buffered. `Session.Set` and `Session.Delete` now
 Signing keys must contain at least 32 random bytes. Cookies use a versioned payload with authenticated server-side expiry. A positive MaxAge controls that lifetime; browser-session cookies (MaxAge zero) use Lifetime, defaulting to 24 hours. Removing a cookie from the browser is not server-side revocation.
 
 **Existing session cookies are invalidated by this format change.** Plan for users to sign in again. PreviousSecrets permits a deliberate key-rotation window for the new format; cookies verified with a previous key are signed again with the current key without extending their authenticated expiry. Remove previous keys when that window ends.
+
+## Bounded middleware state
+
+Keyed rate limiters default to 10,000 buckets and 256-byte keys. New keys are denied when storage is full; idle, fully replenished buckets expire after five minutes. Configure `MaxKeys`, `MaxKeyBytes`, and `IdleTTL` for your traffic. Zero rate/capacity now use defaults, and the default rejection handler honors `StatusCode`.
+
+Prometheus defaults are isolated per middleware construction. Use the same explicit registry for collection and scraping, or place the no-argument scrape handler behind its middleware. Unmatched routes use `unmatched`, unknown methods use `OTHER`, and registries cap series at 10,000 by default. Overflow is visible in `zinc_http_metrics_dropped_total`.
+
+Credentialed CORS requires explicit origins. An empty origin list with credentials denies access; combining `*` with credentials now panics at construction instead of reflecting arbitrary origins.

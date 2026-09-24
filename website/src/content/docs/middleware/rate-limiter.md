@@ -64,3 +64,7 @@ Each distinct key keeps its bucket for the life of the process. With keys from a
 
 - [Throttle](/middleware/utility/#throttle) limits concurrent requests instead of request rate.
 - [Client IP and Proxies](/guide/ip-address/) makes per-IP keys accurate.
+
+Keyed limiters retain at most `MaxKeys` buckets (default 10,000) with keys of at most `MaxKeyBytes` bytes (default 256). When full, new keys receive the configured limit response; existing quotas remain in force. Idle buckets expire after `IdleTTL` (default five minutes), once their tokens have fully replenished. Cleanup is bounded and runs during requests. Choose the capacity for your expected client population; saturation deliberately denies new clients rather than granting fresh quotas through eviction.
+
+Zero `Rate` and `Capacity` use 10 tokens/second and a burst of 10. Invalid negative or non-finite settings panic during construction. `StatusCode` defaults to 429 and is respected by the default rejection handler. `Now` can supply a deterministic clock for tests.
