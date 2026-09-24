@@ -102,8 +102,17 @@ func (m routeMeta) url(values []string) (string, error) {
 			end := i + 1 + endOffset
 			wildcard := strings.HasSuffix(m.path[i+1:end], "...")
 			if wildcard {
-				builder.WriteString(values[valueIndex])
+				parts := strings.Split(values[valueIndex], "/")
+				for j, part := range parts {
+					if j > 0 {
+						builder.WriteByte('/')
+					}
+					builder.WriteString(url.PathEscape(part))
+				}
 			} else {
+				if values[valueIndex] == "" || strings.Contains(values[valueIndex], "/") {
+					return "", fmt.Errorf("route %q parameter %q must be a nonempty path segment", m.name, m.params[valueIndex])
+				}
 				builder.WriteString(url.PathEscape(values[valueIndex]))
 			}
 			valueIndex++

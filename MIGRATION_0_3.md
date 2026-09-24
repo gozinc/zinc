@@ -51,3 +51,9 @@ Credentialed CORS requires explicit origins. An empty origin list with credentia
 Trusted proxy addresses/CIDRs are compiled and copied at construction; invalid entries panic. Forwarded IP chains are evaluated right to left until the first untrusted hop, so `IP()` no longer accepts an attacker-controlled leftmost value. `Scheme()` uses only the final trusted `http`/`https` value, rather than arbitrary protocol strings or a client-supplied prefix.
 
 Reverse proxy `Director` runs after inbound forwarding and hop-by-hop header removal. Fresh forwarding values describe the direct request. Retries default to idempotent methods with replayable bodies; a custom `RetryFilter` is an explicit override of method policy.
+
+## Routing contracts
+
+Case-insensitive static routes now win over parameter routes regardless of request spelling. Unicode case folds preserve original parameter bytes. Mounted requests have consistent stripped paths and RequestURI, including escaped prefixes; outer middleware still sees the original request.
+
+Named URL generation rejects empty/slash-containing single-segment parameters instead of generating a URL that cannot round-trip through decoded-path routing. Catch-all values still accept slashes and now escape `?`, `#`, and `%` as path data. Cache keys over 4 KiB bypass storage while remaining routable; retained keys own their backing bytes.
