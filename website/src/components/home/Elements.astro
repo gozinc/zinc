@@ -95,45 +95,35 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
 </script>
 
 <style>
-  /* Each family is a different metal. Every tile and chip reads its finish from
-     these variables; hover galvanizes any metal in zinc. */
+  /* Each family has a photographed metal surface. The image stays decorative;
+     contrast comes from the per-metal wash and text colors. */
   [data-group="protect"] {
-    /* iron: cool, blued grey */
-    --plate-top: #e3e7eb; --plate-bottom: #c5ccd4; --plate-edge: #aab3bd;
-    --metal-ink: #2c3947; --plate-brush: rgba(20, 30, 40, 0.035); --plate-bevel: rgba(255, 255, 255, 0.75);
+    --plate-image: url("/middleware-metals/protect-iron.webp");
+    --plate-wash: rgba(8, 14, 22, 0.07);
+    --plate-ink: #f8fafc;
+    --plate-muted-ink: #dce4ec;
+    --plate-edge: #38434e;
   }
   [data-group="observe"] {
-    /* copper: warm and rosy */
-    --plate-top: #f1d7c4; --plate-bottom: #d9a684; --plate-edge: #c58c68;
-    --metal-ink: #6a321a; --plate-brush: rgba(90, 40, 10, 0.04); --plate-bevel: rgba(255, 240, 228, 0.8);
+    --plate-image: url("/middleware-metals/observe-copper.webp");
+    --plate-wash: rgba(28, 12, 4, 0.08);
+    --plate-ink: #fff9f2;
+    --plate-muted-ink: #f4dec9;
+    --plate-edge: #7d4e30;
   }
   [data-group="control"] {
-    /* titanium: grey with its faint violet sheen */
-    --plate-top: #e5e3ec; --plate-bottom: #c6c1d4; --plate-edge: #aca6c0;
-    --metal-ink: #3b3456; --plate-brush: rgba(40, 30, 70, 0.035); --plate-bevel: rgba(255, 255, 255, 0.75);
+    --plate-image: url("/middleware-metals/control-titanium.webp");
+    --plate-wash: rgba(255, 255, 255, 0.24);
+    --plate-ink: #17202d;
+    --plate-muted-ink: #334052;
+    --plate-edge: #a6aab7;
   }
   [data-group="transport"] {
-    /* aluminium: the brightest, near-white silver */
-    --plate-top: #fbfbfc; --plate-bottom: #e3e6e8; --plate-edge: #c8cdd1;
-    --metal-ink: #2d3337; --plate-brush: rgba(20, 24, 28, 0.03); --plate-bevel: rgba(255, 255, 255, 0.95);
-  }
-
-  /* In the dark theme the same metals, darker and aged. */
-  :global(:root:not([data-theme="light"])) [data-group="protect"] {
-    --plate-top: #232a31; --plate-bottom: #191d22; --plate-edge: #36404b;
-    --metal-ink: #b9c7d6; --plate-brush: rgba(180, 210, 240, 0.025); --plate-bevel: rgba(200, 220, 240, 0.06);
-  }
-  :global(:root:not([data-theme="light"])) [data-group="observe"] {
-    --plate-top: #33241c; --plate-bottom: #231913; --plate-edge: #5b3b2a;
-    --metal-ink: #e2a57e; --plate-brush: rgba(255, 190, 150, 0.025); --plate-bevel: rgba(255, 200, 170, 0.07);
-  }
-  :global(:root:not([data-theme="light"])) [data-group="control"] {
-    --plate-top: #29273a; --plate-bottom: #1d1c28; --plate-edge: #403c57;
-    --metal-ink: #c3bbe3; --plate-brush: rgba(200, 190, 255, 0.025); --plate-bevel: rgba(210, 200, 255, 0.06);
-  }
-  :global(:root:not([data-theme="light"])) [data-group="transport"] {
-    --plate-top: #2d3134; --plate-bottom: #212427; --plate-edge: #474d52;
-    --metal-ink: #eef1f3; --plate-brush: rgba(255, 255, 255, 0.03); --plate-bevel: rgba(255, 255, 255, 0.08);
+    --plate-image: url("/middleware-metals/transport-aluminium.webp");
+    --plate-wash: rgba(255, 255, 255, 0.06);
+    --plate-ink: #202a34;
+    --plate-muted-ink: #374451;
+    --plate-edge: #bbc2c9;
   }
 
   .head {
@@ -170,10 +160,10 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
   }
 
   .metal {
-    background: linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
     border: 1px solid var(--plate-edge);
     border-radius: 4px;
-    color: var(--metal-ink);
+    color: var(--plate-ink);
     font: 500 0.82em/1 var(--sl-font-mono);
     padding: 0.12em 0.4em;
     white-space: nowrap;
@@ -200,10 +190,9 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
   }
 
   .swatch {
-    background: linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
     border: 1px solid var(--plate-edge);
     border-radius: 3px;
-    box-shadow: inset 0 1px 0 var(--plate-bevel);
     height: 0.85rem;
     width: 0.85rem;
   }
@@ -239,13 +228,10 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
 
   .table a {
     aspect-ratio: 1 / 0.92;
-    background:
-      repeating-linear-gradient(180deg, var(--plate-brush) 0 1px, transparent 1px 3px),
-      linear-gradient(180deg, var(--plate-top), var(--plate-bottom));
+    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
     border: 1px solid var(--plate-edge);
     border-radius: 6px;
-    box-shadow: inset 0 1px 0 var(--plate-bevel);
-    color: var(--z-text);
+    color: var(--plate-ink);
     display: grid;
     grid-template-rows: auto 1fr auto auto;
     max-width: 100%;
@@ -299,12 +285,12 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
 
   .num,
   .grp {
-    color: color-mix(in srgb, var(--metal-ink) 72%, transparent);
+    color: var(--plate-muted-ink);
     font: 500 0.64rem/1 var(--sl-font-mono);
   }
 
   .grp {
-    color: var(--metal-ink);
+    color: var(--plate-ink);
     font-weight: 600;
     opacity: 0.8;
   }
@@ -317,7 +303,7 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
 
   .sym {
     align-self: center;
-    color: var(--metal-ink);
+    color: var(--plate-ink);
     font: 400 clamp(1.1rem, 1.9vw, 1.55rem)/1 var(--z-font-display);
     letter-spacing: -0.02em;
   }
@@ -332,7 +318,7 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
   }
 
   .fn {
-    color: color-mix(in srgb, var(--metal-ink) 72%, transparent);
+    color: var(--plate-muted-ink);
     font: 400 0.62rem/1.4 var(--sl-font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
