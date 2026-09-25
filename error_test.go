@@ -215,7 +215,7 @@ func TestBindingAndValidationErrorResponses(t *testing.T) {
 		{BadRequest("nope"), 400},
 		{userNotFound{"1"}, 404},
 	} {
-		v := NewWithConfig(Config{Validator: stubValidator{tc.err}})
+		v := New(Config{Validator: stubValidator{tc.err}})
 		v.Post("/v", func(c *Context) error {
 			var b body
 			return c.Bind().JSON(&b)
@@ -231,7 +231,7 @@ func TestBindingAndValidationErrorResponses(t *testing.T) {
 }
 
 func TestTextErrorsKeepsPlainTextBodies(t *testing.T) {
-	app := NewWithConfig(Config{ErrorHandler: TextErrors})
+	app := New(Config{ErrorHandler: TextErrors})
 	app.Get("/x", func(c *Context) error { return NotFound("gone away") })
 	app.Get("/boom", func(c *Context) error { return errors.New("secret") })
 	for target, want := range map[string]string{"/x": "gone away", "/boom": "Internal Server Error", "/missing": "Not Found"} {

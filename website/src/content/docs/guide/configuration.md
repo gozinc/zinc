@@ -1,21 +1,18 @@
 ---
 title: Configuration
-description: Every Zinc setting, its default, and the safe way to change it.
+description: Every Zinc setting, its default, and how to change it.
 ---
 
-`zinc.New()` uses `zinc.DefaultConfig`, which suits most applications. To change a setting, copy the defaults, adjust what you need, and build the app with `NewWithConfig`.
+`zinc.New()` uses defaults that suit most applications. To change a setting, pass a `zinc.Config` with only the fields you need. Every field you leave out keeps its default:
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.BodyLimit = 16 << 20 // 16 MB
-cfg.TrustedProxies = []string{"10.0.0.0/8"}
-
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{
+	BodyLimit:      16 << 20, // 16 MB
+	TrustedProxies: []string{"10.0.0.0/8"},
+})
 ```
 
-:::caution[Always start from DefaultConfig]
-Several defaults are `true`. A bare `zinc.Config{BodyLimit: 16 << 20}` literal switches off automatic `HEAD` and `OPTIONS`, 405 responses, and the route cache, because Go fills omitted booleans with `false` and numbers with `0`. `NewWithConfig` restores defaults only for limits, timeouts, the proxy header, and the codec, binder, and error handler.
-:::
+For limits and timeouts, `0` means the default and a negative value turns the limit off. Switches that are on by default are named `Disable…`, so leaving them out keeps them on.
 
 ## Routing
 
@@ -23,29 +20,45 @@ Several defaults are `true`. A bare `zinc.Config{BodyLimit: 16 << 20}` literal s
 |---|---|---|
 | `CaseSensitive` | `false` | When `true`, `/Users` and `/users` are different routes. |
 | `StrictRouting` | `false` | When `true`, `/users` and `/users/` are different routes. |
-| `AutoHead` | `true` | Answers `HEAD` with the matching `GET` route, without a body. |
-| `AutoOptions` | `true` | Answers `OPTIONS` with `204` and an `Allow` header. |
-| `HandleMethodNotAllowed` | `true` | Returns `405` with `Allow` when the path exists for other methods. When `false`, returns `404`. |
-| `RouteCacheSize` | `1000` | Number of concrete dynamic paths cached for faster matching. `0` disables the cache. |
+| `DisableAutoHead` | `false` | Automatic `HEAD` is on: `HEAD` is answered by the matching `GET` route, without a body. Set `true` to turn it off. |
+| `DisableAutoOptions` | `false` | Automatic `OPTIONS` is on: it is answered with `204` and an `Allow` header. Set `true` to turn it off. |
+| `DisableMethodNotAllowed` | `false` | When the path exists for other methods, Zinc returns `405` with `Allow`. Set `true` to return `404` instead. |
+| `RouteCacheSize` | `1000` | Number of concrete dynamic paths cached for faster matching. `-1` disables the cache. |
 
 ## Server
 
-These apply when Zinc starts the server with `Listen`, `ListenTLS`, or `Serve`. When you run your own `http.Server`, set its fields directly instead.
+These apply when Zinc starts the server with `Listen`, `ListenContext`, `ListenTLS`, or `Serve`. When you run your own `http.Server`, set its fields directly instead.
 
 | Field | Default | Effect |
 |---|---|---|
-| `ReadTimeout` | `5s` | Maximum time to read the whole request, including the body. |
-| `WriteTimeout` | `10s` | Maximum time to write the response. |
-| `IdleTimeout` | `120s` | How long keep-alive connections stay open between requests. |
+| `ReadTimeout` | `5s` | Maximum time to read the whole request, including the body. `-1` for none. |
+| `WriteTimeout` | `10s` | Maximum time to write a response, or one event of a server-sent event stream. `-1` for none. |
+| `IdleTimeout` | `120s` | How long keep-alive connections stay open between requests. `-1` for none. |
+| `ShutdownTimeout` | `10s` | How long `ListenContext` waits for in-flight requests when its context ends. `-1` waits until they finish. |
 | `ServerHeader` | `""` | When set, sent as the `Server` header on every response. |
 
-Streaming responses and long uploads may need a longer `ReadTimeout` or `WriteTimeout`.
+Long uploads and slow streaming responses may need a longer `ReadTimeout` or `WriteTimeout`.
+
+## Graceful shutdown
+
+`ListenContext` serves until its context ends, then stops accepting connections and lets in-flight requests finish:
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+
+if err := app.ListenContext(ctx, ":8080"); err != nil {
+	log.Fatal(err)
+}
+```
+
+It returns `nil` after a clean shutdown. If requests are still running when `ShutdownTimeout` expires, their connections are closed and `ListenContext` returns an error. Zinc never installs signal handlers itself. See [Graceful Shutdown](/cookbook/graceful-shutdown/).
 
 ## Requests
 
 | Field | Default | Effect |
 |---|---|---|
-| `BodyLimit` | `4 MB` | Largest body that binding reads. Larger bodies get `413`. |
+| `BodyLimit` | `4 MB` | Largest body that binding and form parsing read. Larger bodies get `413`. `-1` for no limit. |
 
 ## Proxies
 
@@ -60,13 +73,17 @@ Streaming responses and long uploads may need a longer `ReadTimeout` or `WriteTi
 
 | Field | Replaces |
 |---|---|
-| `ErrorHandler` | How returned errors become responses |
+| `ErrorHandler` | How returned errors become responses (`zinc.DefaultErrorHandler`) |
 | `Validator` | Validation after every bind (none by default) |
 | `Renderer` | Template rendering for `c.Render` (none by default) |
 | `JSONCodec` | JSON encoding and decoding |
 | `RequestBinder` | Request decoding for `c.Bind()` |
 
 [Customization](/guide/customization/) shows each one in use.
+
+## Defaults as constants
+
+The defaults are exported for code that needs them: `zinc.DefaultBodyLimit`, `DefaultReadTimeout`, `DefaultWriteTimeout`, `DefaultIdleTimeout`, `DefaultShutdownTimeout`, `DefaultRouteCacheSize`, and `DefaultProxyHeader`.
 
 ## Next steps
 

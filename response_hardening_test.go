@@ -146,9 +146,9 @@ func TestRawWriterCommitIsRespected(t *testing.T) {
 
 func TestMiddlewareHandlesErrorOnce(t *testing.T) {
 	calls := 0
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.ErrorHandler = func(c *zinc.Context, err error) { calls++; _ = c.Status(500).String("failure") }
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	app.Use(middleware.Prometheus(middleware.NewPrometheusMetrics()), middleware.Gzip())
 	app.Get("/", func(c *zinc.Context) error { return errors.New("internal") })
 	r := httptest.NewRequest("GET", "/", nil)
@@ -265,9 +265,9 @@ func (w *headerRecorder) WriteHeader(code int) { w.codes = append(w.codes, code)
 // response. Each event gets its own write budget and is flushed as it is
 // written, so the client sees every event without a manual flush.
 func TestSSEStreamOutlivesWriteTimeout(t *testing.T) {
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.WriteTimeout = 200 * time.Millisecond
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	const events = 5
 	app.Get("/events", func(c *zinc.Context) error {
 		for i := 0; i < events; i++ {

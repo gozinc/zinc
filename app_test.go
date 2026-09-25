@@ -248,7 +248,7 @@ func TestAppRoutingMiddlewareAndFallbacks(t *testing.T) {
 
 func TestAppConfigLifecycleAndErrors(t *testing.T) {
 	t.Run("new with config and handler", func(t *testing.T) {
-		app := NewWithConfig(Config{ServerHeader: "zinc-test", CaseSensitive: true})
+		app := New(Config{ServerHeader: "zinc-test", CaseSensitive: true})
 		if got := app.Handler(); got != app {
 			t.Fatal("Handler should return app")
 		}
@@ -261,7 +261,7 @@ func TestAppConfigLifecycleAndErrors(t *testing.T) {
 	})
 
 	t.Run("case sensitive and strict routing", func(t *testing.T) {
-		app := NewWithConfig(Config{CaseSensitive: true, StrictRouting: true})
+		app := New(Config{CaseSensitive: true, StrictRouting: true})
 		app.Get("/Hello", func(c *Context) error { return c.String("ok") })
 
 		lower := performRequest(t, app, http.MethodGet, "/hello", nil, nil)
@@ -276,7 +276,7 @@ func TestAppConfigLifecycleAndErrors(t *testing.T) {
 	})
 
 	t.Run("custom error handler", func(t *testing.T) {
-		app := NewWithConfig(Config{ErrorHandler: func(c *Context, err error) {
+		app := New(Config{ErrorHandler: func(c *Context, err error) {
 			_ = c.Status(http.StatusTeapot).String("handled")
 		}})
 		app.Get("/boom", func(c *Context) error {
@@ -290,7 +290,7 @@ func TestAppConfigLifecycleAndErrors(t *testing.T) {
 	})
 
 	t.Run("server header", func(t *testing.T) {
-		app := NewWithConfig(Config{ServerHeader: "zinc/edge"})
+		app := New(Config{ServerHeader: "zinc/edge"})
 		app.Get("/", func(c *Context) error { return c.String("ok") })
 		resp := performRequest(t, app, http.MethodGet, "/", nil, nil)
 		if got := resp.Header().Get(HeaderServer); got != "zinc/edge" {
@@ -701,7 +701,7 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 	})
 
 	t.Run("method not allowed and not found fallback branches", func(t *testing.T) {
-		app := NewWithConfig(Config{HandleMethodNotAllowed: true})
+		app := New(Config{DisableAutoHead: true, DisableAutoOptions: true})
 		app.Get("/only", func(c *Context) error { return c.String("ok") })
 
 		mna := performRequest(t, app, http.MethodPost, "/only", nil, nil)
@@ -750,8 +750,7 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 	})
 
 	t.Run("custom error handler still handles default 404 and 405", func(t *testing.T) {
-		app := NewWithConfig(Config{
-			HandleMethodNotAllowed: true,
+		app := New(Config{
 			ErrorHandler: func(c *Context, err error) {
 				_ = c.Status(http.StatusTeapot).String("handled")
 			},
@@ -838,7 +837,7 @@ func TestContextErrorAndLastError(t *testing.T) {
 	hit := false
 	ctx2, rec2 := newRecorderContext(t, req)
 	defer ctx2.release()
-	ctx2.app = NewWithConfig(Config{
+	ctx2.app = New(Config{
 		ErrorHandler: func(c *Context, err error) {
 			hit = true
 			_ = c.Status(http.StatusTeapot).String("teapot")

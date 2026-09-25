@@ -19,13 +19,13 @@ Behind a load balancer, every request appears to come from the load balancer. Th
 List the addresses or CIDR ranges of the proxies in front of your app:
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.ProxyHeader = zinc.HeaderXForwardedFor // the default
-cfg.TrustedProxies = []string{
-	"10.0.0.0/8",     // internal load balancers
-	"192.168.0.0/16",
-}
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{
+	ProxyHeader: zinc.HeaderXForwardedFor, // the default
+	TrustedProxies: []string{
+		"10.0.0.0/8", // internal load balancers
+		"192.168.0.0/16",
+	},
+})
 
 app.Get("/whoami", func(c *zinc.Context) error {
 	return c.JSON(zinc.Map{

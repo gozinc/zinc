@@ -114,9 +114,7 @@ func (s structValidator) Validate(target any) error {
 	return s.v.Struct(target)
 }
 
-cfg := zinc.DefaultConfig
-cfg.Validator = structValidator{v: validator.New()}
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{Validator: structValidator{v: validator.New()}})
 ```
 
 ```go

@@ -91,9 +91,9 @@ var api04Workloads = []struct {
 		// 0.3 answered a validator failure with 500; 0.4 answers 422.
 		name: "ErrorValidation",
 		build: func() http.Handler {
-			cfg := DefaultConfig
+			cfg := Config{}
 			cfg.Validator = api04Validator{}
-			app := NewWithConfig(cfg)
+			app := New(cfg)
 			app.Post("/validate", func(c *Context) error {
 				var input benchmarkValidationInput
 				if err := c.Bind().JSON(&input); err != nil {

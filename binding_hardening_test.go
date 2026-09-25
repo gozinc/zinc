@@ -23,9 +23,9 @@ func TestBindingAllSourceOrderAcrossStructuredFormats(t *testing.T) {
 	for _, tt := range []struct{ kind, body string }{{"application/json", `{"name":"body"}`}, {"application/xml", `<input><name>body</name></input>`}, {"application/yaml", "name: body\n"}, {"application/toml", "name = 'body'\n"}} {
 		t.Run(tt.kind, func(t *testing.T) {
 			calls := 0
-			cfg := zinc.DefaultConfig
+			cfg := zinc.Config{}
 			cfg.Validator = hardeningValidator{&calls}
-			app := zinc.NewWithConfig(cfg)
+			app := zinc.New(cfg)
 			app.Post("/items/{id}", func(c *zinc.Context) error {
 				var v struct {
 					ID   string `path:"id"`
@@ -70,11 +70,11 @@ func TestBindingErrorHTTPPolicy(t *testing.T) {
 		{"empty-json", ``, 400, false, func(c *zinc.Context) error { var v map[string]any; return c.Bind().JSON(&v) }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := zinc.DefaultConfig
+			cfg := zinc.Config{}
 			if tt.codec {
 				cfg.JSONCodec = failingDecodeCodec{}
 			}
-			app := zinc.NewWithConfig(cfg)
+			app := zinc.New(cfg)
 			app.Post("/", tt.bind)
 			w := httptest.NewRecorder()
 			app.ServeHTTP(w, httptest.NewRequest("POST", "/", strings.NewReader(tt.body)))

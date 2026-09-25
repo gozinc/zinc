@@ -166,9 +166,9 @@ func TestPrefixAuthenticationUsesRewrittenPath(t *testing.T) {
 }
 
 func TestGroupPreservesStrictTrailingSlash(t *testing.T) {
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.StrictRouting = true
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	app.Group("/api").Get("/items/", func(c *zinc.Context) error { return c.String("ok") })
 	w := hardeningRequest(app, "GET", "/api/items/")
 	if w.Code != 200 {

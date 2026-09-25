@@ -28,9 +28,9 @@ func cacheMatrixGitHubScenario() benchmarkScenario {
 }
 
 func buildZincCacheMatrixHandler(routes []scenarioRoute, cacheSize int) http.Handler {
-	cfg := DefaultConfig
+	cfg := Config{}
 	cfg.RouteCacheSize = cacheSize
-	app := NewWithConfig(cfg)
+	app := New(cfg)
 	for _, route := range routes {
 		app.Add(route.method, scenarioZincPattern(route.pattern), func(*Context) error {
 			return nil
@@ -168,20 +168,20 @@ func BenchmarkZincGitHubCachePhaseShift(b *testing.B) {
 	phaseB := buildCacheMatrixDynamicVariantRequests(scenario, 1)
 
 	b.Run("StableA", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultConfig.RouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
 		warmZincCacheMatrix(handler, phaseA, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseA)
 	})
 
 	b.Run("ShiftedRecoveredB", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultConfig.RouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
 		warmZincCacheMatrix(handler, phaseA, cacheMatrixPromotionWarmCycles)
 		warmZincCacheMatrix(handler, phaseB, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseB)
 	})
 
 	b.Run("FreshB", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultConfig.RouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
 		warmZincCacheMatrix(handler, phaseB, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseB)
 	})
@@ -192,16 +192,16 @@ func BenchmarkZincGitHubCacheMatrix(b *testing.B) {
 	highCardinality := buildCacheMatrixHighCardinalityRequests(scenario)
 
 	b.Run("DefaultCache", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultConfig.RouteCacheSize, scenario, scenario.allRequests)
+		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, scenario.allRequests)
 	})
 	b.Run("CacheDisabled", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, 0, scenario, scenario.allRequests)
+		runZincCacheMatrixSequential(b, -1, scenario, scenario.allRequests)
 	})
 	b.Run("HighCardinality", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultConfig.RouteCacheSize, scenario, highCardinality)
+		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, highCardinality)
 	})
 	b.Run("ParallelHighCardinality", func(b *testing.B) {
-		runZincCacheMatrixParallel(b, DefaultConfig.RouteCacheSize, scenario, highCardinality)
+		runZincCacheMatrixParallel(b, DefaultRouteCacheSize, scenario, highCardinality)
 	})
 }
 
@@ -210,10 +210,10 @@ func BenchmarkZincGitHubStaticCacheMatrix(b *testing.B) {
 	requests := []*http.Request{scenario.staticRequest}
 
 	b.Run("DefaultCache", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultConfig.RouteCacheSize, scenario, requests)
+		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, requests)
 	})
 	b.Run("CacheDisabled", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, 0, scenario, requests)
+		runZincCacheMatrixSequential(b, -1, scenario, requests)
 	})
 }
 
@@ -233,10 +233,10 @@ func TestZincGitHubCacheMatrixCorpus(t *testing.T) {
 		key := req.Method + " " + req.URL.Path
 		uniqueDynamic[key] = struct{}{}
 	}
-	if got := len(uniqueDynamic); got <= DefaultConfig.RouteCacheSize {
-		t.Fatalf("unique request keys=%d must exceed default cache size=%d", got, DefaultConfig.RouteCacheSize)
+	if got := len(uniqueDynamic); got <= DefaultRouteCacheSize {
+		t.Fatalf("unique request keys=%d must exceed default cache size=%d", got, DefaultRouteCacheSize)
 	}
 
-	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, DefaultConfig.RouteCacheSize), highCardinality)
-	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, 0), highCardinality)
+	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize), highCardinality)
+	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, -1), highCardinality)
 }

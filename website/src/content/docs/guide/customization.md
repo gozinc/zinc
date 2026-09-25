@@ -6,13 +6,12 @@ description: Replace Zinc's error handler, validator, renderer, JSON codec, or r
 Each part of Zinc that makes a policy decision can be replaced through configuration: how errors are written, how input is validated, how JSON is encoded, how templates render. Each extension point is a small interface, so a replacement is usually a few lines.
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.ErrorHandler = writeJSONError
-cfg.Validator = structValidator{v: validator.New()}
-cfg.JSONCodec = sonicCodec{}
-cfg.Renderer = zinc.NewHTMLTemplateRenderer(views)
-
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{
+	ErrorHandler: writeJSONError,
+	Validator:    structValidator{v: validator.New()},
+	JSONCodec:    sonicCodec{},
+	Renderer:     zinc.NewHTMLTemplateRenderer(views),
+})
 ```
 
 ## Error handler

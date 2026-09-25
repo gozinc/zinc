@@ -16,7 +16,7 @@ import (
 func TestTemplateRendererHelpers(t *testing.T) {
 	t.Run("renders with html templates", func(t *testing.T) {
 		tmpl := template.Must(template.New("home").Parse("Hello, {{.Name}}!"))
-		app := NewWithConfig(Config{
+		app := New(Config{
 			Renderer: NewHTMLTemplateRenderer(tmpl),
 		})
 		app.Get("/home", func(c *Context) error {
@@ -34,7 +34,7 @@ func TestTemplateRendererHelpers(t *testing.T) {
 
 	t.Run("keeps status chaining behavior", func(t *testing.T) {
 		tmpl := template.Must(template.New("created").Parse("created"))
-		app := NewWithConfig(Config{
+		app := New(Config{
 			Renderer: NewTemplateRenderer(tmpl),
 		})
 		app.Get("/created", func(c *Context) error {
@@ -52,7 +52,7 @@ func TestTemplateRendererHelpers(t *testing.T) {
 
 	t.Run("supports suffix fallback", func(t *testing.T) {
 		tmpl := template.Must(template.New("dashboard.html").Parse("Dashboard"))
-		app := NewWithConfig(Config{
+		app := New(Config{
 			Renderer: NewHTMLTemplateRenderer(tmpl, WithTemplateSuffixes("html", ".tmpl")),
 		})
 		app.Get("/dashboard", func(c *Context) error {
@@ -67,7 +67,7 @@ func TestTemplateRendererHelpers(t *testing.T) {
 
 	t.Run("renders with text templates", func(t *testing.T) {
 		tmpl := texttemplate.Must(texttemplate.New("plain").Parse("Hello, {{.Name}}!"))
-		app := NewWithConfig(Config{
+		app := New(Config{
 			Renderer: NewTextTemplateRenderer(tmpl),
 		})
 		app.Get("/plain", func(c *Context) error {

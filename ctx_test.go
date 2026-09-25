@@ -126,7 +126,7 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 
 	ctx, resp := newRecorderContext(t, req)
 	defer ctx.release()
-	ctx.app = NewWithConfig(Config{ProxyHeader: HeaderXForwardedFor, TrustedProxies: []string{"10.0.0.1"}})
+	ctx.app = New(Config{ProxyHeader: HeaderXForwardedFor, TrustedProxies: []string{"10.0.0.1"}})
 	ctx.setParam("id", "42")
 
 	ctx.Set("key", "value")
@@ -442,7 +442,7 @@ func TestContextAcquireRelease(t *testing.T) {
 
 func TestContextBodyBindingAndUploads(t *testing.T) {
 	t.Run("body bytes and bind", func(t *testing.T) {
-		app := NewWithConfig(Config{Validator: validatingStub{}})
+		app := New(Config{Validator: validatingStub{}})
 		body := strings.NewReader(`{"name":"matt"}`)
 		req := httptest.NewRequest(http.MethodPost, "/users/7?page=2&ready=true", body)
 		req.Header.Set(HeaderContentType, "application/json")
@@ -483,7 +483,7 @@ func TestContextBodyBindingAndUploads(t *testing.T) {
 	})
 
 	t.Run("xml and form binding", func(t *testing.T) {
-		app := NewWithConfig(Config{Validator: validatingStub{}})
+		app := New(Config{Validator: validatingStub{}})
 
 		xmlReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`<bindPayload><Name>zoe</Name></bindPayload>`))
 		xmlReq.Header.Set(HeaderContentType, "application/xml")
@@ -518,7 +518,7 @@ func TestContextBodyBindingAndUploads(t *testing.T) {
 	})
 
 	t.Run("validator failure", func(t *testing.T) {
-		app := NewWithConfig(Config{Validator: validatingStub{}})
+		app := New(Config{Validator: validatingStub{}})
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":""}`))
 		req.Header.Set(HeaderContentType, "application/json")
 		ctx, _ := newRecorderContext(t, req)
@@ -1330,7 +1330,7 @@ func TestContextBodyBytesLimitAndCloseErrors(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("abcdef"))
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
-		ctx.app = NewWithConfig(Config{BodyLimit: 3})
+		ctx.app = New(Config{BodyLimit: 3})
 
 		body, err := ctx.BodyBytes()
 		if !errors.Is(err, ErrRequestEntityTooLarge) {
@@ -1395,7 +1395,7 @@ func TestContextProxyAndSchemeBranches(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https, http")
 	ctx, _ := newRecorderContext(t, req)
 	defer ctx.release()
-	ctx.app = NewWithConfig(Config{
+	ctx.app = New(Config{
 		ProxyHeader:    HeaderXForwardedFor,
 		TrustedProxies: []string{"10.0.0.1", "10.0.0.0/24"},
 	})
@@ -1419,7 +1419,7 @@ func TestContextProxyAndSchemeBranches(t *testing.T) {
 	req2.Header.Set("X-Forwarded-Proto", "https")
 	ctx2, _ := newRecorderContext(t, req2)
 	defer ctx2.release()
-	ctx2.app = NewWithConfig(Config{TrustedProxies: []string{"192.0.2.1"}})
+	ctx2.app = New(Config{TrustedProxies: []string{"192.0.2.1"}})
 	if ctx2.trustProxy() {
 		t.Fatal("proxy should not be trusted")
 	}

@@ -9,10 +9,10 @@ import (
 )
 
 func TestRoutingFoldContractsWithAndWithoutCache(t *testing.T) {
-	for _, size := range []int{0, 1000} {
-		cfg := DefaultConfig
+	for _, size := range []int{-1, 1000} { // -1 disables the cache
+		cfg := Config{}
 		cfg.RouteCacheSize = size
-		app := NewWithConfig(cfg)
+		app := New(cfg)
 		app.Get("/users/new", func(c *Context) error { return c.Send("static") })
 		app.Get("/users/{id}", func(c *Context) error { return c.Send(c.Param("id")) })
 		app.Get("/users/new/{part}", func(c *Context) error { return c.Send("literal:" + c.Param("part")) })

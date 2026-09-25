@@ -183,7 +183,7 @@ func TestResponseHelpers(t *testing.T) {
 	})
 
 	t.Run("no content redirect render and repeated write", func(t *testing.T) {
-		app := NewWithConfig(Config{Renderer: rendererStub{}})
+		app := New(Config{Renderer: rendererStub{}})
 		app.Get("/nocontent", func(c *Context) error { return c.NoContent() })
 		app.Get("/redirect", func(c *Context) error { return c.Redirect(http.StatusMovedPermanently, "/to") })
 		app.Get("/render", func(c *Context) error { return c.Render("home", nil) })
@@ -503,7 +503,7 @@ func TestRedirectAndRenderErrorBranches(t *testing.T) {
 
 	renderErrCtx, _ := newRecorderContext(t, httptest.NewRequest(http.MethodGet, "/", nil))
 	defer renderErrCtx.release()
-	renderErrCtx.app = NewWithConfig(Config{
+	renderErrCtx.app = New(Config{
 		Renderer: rendererErrorStub{err: errors.New("render failed")},
 	})
 	if err := renderErrCtx.Render("home", nil); err == nil || !strings.Contains(err.Error(), "render failed") {
