@@ -78,6 +78,19 @@ func (s *Store) runs() ([]*Run, error) {
 	return runs, nil
 }
 
+func (s *Store) findRun(id string) (*Run, error) {
+	runs, err := s.runs()
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range runs {
+		if run.ID == id {
+			return run, nil
+		}
+	}
+	return nil, fmt.Errorf("no run %q; see `zincbench list`", id)
+}
+
 func (s *Store) baseline() string {
 	b, _ := os.ReadFile(filepath.Join(s.results, "BASELINE"))
 	return strings.TrimSpace(string(b))

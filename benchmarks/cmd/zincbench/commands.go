@@ -39,6 +39,7 @@ func suitePattern() string {
 
 func cmdRecord(s *Store, args []string) error {
 	fs := newFlags("record")
+	release := fs.String("release", "", "release this run belongs to, e.g. 0.3.0")
 	note := fs.String("note", "", "what this run measures, e.g. \"router: cache promotion at 8\"")
 	count := fs.Int("count", 10, "samples per benchmark")
 	benchtime := fs.String("benchtime", "100ms", "go test -benchtime for each sample")
@@ -86,11 +87,13 @@ func cmdRecord(s *Store, args []string) error {
 	if err != nil {
 		return err
 	}
+	run.Release = *release
 	return finish(s, run, raw.Bytes(), *pin)
 }
 
 func cmdImport(s *Store, args []string) error {
 	fs := newFlags("import")
+	release := fs.String("release", "", "release this run belongs to, e.g. 0.3.0")
 	logPath := fs.String("log", "", "go test -bench output to import (.gz allowed)")
 	commit := fs.String("commit", "", "commit the log measured")
 	date := fs.String("date", "", "when the run happened (RFC 3339); defaults to the file time")
@@ -127,10 +130,114 @@ func cmdImport(s *Store, args []string) error {
 		return err
 	}
 	run.Imported = true
+	run.Release = *release
 	if *goVer != "" {
 		run.Env.Go = *goVer
 	}
 	return finish(s, run, raw, *pin)
+}
+
+// cmdImportZinc joins a Zinc-only measurement with a saved rival run. The
+// source ID remains in the record so the mixed-date comparison is explicit.
+func cmdImportZinc(s *Store, args []string) error {
+	fs := newFlags("import-zinc")
+	logs := fs.String("logs", "", "comma-separated Zinc-only benchmark logs")
+	rivals := fs.String("rivals", "", "saved head-to-head run supplying Gin, Echo, and Chi samples")
+	commit := fs.String("commit", "", "Zinc commit measured")
+	date := fs.String("date", "", "measurement date and time (RFC 3339)")
+	note := fs.String("note", "", "label for the run")
+	release := fs.String("release", "", "release this run belongs to")
+	goVer := fs.String("go", "", "Go version used (defaults to source run's version)")
+	benchtime := fs.String("benchtime", "", "benchtime used (defaults to source run's value)")
+	_ = fs.Parse(args)
+	if *logs == "" || *rivals == "" || *commit == "" || *date == "" {
+		return errors.New("import-zinc needs -logs, -rivals, -commit, and -date")
+	}
+	when, err := time.Parse(time.RFC3339, *date)
+	if err != nil {
+		return fmt.Errorf("-date: %w", err)
+	}
+	source, err := s.findRun(*rivals)
+	if err != nil {
+		return err
+	}
+	git, err := s.gitAt(*commit)
+	if err != nil {
+		return err
+	}
+
+	var raw bytes.Buffer
+	for _, path := range strings.Split(*logs, ",") {
+		data, err := readMaybeGzip(strings.TrimSpace(path))
+		if err != nil {
+			return err
+		}
+		raw.Write(data)
+		raw.WriteByte('\n')
+	}
+	partial, _, header, err := parseFrameworkOutput(bytes.NewReader(raw.Bytes()))
+	if err != nil {
+		return err
+	}
+	scenarios, count, err := mergeZincWithRivals(partial, source)
+	if err != nil {
+		return err
+	}
+	if header["goos"] != "" && header["goos"] != source.Env.GOOS {
+		return errors.New("Zinc and rival runs have different GOOS")
+	}
+	if header["goarch"] != "" && header["goarch"] != source.Env.GOARCH {
+		return errors.New("Zinc and rival runs have different GOARCH")
+	}
+	if header["cpu"] != "" && header["cpu"] != source.Env.CPU {
+		return errors.New("Zinc and rival runs have different CPUs")
+	}
+	env := source.Env
+	env.Count = count
+	if *goVer != "" {
+		env.Go = *goVer
+	}
+	if *benchtime != "" {
+		env.Benchtime = *benchtime
+	}
+	run := &Run{Schema: 1, ID: runID(when, git), CreatedAt: when.UTC().Format(time.RFC3339),
+		Release: *release, Note: *note, Imported: true, RivalSource: source.ID,
+		Git: git, Env: env, Scenarios: scenarios}
+	return finish(s, run, raw.Bytes(), false)
+}
+
+func mergeZincWithRivals(partial map[string]Scenario, source *Run) (map[string]Scenario, int, error) {
+	if len(partial) != len(source.Scenarios) {
+		return nil, 0, fmt.Errorf("Zinc logs have %d scenarios; rival run %s has %d", len(partial), source.ID, len(source.Scenarios))
+	}
+	scenarios := make(map[string]Scenario, len(partial))
+	count := 0
+	for name, row := range partial {
+		zinc, ok := row["Zinc"]
+		if !ok || len(row) != 1 {
+			return nil, 0, fmt.Errorf("%s is not Zinc-only", name)
+		}
+		if count == 0 {
+			count = len(zinc.NS)
+		}
+		if len(zinc.NS) != count {
+			return nil, 0, fmt.Errorf("%s has %d Zinc samples; expected %d", name, len(zinc.NS), count)
+		}
+		peers, ok := source.Scenarios[name]
+		if !ok {
+			return nil, 0, fmt.Errorf("%s missing from rival run %s", name, source.ID)
+		}
+		combined := Scenario{"Zinc": zinc}
+		for _, fw := range frameworks[1:] {
+			peer, ok := peers[fw]
+			if !ok {
+				return nil, 0, fmt.Errorf("%s/%s missing from rival run %s", name, fw, source.ID)
+			}
+			combined[fw] = peer
+		}
+		scenarios[name] = combined
+	}
+	return scenarios, count, nil
 }
 
 func buildRun(s *Store, raw []byte, when time.Time, git GitInfo, note, benchtime string, count int) (*Run, error) {
@@ -228,14 +335,14 @@ func cmdList(s *Store) error {
 	}
 	base := s.baseline()
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "\tRUN\tWHEN\tCOMMIT\tWINS\tNOTE")
+	fmt.Fprintln(w, "\tRUN\tRELEASE\tWHEN\tCOMMIT\tWINS\tNOTE")
 	for _, r := range runs {
 		mark := ""
 		if r.ID == base {
 			mark = "base"
 		}
 		when, _ := time.Parse(time.RFC3339, r.CreatedAt)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d/%d\t%s\n", mark, r.ID, when.Local().Format("Jan 02 15:04"), r.Git.Short, r.wins(), len(r.Scenarios), r.Note)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", mark, r.ID, r.Release, when.Local().Format("Jan 02 15:04"), r.Git.Short, r.wins(), len(r.Scenarios), r.Note)
 	}
 	return w.Flush()
 }

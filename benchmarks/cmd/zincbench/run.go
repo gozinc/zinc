@@ -14,15 +14,17 @@ var frameworks = []string{"Zinc", "Gin", "Echo", "Chi"}
 
 // Run is one immutable benchmark record.
 type Run struct {
-	Schema    int                 `json:"schema"`
-	ID        string              `json:"id"`
-	CreatedAt string              `json:"createdAt"`
-	Note      string              `json:"note,omitempty"`
-	Imported  bool                `json:"imported,omitempty"`
-	Git       GitInfo             `json:"git"`
-	Env       Env                 `json:"env"`
-	Scenarios map[string]Scenario `json:"scenarios"`
-	ZincOnly  map[string]Samples  `json:"zincOnly,omitempty"`
+	Schema      int                 `json:"schema"`
+	ID          string              `json:"id"`
+	CreatedAt   string              `json:"createdAt"`
+	Release     string              `json:"release,omitempty"`
+	Note        string              `json:"note,omitempty"`
+	Imported    bool                `json:"imported,omitempty"`
+	RivalSource string              `json:"rivalSource,omitempty"`
+	Git         GitInfo             `json:"git"`
+	Env         Env                 `json:"env"`
+	Scenarios   map[string]Scenario `json:"scenarios"`
+	ZincOnly    map[string]Samples  `json:"zincOnly,omitempty"`
 }
 
 // Scenario holds the samples for each framework in one head-to-head benchmark.
@@ -64,6 +66,22 @@ var benchLine = regexp.MustCompile(`^Benchmark(\S+?)(?:-\d+)?\s+\d+\s+([\d.]+) n
 // segment names a framework become head-to-head scenarios; everything else is
 // kept as a Zinc-only benchmark.
 func parseOutput(r io.Reader) (scenarios map[string]Scenario, zincOnly map[string]Samples, header map[string]string, err error) {
+	all, zincOnly, header, err := parseFrameworkOutput(r)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	scenarios = map[string]Scenario{}
+	for name, fws := range all {
+		if len(fws) == len(frameworks) {
+			scenarios[name] = fws
+		}
+	}
+	return scenarios, zincOnly, header, nil
+}
+
+// parseFrameworkOutput keeps partial head-to-head results for Zinc-only
+// imports that deliberately reuse a separately recorded rival run.
+func parseFrameworkOutput(r io.Reader) (scenarios map[string]Scenario, zincOnly map[string]Samples, header map[string]string, err error) {
 	scenarios = map[string]Scenario{}
 	zincOnly = map[string]Samples{}
 	header = map[string]string{}
@@ -120,9 +138,6 @@ func parseOutput(r io.Reader) (scenarios map[string]Scenario, zincOnly map[strin
 		return Samples{NS: a.ns, Bytes: median(a.bytes), Allocs: median(a.allocs)}
 	}
 	for scenario, fws := range h2h {
-		if len(fws) != len(frameworks) {
-			continue // a head-to-head scenario needs every framework
-		}
 		s := Scenario{}
 		for fw, a := range fws {
 			s[fw] = toSamples(a)

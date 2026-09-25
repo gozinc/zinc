@@ -24,8 +24,10 @@ import (
 const usage = `zincbench records benchmark runs and compares them.
 
 Usage:
-  zincbench record   [-note text] [-count 10] [-benchtime 100ms] [-bench regexp] [-baseline]
-  zincbench import   -log file[.gz] [-commit sha] [-date RFC3339] [-note text] [-baseline]
+  zincbench record   [-release version] [-note text] [-count 10] [-benchtime 100ms] [-bench regexp] [-baseline]
+  zincbench import   -log file[.gz] [-release version] [-commit sha] [-date RFC3339] [-note text] [-baseline]
+  zincbench import-zinc -logs file1,file2 -rivals run-id -commit sha -date RFC3339 [-release version] [-note text]
+  zincbench bundle   -release version [-o file.zip] [-include path1,path2]
   zincbench baseline [run-id | latest]
   zincbench list
   zincbench dash     [-o file] [-open]
@@ -49,6 +51,10 @@ func main() {
 		err = cmdRecord(store, args)
 	case "import":
 		err = cmdImport(store, args)
+	case "import-zinc":
+		err = cmdImportZinc(store, args)
+	case "bundle":
+		err = cmdBundle(store, args)
 	case "baseline":
 		err = cmdBaseline(store, args)
 	case "list":
