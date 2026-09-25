@@ -60,8 +60,8 @@ func buildDashboard(s *Store, out string) (string, error) {
 		return "", err
 	}
 
-	logo := "zn-spangle.png"
-	if rel, err := filepath.Rel(filepath.Dir(out), filepath.Join(s.root, "website", "public", "zn-spangle.png")); err == nil {
+	logo := "zn-spangle-hd.webp"
+	if rel, err := filepath.Rel(filepath.Dir(out), filepath.Join(s.root, "website", "public", "zn-spangle-hd.webp")); err == nil {
 		logo = filepath.ToSlash(rel)
 	}
 	html := strings.Replace(dashboardTemplate, "/*__DATA__*/null", string(data), 1)
