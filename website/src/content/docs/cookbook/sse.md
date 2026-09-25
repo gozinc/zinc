@@ -1,6 +1,6 @@
 ---
 title: Server-Sent Events
-description: Stream structured one-way events and flush each one to the browser.
+description: Stream structured one-way events to the browser, each delivered as soon as it is sent.
 ---
 
 Server-sent events push a stream of updates from server to browser over one long-lived HTTP response. They are simpler than WebSockets when data flows only one way. This program sends the time every second until the client disconnects.
@@ -10,7 +10,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -21,11 +20,6 @@ func main() {
 	app := zinc.New()
 
 	app.Get("/events", func(c *zinc.Context) error {
-		flusher, ok := c.Writer().(http.Flusher)
-		if !ok {
-			return zinc.ErrInternalServerError.WithMessage("streaming is not supported")
-		}
-
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
@@ -39,7 +33,6 @@ func main() {
 				}); err != nil {
 					return err
 				}
-				flusher.Flush()
 			case <-c.Context().Done():
 				return nil
 			}
@@ -59,6 +52,8 @@ events.addEventListener("clock", (event) => {
 });
 ```
 
-`c.SSE` sets the event-stream headers and writes one event. Flush after every
-event so it reaches the client immediately. The handler exits when the client
-disconnects and the request context is cancelled.
+`c.SSE` sets the event-stream headers, writes one event, and flushes it so it
+reaches the client immediately. `Config.WriteTimeout` applies to each event
+rather than to the whole stream, so the stream can stay open for as long as the
+handler keeps sending. The handler exits when the client disconnects and the
+request context is cancelled.

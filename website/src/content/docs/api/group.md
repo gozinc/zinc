@@ -16,7 +16,7 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 
 | Method | Purpose |
 |---|---|
-| `Use(middleware...) *Group` | Adds middleware for routes registered on this group and its subgroups |
+| `Use(middleware...) *Group` | Adds middleware for this group's routes and subgroups. Call it before registering them: `Use` panics once the group has routes, mounts, files, or child groups |
 | `Group(prefix, middleware...) *Group` | A nested group |
 | `Route(prefix, fn func(*Group), middleware...) *Group` | A nested group declared in a block |
 | `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Routes below the prefix |

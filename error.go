@@ -35,6 +35,17 @@ func (e *HTTPError) Unwrap() error {
 	return e.Cause
 }
 
+// Is matches HTTP errors by status, so errors.Is(err, ErrNotFound) holds for
+// any 404, including copies made by the With methods. A target that carries a
+// message matches only errors with the same status and message.
+func (e *HTTPError) Is(target error) bool {
+	t, ok := target.(*HTTPError)
+	if !ok || e == nil || t == nil {
+		return false
+	}
+	return e.Code == t.Code && (t.Message == "" || t.Message == e.Message)
+}
+
 // NewError creates an HTTPError for status code.
 func NewError(code int) *HTTPError {
 	return &HTTPError{Code: code}

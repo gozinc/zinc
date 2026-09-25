@@ -95,7 +95,7 @@ Never build a file path from request input without validating it. The [File Down
 return c.Stream("text/csv", exportReader)
 ```
 
-For server-sent events, write one event at a time and flush after each:
+For server-sent events, call `c.SSE` once per event. Each event is flushed to the client as it is written:
 
 ```go
 app.Get("/events", func(c *zinc.Context) error {
@@ -103,15 +103,12 @@ app.Get("/events", func(c *zinc.Context) error {
 		if err := c.SSE(zinc.SSEvent{Event: "update", Data: msg}); err != nil {
 			return err
 		}
-		if f, ok := c.Writer().(http.Flusher); ok {
-			f.Flush()
-		}
 	}
 	return nil
 })
 ```
 
-The loop ends when the client disconnects and `c.Context()` is cancelled. See the [Server-Sent Events](/cookbook/sse/) recipe for a complete program.
+The loop ends when the client disconnects and `c.Context()` is cancelled. `Config.WriteTimeout` applies to each event rather than to the whole stream, so a stream can stay open indefinitely. See the [Server-Sent Events](/cookbook/sse/) recipe for a complete program.
 
 ## Content negotiation
 

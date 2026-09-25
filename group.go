@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"path"
@@ -16,6 +17,9 @@ type Group struct {
 	app        *App
 	prefix     string
 	middleware []HandlerFunc
+	// sealedBy describes the first registration that captured the middleware
+	// chain. Middleware added after it would silently skip that registration.
+	sealedBy string
 }
 
 // NewGroup creates a group bound to app.
@@ -31,15 +35,33 @@ func NewGroup(app *App, prefix string, handlers ...HandlerFunc) *Group {
 	}
 }
 
-// Use appends middleware to routes subsequently registered through the group.
+// Use appends middleware to the group. It panics once the group has routes,
+// mounts, static files, or child groups, because those have already captured
+// the chain and would silently run without the new middleware.
 func (g *Group) Use(handlers ...HandlerFunc) *Group {
+	if g.sealedBy != "" {
+		prefix := g.prefix
+		if prefix == "" {
+			prefix = "/"
+		}
+		panic(fmt.Sprintf("zinc: Use on group %q after %s; register group middleware before its routes and child groups", prefix, g.sealedBy))
+	}
 	g.middleware = append(g.middleware, handlers...)
 	return g
+}
+
+// seal records the first registration that captured the middleware chain.
+// The description is built only once, so later registrations cost nothing.
+func (g *Group) seal(kind, target string) {
+	if g.sealedBy == "" {
+		g.sealedBy = kind + " " + target
+	}
 }
 
 // Group creates a child that inherits the parent's middleware in order.
 func (g *Group) Group(prefix string, handlers ...HandlerFunc) *Group {
 	fullPrefix := joinPaths(g.prefix, prefix)
+	g.seal("child group", fullPrefix)
 	sub := NewGroup(g.app, fullPrefix)
 	sub.middleware = append(sub.middleware, g.middleware...)
 	sub.middleware = append(sub.middleware, handlers...)
@@ -57,6 +79,7 @@ func (g *Group) Route(prefix string, fn func(*Group), handlers ...HandlerFunc) *
 
 // Mount delegates a subtree below the group to a standard HTTP handler.
 func (g *Group) Mount(prefix string, h http.Handler) {
+	g.seal("mount", joinPaths(g.prefix, prefix))
 	g.app.mount(joinPaths(g.prefix, prefix), h, g.middleware)
 }
 
@@ -67,6 +90,9 @@ func (g *Group) Add(method, routePath string, handlers ...HandlerFunc) {
 
 func (g *Group) add(method, routePath, name string, handlers ...HandlerFunc) error {
 	fullPath := joinPaths(g.prefix, routePath)
+	if g.sealedBy == "" {
+		g.seal("route", method+" "+fullPath)
+	}
 	allHandlers := make([]HandlerFunc, 0, len(g.middleware)+len(handlers))
 	allHandlers = append(allHandlers, g.middleware...)
 	allHandlers = append(allHandlers, handlers...)
@@ -102,6 +128,7 @@ func (g *Group) HandleHTTP(pattern string, handler http.Handler) {
 // RouteNotFound registers a path-specific 404 handler below the group.
 func (g *Group) RouteNotFound(routePath string, handlers ...HandlerFunc) {
 	fullPath := joinPaths(g.prefix, routePath)
+	g.seal("not-found route", fullPath)
 	allHandlers := make([]HandlerFunc, 0, len(g.middleware)+len(handlers))
 	allHandlers = append(allHandlers, g.middleware...)
 	allHandlers = append(allHandlers, handlers...)
@@ -182,6 +209,7 @@ func (g *Group) Static(prefix, root string, opts ...StaticOption) error {
 
 // StaticFS serves an fs.FS below the group.
 func (g *Group) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
+	g.seal("static files", joinPaths(g.prefix, prefix))
 	return g.app.staticFS(joinPaths(g.prefix, prefix), filesystem, g.middleware, opts...)
 }
 

@@ -1,17 +1,20 @@
 package zinc_test
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"github.com/0mjs/zinc"
 	"github.com/0mjs/zinc/middleware"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestFailedJSONDoesNotCommitSelectedStatus(t *testing.T) {
@@ -255,3 +258,48 @@ type headerRecorder struct {
 
 func (w *headerRecorder) Header() http.Header  { return w.header }
 func (w *headerRecorder) WriteHeader(code int) { w.codes = append(w.codes, code) }
+
+// An event stream outlives Config.WriteTimeout, which bounds one ordinary
+// response. Each event gets its own write budget and is flushed as it is
+// written, so the client sees every event without a manual flush.
+func TestSSEStreamOutlivesWriteTimeout(t *testing.T) {
+	cfg := zinc.DefaultConfig
+	cfg.WriteTimeout = 200 * time.Millisecond
+	app := zinc.NewWithConfig(cfg)
+	const events = 5
+	app.Get("/events", func(c *zinc.Context) error {
+		for i := 0; i < events; i++ {
+			if err := c.SSE(zinc.SSEvent{Data: i}); err != nil {
+				return err
+			}
+			time.Sleep(120 * time.Millisecond) // 600 ms in total
+		}
+		return nil
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Serve(ln) }()
+	defer app.Close()
+
+	start := time.Now()
+	resp, err := http.Get("http://" + ln.Addr().String() + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	first, err := reader.ReadString('\n')
+	if err != nil || !strings.HasPrefix(first, "data: ") {
+		t.Fatalf("first line %q: %v", first, err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("first event arrived after %v; events are not flushed as written", elapsed)
+	}
+	rest, readErr := io.ReadAll(reader)
+	body := first + string(rest)
+	if got := strings.Count(body, "data: "); got != events || readErr != nil {
+		t.Fatalf("received %d of %d events (read error: %v)", got, events, readErr)
+	}
+}

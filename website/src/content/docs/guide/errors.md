@@ -126,4 +126,4 @@ Without help, Go's HTTP server catches a handler panic, logs it, and drops the c
 - [Recover](/middleware/recover/) for turning panics into errors.
 - [Errors API](/api/errors/) for the full `HTTPError` type.
 
-HTTP error modifiers copy the error. `errors.Is(derived, zinc.ErrUnauthorized)` does not identify a derived copy by its original sentinel. Use `errors.As` and inspect `HTTPError.Code`, or match an application cause attached with `WithCause`. Validation errors are application-defined: return an HTTP error from the validator or map your validation type in a custom error handler.
+HTTP errors match by status: `errors.Is(err, zinc.ErrUnauthorized)` is true for any 401, including copies made with `WithMessage` and errors that wrap one. A target that carries a message also requires that message. The cause attached with `WithCause` stays reachable through `errors.Is` and `errors.As`. Validation errors are application-defined: return an HTTP error from the validator or map your validation type in a custom error handler.

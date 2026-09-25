@@ -24,6 +24,7 @@ type HTTPError struct {
 | `WithMeta(key, value)` | A copy with one metadata value |
 | `WithHeader(key, value)` | A copy that adds a response header |
 | `Error()` | The message, or the status text when there is none |
+| `Is(target)` | Matches another `*HTTPError` with the same code, and the same message if the target has one, so `errors.Is(err, zinc.ErrNotFound)` holds for any 404 |
 
 Builders always return copies, so the predefined errors below are safe to share.
 

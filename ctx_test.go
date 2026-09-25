@@ -667,8 +667,8 @@ func TestBindDataPopulatesSupportedFieldKinds(t *testing.T) {
 	if got.Optional != "opt" {
 		t.Fatalf("optional=%q", got.Optional)
 	}
-	if got.DefaultVal != "default" {
-		t.Fatalf("default value=%q", got.DefaultVal)
+	if got.DefaultVal != "" {
+		t.Fatalf("untagged field bound from the query: %q", got.DefaultVal)
 	}
 	if got.Ignored != "" {
 		t.Fatalf("ignored should not be set, got=%q", got.Ignored)
@@ -1543,3 +1543,44 @@ func (b *fixedBody) Close() error {
 }
 
 type contextTestKey string
+
+func TestOriginalURLSurvivesRewrites(t *testing.T) {
+	app := New()
+	var original, current string
+	app.Use(func(c *Context) error {
+		c.SetPath("/rewritten")
+		c.SetPath("/rewritten-again")
+		return c.Next()
+	})
+	app.Get("/rewritten-again", func(c *Context) error {
+		original, current = c.OriginalURL(), c.Request().URL.RequestURI()
+		return c.NoContent()
+	})
+	performRequest(t, app, http.MethodGet, "/orig?q=1", nil, nil)
+	if original != "/orig?q=1" || current != "/rewritten-again?q=1" {
+		t.Fatalf("original=%q current=%q", original, current)
+	}
+
+	// Replacing the request with a different URL also preserves the original;
+	// a context-only copy, as the proxy middleware makes, captures nothing.
+	req := httptest.NewRequest(http.MethodGet, "/first", nil)
+	c := app.AcquireContext(httptest.NewRecorder(), req)
+	defer app.ReleaseContext(c)
+	c.SetRequest(req.WithContext(stdctx.Background()))
+	if c.originalURI != "" {
+		t.Fatalf("context-only copy captured %q", c.originalURI)
+	}
+	c.SetRequest(httptest.NewRequest(http.MethodGet, "/second", nil))
+	if c.OriginalURL() != "/first" {
+		t.Fatalf("OriginalURL after SetRequest = %q", c.OriginalURL())
+	}
+
+	// A pooled context must not leak the previous request's original URI.
+	plain := New()
+	plain.Get("/plain", func(c *Context) error { original = c.OriginalURL(); return c.NoContent() })
+	performRequest(t, app, http.MethodGet, "/orig", nil, nil)
+	performRequest(t, plain, http.MethodGet, "/plain", nil, nil)
+	if original != "/plain" {
+		t.Fatalf("pooled context reported %q", original)
+	}
+}

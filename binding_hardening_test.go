@@ -153,3 +153,29 @@ func TestTextUnmarshalerAcrossRequestSources(t *testing.T) {
 		t.Fatalf("%d %q", w.Code, w.Body.String())
 	}
 }
+
+// Request sources bind only tagged fields, so a query parameter or header
+// cannot set a field that the struct keeps out of its JSON contract.
+func TestBindAllIgnoresUntaggedFieldsForRequestSources(t *testing.T) {
+	type input struct {
+		Name    string `json:"name"`
+		IsAdmin bool   `json:"-"`
+		Role    string
+		Page    int `query:",omitempty"`
+	}
+	app := zinc.New()
+	var got input
+	app.Post("/users/{role}", func(c *zinc.Context) error { return c.Bind().All(&got) })
+
+	req := httptest.NewRequest("POST", "/users/admin?isadmin=true&role=admin&page=2", strings.NewReader(`{"name":"a"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("IsAdmin", "true")
+	app.ServeHTTP(httptest.NewRecorder(), req)
+
+	if got.Name != "a" || got.IsAdmin || got.Role != "" {
+		t.Fatalf("bound %+v; want only Name from the body", got)
+	}
+	if got.Page != 2 {
+		t.Fatalf("a tag with options but no name should opt in under the field name; Page=%d", got.Page)
+	}
+}

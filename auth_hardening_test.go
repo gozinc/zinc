@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -49,8 +50,16 @@ func TestNestedGroupFileHelpersPreserveMiddleware(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Registration snapshots the group chain, as ordinary routes do.
-			group.Use(func(c *zinc.Context) error { return zinc.ErrUnauthorized })
+			// Registration captures the group chain, so late middleware is
+			// rejected rather than silently skipping the helper.
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Fatal("Use after registration did not panic")
+					}
+				}()
+				group.Use(func(c *zinc.Context) error { return zinc.ErrUnauthorized })
+			}()
 			w := hardeningRequest(app, "GET", "/parent/child/files/secret.txt")
 			if w.Code != 200 || w.Body.String() != "secret" {
 				t.Fatalf("response: %d %q", w.Code, w.Body.String())
@@ -164,5 +173,43 @@ func TestGroupPreservesStrictTrailingSlash(t *testing.T) {
 	w := hardeningRequest(app, "GET", "/api/items/")
 	if w.Code != 200 {
 		t.Fatalf("registered trailing slash lost: %d", w.Code)
+	}
+}
+
+// Group middleware added after a route would leave that route unprotected.
+func TestGroupUseAfterRegistrationPanics(t *testing.T) {
+	deny := func(c *zinc.Context) error { return zinc.ErrUnauthorized }
+	cases := map[string]struct {
+		register func(*zinc.Group)
+		want     string
+	}{
+		"route":       {func(g *zinc.Group) { g.Get("/secret", func(c *zinc.Context) error { return c.String("secret") }) }, "after route GET /admin/secret"},
+		"child group": {func(g *zinc.Group) { g.Group("/users") }, "after child group /admin/users"},
+		"route block": {func(g *zinc.Group) { g.Route("/teams", func(*zinc.Group) {}) }, "after child group /admin/teams"},
+		"not found":   {func(g *zinc.Group) { g.RouteNotFound("/{rest...}", deny) }, "after not-found route /admin/{rest...}"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			g := zinc.New().Group("/admin")
+			tc.register(g)
+			defer func() {
+				msg, _ := recover().(string)
+				if !strings.Contains(msg, tc.want) {
+					t.Fatalf("panic = %q, want it to mention %q", msg, tc.want)
+				}
+			}()
+			g.Use(deny)
+		})
+	}
+
+	// Middleware registered first still protects every route, and App.Use
+	// remains global regardless of registration order.
+	app := zinc.New()
+	admin := app.Group("/admin").Use(deny)
+	admin.Get("/secret", func(c *zinc.Context) error { return c.String("secret") })
+	app.Use(func(c *zinc.Context) error { c.SetHeader("X-Global", "1"); return c.Next() })
+	w := hardeningRequest(app, "GET", "/admin/secret")
+	if w.Code != 401 || w.Header().Get("X-Global") != "1" {
+		t.Fatalf("status=%d global=%q", w.Code, w.Header().Get("X-Global"))
 	}
 }

@@ -52,6 +52,8 @@ UseHTTP middleware            (standard net/http, outermost)
 
 Within each level, middleware runs in the order you registered it. Nested groups add their middleware after their parent's.
 
+Register a group's middleware before its routes. Each route, mount, static directory, and child group captures the group's middleware when it is registered, so `group.Use` panics once any of them exist. Otherwise, an authentication middleware added at the end of a group would silently skip the routes above it. `app.Use` has no such restriction, because global middleware runs on every request.
+
 ## Stopping early
 
 Return an error, or write a response, instead of calling `c.Next()`:
