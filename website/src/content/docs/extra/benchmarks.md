@@ -7,43 +7,43 @@ Zinc keeps its benchmark suite in the repository, so every performance claim can
 
 ## Latest results
 
-Historical run: Apple M1 Pro, `go1.26.1`, Zinc commit `5f77c75`, before 0.3 hardening. Lower is better.
+Latest Zinc run: 25 September 2026, Apple M1 Pro, `go1.27.1`, commit `42e11d2`. Gin, Echo, and Chi samples are reused from 24 September. These mixed-date figures are an indicative snapshot; close results need a contemporaneous rerun. Lower is better.
 
 | Framework | Fastest in |
 |---|---|
-| **Zinc** | **62 of 77** |
-| Gin | 10 of 77 |
-| Chi | 5 of 77 |
-| Echo | 0 of 77 |
+| **Zinc** | **60 of 77** |
+| Gin | 12 of 77 |
+| Chi | 3 of 77 |
+| Echo | 2 of 77 |
 
-Zinc was fastest, or within 2% of the fastest, in 63 rows. These historical paths allocated nothing per request. Hardened response-header ownership adds one 16-byte allocation to the measured common string-response paths; the historical table is not a claim about the current revision.
+Zinc was fastest, or within 2% of the fastest, in 64 rows. The 77-scenario score is a useful comparison, not a release threshold. Common string-response routing paths allocate 16 B and one object per request with the hardened response-header ownership.
 
 | Benchmark | Zinc | Gin | Echo | Chi |
 |---|---:|---:|---:|---:|
-| Hello world | **65.27** | 89.27 | 138.2 | 198.9 |
-| Route parameter | **80.65** | 94.61 | 132.4 | 345.9 |
-| Middleware chain | **365.1** | 424.2 | 540.5 | 950.0 |
-| JSON response | **322.6** | 394.5 | 387.9 | 508.2 |
-| API request, bind and respond | **1,186** | 3,024 | 2,287 | 1,737 |
-| Parallel route parameter | **13.68** | 53.86 | 56.11 | 315.4 |
+| Hello world | **86.75** | 136.9 | 152.9 | 180.8 |
+| Route parameter | **114.2** | 143.9 | 159.1 | 348.1 |
+| Middleware chain | **242.8** | 522.5 | 326.2 | 893.2 |
+| JSON response | **568.2** | 596.3 | 577.2 | 665.8 |
+| API happy path | **1,078.5** | 3,292 | 1,548.5 | 1,912.5 |
+| Parallel route parameter | **40.05** | 55.91 | 49.04 | 301.5 |
 
 Times are nanoseconds per operation.
 
 ## Where Zinc is not fastest
 
-- **Not found and method mismatch.** Gin answers routing misses faster on several route sets, for example `NotFound` at 58.46 ns against Zinc's 72.18 ns.
-- **Route registration.** Chi builds large route tables faster in most realistic scenarios. This happens once at startup.
-- **Rejecting invalid JSON.** Gin is about 9% faster (694 ns against 761 ns). Multipart uploads are within 1% across all four frameworks.
-- **Missing static files.** Gin answers a static-file miss faster (1,031 ns against 1,536 ns).
+- **Not found and method mismatch.** Gin answers several misses faster, including `NotFound` at 60.03 ns against Zinc's 107.7 ns. The large-route-set method mismatch is 91.81 ns for Gin against 106.4 ns for Zinc.
+- **Route registration.** Gin wins `RouteRegistrationParam` by 10%; Chi wins two scenario route-set builds. Registration happens at startup.
+- **Query parameters.** Echo wins `QueryParams` by 3.2%.
+- **Static files.** Gin answers a missing file at 1,022 ns against Zinc's 1,587.5 ns; Chi is narrowly faster on a file hit.
 
 ## Run it yourself
 
 ```bash
 git clone https://github.com/0mjs/zinc
 cd zinc/benchmarks
-go test -run='^$' -bench=. -benchmem -count=10 | tee results.txt
+GOTOOLCHAIN=go1.27.1 go test -run='^$' -bench=. -benchmem -count=10 -benchtime=100ms | tee results.txt
 ```
 
 Results depend on the machine. Compare runs with [`benchstat`](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat) rather than trusting a single sample.
 
-The [full report](https://github.com/0mjs/zinc/blob/dev/BENCHMARKS.md) lists all 77 comparable rows and the scorecard.
+The [full report](https://github.com/0mjs/zinc/blob/dev/BENCHMARKS.md) lists all 77 rows, including the percentage Zinc trails the winner in each loss. The separate [Gin routing-suite report](https://github.com/0mjs/zinc/blob/dev/GIN_BENCHMARK.md) covers 16 router-focused workloads measured together on 25 September; its scores are not part of the 77.

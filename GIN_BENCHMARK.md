@@ -1,330 +1,419 @@
 # Zinc in the Gin HTTP Routing Benchmark
 
-**Machine:** Apple M1 Pro
-**OS:** macOS 26.3 (Darwin 25.3.0), arm64
-**Date:** August 4th, 2026
-**Zinc Version:** 0.3.0 development (`66578db`)
-**Go Version:** 1.26.5 darwin/arm64
-**Source:** [Go HTTP Router Benchmark](https://github.com/gin-gonic/go-http-routing-benchmark)
-**Suite Commit:** `ff3cdf55eccd0aa6a272991db9611a86c734dc51`
+- Machine: Apple M1 Pro
+- OS / architecture: macOS, darwin/arm64
+- Date: 25 September 2026
+- Zinc revision: 0.3.0 development (`42e11d2`)
+- Go: `go1.27.1`
+- Samples: 5 × 100ms per benchmark; tables show medians
+- Source: [gin-gonic/go-http-routing-benchmark](https://github.com/gin-gonic/go-http-routing-benchmark) at `ff3cdf55eccd0aa6a272991db9611a86c734dc51`
 
-> Results were generated using the
-> [gin-gonic/go-http-routing-benchmark](https://github.com/gin-gonic/go-http-routing-benchmark)
-> suite, modified locally only to add a Zinc adapter. The benchmark suite is
-> available under the [BSD 3-Clause License](https://github.com/gin-gonic/go-http-routing-benchmark/blob/master/LICENSE).
-> Benchmark suite copyright © 2013 Julien Schmidt. All rights reserved.
-> Zinc is not affiliated with or endorsed by Gin or the benchmark's authors.
-
----
-
-## Table of Contents
-
-- [Summary](#summary)
-- [Zinc at a Glance](#zinc-at-a-glance)
-- [Memory Consumption](#memory-consumption)
-- [Benchmark Results](#benchmark-results)
-  - [GitHub API (203 routes)](#github-api-203-routes)
-  - [Google+ API (13 routes)](#google-api-13-routes)
-  - [Parse API (26 routes)](#parse-api-26-routes)
-  - [Static Routes (157 routes)](#static-routes-157-routes)
-- [Micro Benchmarks](#micro-benchmarks)
-  - [Single Param](#single-param)
-  - [5 Params](#5-params)
-  - [20 Params](#20-params)
-  - [Param Write](#param-write)
-
----
+> The pinned upstream suite was run locally with a Zinc adapter. Only a filtered-run fixture-initialization fix was added to its timing helpers. This suite is available under the [BSD 3-Clause License](https://github.com/gin-gonic/go-http-routing-benchmark/blob/master/LICENSE); benchmark suite copyright © 2013 Julien Schmidt. Zinc is not affiliated with or endorsed by Gin or the suite authors.
 
 ## Summary
 
-The table below ranks all routers by **GitHub API routing time** (203 routes, all methods), which best represents real-world routing workloads. _Lower ns/op is better._
+Zinc has the lowest median in **1/16** comparable rows against the other `net/http` routers, and **2/16** against Gin, Echo, and Chi. It records **0 B/op and 0 allocs/op** in all 16. This router-focused suite measures different work from Zinc's 77-scenario end-to-end suite; the win counts must not be combined.
 
-| Rank | Router | ns/op | B/op | allocs/op | Zero-alloc |
-| :--: | :----- | ----: | ---: | --------: | :--------: |
-| 1 | **Gin** | 13,372 | 0 | 0 | :white_check_mark: |
-| 2 | **BunRouter** | 14,612 | 0 | 0 | :white_check_mark: |
-| 3 | **Echo** | 15,852 | 0 | 0 | :white_check_mark: |
-| 4 | **Zinc** | 16,057 | 0 | 0 | :white_check_mark: |
-| 5 | HttpRouter | 20,393 | 13,792 | 167 |  |
-| 6 | HttpTreeMux | 62,934 | 65,856 | 671 |  |
-| 7 | Beego | 117,328 | 71,456 | 609 |  |
-| 8 | Chi | 124,766 | 130,817 | 740 |  |
-| 9 | Macaron | 152,643 | 147,784 | 1,624 |  |
-| 10 | Fiber | 153,679 | 0 | 0 | :white_check_mark: |
-| 11 | Goji v2 | 292,715 | 313,744 | 3,712 |  |
-| 12 | GoRestful | 1,216,620 | 1,006,744 | 3,009 |  |
-| 13 | GorillaMux | 1,745,084 | 225,667 | 1,588 |  |
+The complete GitHub API pass (203 routes) measures Zinc at **19,249 ns/op**, ranking **4th of 12** `net/http` routers. Zinc ranks second on the 157-route static pass and first on the 20-parameter microbenchmark.
 
-**Key takeaways:**
+> **Fiber caveat:** Fiber uses a separate `fasthttp.RequestCtx` harness. Its times are shown for fidelity to the upstream suite, but it is excluded from `net/http` win counts and rankings.
 
-- **Gin**, **BunRouter**, **Echo**, and **Zinc** form the zero-allocation top tier, routing the complete GitHub API workload in 13.4–16.1 µs.
-- **Zinc ranks fourth** on the GitHub workload, 1.3% behind Echo and 21.3% faster than HttpRouter.
-- **Zinc ranks second** on the 157-route static workload and **first** on the 20-parameter microbenchmark.
-- Zinc records zero heap allocations in every reported workload.
+## Zinc at a glance
 
-> **Fiber caveat:** Fiber benchmarks use `fasthttp.RequestCtx` with per-iteration Reset, which adds constant overhead not present in net/http benchmarks. Fiber-vs-Fiber comparisons are valid; cross-framework comparisons should be interpreted with care.
+| Workload | Zinc rank among `net/http` routers | Zinc ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| GitHub API (203 routes) | 4 / 12 | 19,249 | 0 | 0 |
+| Google+ API (13 routes) | 5 / 12 | 1,170 | 0 | 0 |
+| Parse API (26 routes) | 5 / 12 | 1,905 | 0 | 0 |
+| Static routes (157 routes) | 2 / 13 | 8,086 | 0 | 0 |
+| Single parameter | 5 / 12 | 55.63 | 0 | 0 |
+| Five parameters | 2 / 12 | 70.91 | 0 | 0 |
+| Twenty parameters | 1 / 12 | 125.5 | 0 | 0 |
+| Parameter read and write | 5 / 12 | 73.1 | 0 | 0 |
 
----
+## Memory consumption
 
-## Zinc at a Glance
+Routing-structure bytes retained after registration, estimated once after GC. These are not process RSS or repeated timing samples.
 
-| Workload | Zinc rank | Result | Allocations |
-| :------- | :-------: | -----: | ----------: |
-| GitHub API: 203 routes | **4th of 13** | 16,057 ns/op | 0 |
-| Google+ API: 13 routes | **5th of 13** | 1,043 ns/op | 0 |
-| Parse API: 26 routes | **5th of 13** | 1,665 ns/op | 0 |
-| Static: 157 routes | **2nd of 13** | 7,022 ns/op | 0 |
-| Single parameter | **5th of 13** | 47.84 ns/op | 0 |
-| Five parameters | **2nd of 13** | 63.81 ns/op | 0 |
-| Twenty parameters | **1st of 13** | 123.4 ns/op | 0 |
-| Parameter read and write | **4th of 13** | 56.30 ns/op | 0 |
-
-Zinc's clearest position in this suite is a **zero-allocation, top-tier router**: close to Echo on the representative GitHub workload, particularly strong on static and multi-parameter routes, and consistently ahead of the heavier `net/http` routers.
-
----
-
-## Memory Consumption
-
-Memory required for loading the routing structure (lower is better). Sorted by bytes ascending.
-
-### Static Routes: 157
+### Static routes: 157
 
 | Router | Bytes |
-| :----- | ----: |
-| **HttpRouter** | **21,680** |
-| **Gin** | **34,408** |
-| **Macaron** | **36,976** |
-| **Zinc** | 39,296 |
+| --- | ---: |
+| HttpRouter | 21,680 |
+| Gin | 34,408 |
+| Macaron | 36,976 |
+| Zinc | 39,376 |
 | BunRouter | 51,232 |
 | Fiber | 59,248 |
-| HttpServeMux | 69,216 |
+| http.ServeMux | 69,216 |
 | HttpTreeMux | 73,448 |
 | Chi | 83,160 |
-| Echo | 91,976 |
+| Echo | 92,104 |
 | Beego | 98,824 |
 | Goji v2 | 117,952 |
 | GorillaMux | 599,496 |
 | GoRestful | 819,688 |
 
-### GitHub API Routes: 203
+### GitHub API routes: 203
 
 | Router | Bytes |
-| :----- | ----: |
-| **HttpRouter** | **37,072** |
-| **Gin** | **58,840** |
-| **HttpTreeMux** | **78,800** |
+| --- | ---: |
+| HttpRouter | 37,072 |
+| Gin | 58,840 |
+| HttpTreeMux | 78,800 |
 | Macaron | 90,632 |
 | BunRouter | 93,776 |
 | Chi | 94,888 |
-| **Zinc** | 102,504 |
-| Echo | 117,784 |
+| Zinc | 102,440 |
+| Echo | 117,912 |
 | Goji v2 | 118,640 |
 | Beego | 150,840 |
 | Fiber | 163,832 |
-| GoRestful | 1,270,816 |
-| GorillaMux | 1,319,696 |
+| GoRestful | 1,270,704 |
+| GorillaMux | 1,319,680 |
 
-### Google+ API Routes: 13
+### Google+ API routes: 13
 
 | Router | Bytes |
-| :----- | ----: |
-| **HttpRouter** | **2,776** |
-| **Gin** | **4,576** |
-| **BunRouter** | **7,360** |
+| --- | ---: |
+| HttpRouter | 2,776 |
+| Gin | 4,576 |
+| BunRouter | 7,360 |
 | HttpTreeMux | 7,440 |
 | Chi | 8,008 |
 | Goji v2 | 8,096 |
-| **Zinc** | 8,320 |
+| Zinc | 8,400 |
 | Macaron | 8,672 |
 | Beego | 10,256 |
 | Fiber | 10,840 |
-| Echo | 10,968 |
+| Echo | 11,096 |
 | GorillaMux | 68,000 |
 | GoRestful | 72,520 |
 
-### Parse API Routes: 26
+### Parse API routes: 26
 
 | Router | Bytes |
-| :----- | ----: |
-| **HttpRouter** | **5,024** |
-| **HttpTreeMux** | **7,848** |
-| **Gin** | **7,896** |
+| --- | ---: |
+| HttpRouter | 5,024 |
+| HttpTreeMux | 7,848 |
+| Gin | 7,896 |
 | BunRouter | 9,336 |
 | Chi | 9,656 |
-| **Zinc** | 13,160 |
+| Zinc | 13,272 |
 | Macaron | 13,704 |
-| Echo | 13,816 |
+| Echo | 13,944 |
 | Fiber | 15,352 |
 | Goji v2 | 16,064 |
 | Beego | 19,256 |
 | GorillaMux | 105,384 |
 | GoRestful | 121,184 |
 
----
+## Benchmark results
 
-## Benchmark Results
+The four `*All` rows time one complete pass over the route fixture, not one HTTP request. The remaining rows are single-request microbenchmarks. All values below are five-sample medians.
 
 ### GitHub API (203 routes)
 
-Routing all 203 GitHub API endpoints per operation.
+One operation covers all 203 routes in the fixture.
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **Gin** | 13,372 | 0 | 0 |
-| 2 | **BunRouter** | 14,612 | 0 | 0 |
-| 3 | **Echo** | 15,852 | 0 | 0 |
-| 4 | **Zinc** | 16,057 | 0 | 0 |
-| 5 | HttpRouter | 20,393 | 13,792 | 167 |
-| 6 | HttpTreeMux | 62,934 | 65,856 | 671 |
-| 7 | Beego | 117,328 | 71,456 | 609 |
-| 8 | Chi | 124,766 | 130,817 | 740 |
-| 9 | Macaron | 152,643 | 147,784 | 1,624 |
-| 10 | Fiber | 153,679 | 0 | 0 |
-| 11 | Goji v2 | 292,715 | 313,744 | 3,712 |
-| 12 | GoRestful | 1,216,620 | 1,006,744 | 3,009 |
-| 13 | GorillaMux | 1,745,084 | 225,667 | 1,588 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | Gin | 13,986 | 0 | 0 |
+| 2 | BunRouter | 15,907 | 0 | 0 |
+| 3 | Echo | 16,196 | 0 | 0 |
+| 4 | **Zinc** | 19,249 | 0 | 0 |
+| 5 | HttpRouter | 22,020 | 13,792 | 167 |
+| 6 | HttpTreeMux | 71,181 | 65,856 | 671 |
+| 7 | Chi | 135,847 | 130,817 | 740 |
+| 8 | Beego | 136,871 | 71,457 | 609 |
+| — | Fiber† | 161,916 | 0 | 0 |
+| 9 | Macaron | 169,517 | 147,784 | 1,624 |
+| 10 | Goji v2 | 322,153 | 313,744 | 3,712 |
+| 11 | GoRestful | 1,223,138 | 1,006,744 | 3,009 |
+| 12 | GorillaMux | 1,869,213 | 225,670 | 1,588 |
 
 ### Google+ API (13 routes)
 
-Routing all 13 Google+ API endpoints per operation.
+One operation covers all 13 routes in the fixture.
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **BunRouter** | 486.2 | 0 | 0 |
-| 2 | **Gin** | 610.6 | 0 | 0 |
-| 3 | **Echo** | 653.2 | 0 | 0 |
-| 4 | HttpRouter | 1,003 | 640 | 11 |
-| 5 | **Zinc** | 1,043 | 0 | 0 |
-| 6 | HttpTreeMux | 3,357 | 4,032 | 38 |
-| 7 | Fiber | 3,518 | 0 | 0 |
-| 8 | Chi | 6,735 | 8,480 | 48 |
-| 9 | Beego | 6,939 | 4,576 | 39 |
-| 10 | Macaron | 9,861 | 9,464 | 104 |
-| 11 | Goji v2 | 11,079 | 15,120 | 115 |
-| 12 | GorillaMux | 21,358 | 14,448 | 102 |
-| 13 | GoRestful | 31,147 | 60,720 | 193 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 488.2 | 0 | 0 |
+| 2 | Gin | 613.2 | 0 | 0 |
+| 3 | Echo | 652 | 0 | 0 |
+| 4 | HttpRouter | 963.9 | 640 | 11 |
+| 5 | **Zinc** | 1,170 | 0 | 0 |
+| — | Fiber† | 3,555 | 0 | 0 |
+| 6 | HttpTreeMux | 3,688 | 4,032 | 38 |
+| 7 | Chi | 7,529 | 8,480 | 48 |
+| 8 | Beego | 7,596 | 4,576 | 39 |
+| 9 | Macaron | 10,599 | 9,464 | 104 |
+| 10 | Goji v2 | 11,155 | 15,120 | 115 |
+| 11 | GorillaMux | 21,998 | 14,448 | 102 |
+| 12 | GoRestful | 35,982 | 60,720 | 193 |
 
 ### Parse API (26 routes)
 
-Routing all 26 Parse API endpoints per operation.
+One operation covers all 26 routes in the fixture.
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **BunRouter** | 803.1 | 0 | 0 |
-| 2 | **Gin** | 1,108 | 0 | 0 |
-| 3 | **Echo** | 1,363 | 0 | 0 |
-| 4 | HttpRouter | 1,512 | 640 | 16 |
-| 5 | **Zinc** | 1,665 | 0 | 0 |
-| 6 | HttpTreeMux | 5,666 | 5,728 | 51 |
-| 7 | Fiber | 6,338 | 0 | 0 |
-| 8 | Beego | 12,524 | 9,152 | 78 |
-| 9 | Chi | 13,338 | 14,944 | 84 |
-| 10 | Goji v2 | 20,455 | 29,456 | 199 |
-| 11 | Macaron | 21,216 | 18,928 | 208 |
-| 12 | GorillaMux | 41,204 | 26,960 | 198 |
-| 13 | GoRestful | 83,763 | 131,728 | 380 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 815.2 | 0 | 0 |
+| 2 | Gin | 1,057 | 0 | 0 |
+| 3 | Echo | 1,071 | 0 | 0 |
+| 4 | HttpRouter | 1,425 | 640 | 16 |
+| 5 | **Zinc** | 1,905 | 0 | 0 |
+| 6 | HttpTreeMux | 5,379 | 5,728 | 51 |
+| — | Fiber† | 6,369 | 0 | 0 |
+| 7 | Chi | 13,202 | 14,944 | 84 |
+| 8 | Beego | 13,931 | 9,152 | 78 |
+| 9 | Goji v2 | 20,368 | 29,456 | 199 |
+| 10 | Macaron | 20,756 | 18,928 | 208 |
+| 11 | GorillaMux | 40,871 | 26,960 | 198 |
+| 12 | GoRestful | 79,250 | 131,728 | 380 |
 
-### Static Routes (157 routes)
+### Static routes (157 routes)
 
-Routing all 157 static routes per operation. Includes http.ServeMux as baseline.
-
-| Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **HttpRouter** | 5,793 | 0 | 0 |
-| 2 | **Zinc** | 7,022 | 0 | 0 |
-| 3 | **HttpTreeMux** | 8,566 | 0 | 0 |
-| 4 | BunRouter | 8,808 | 0 | 0 |
-| 5 | Gin | 10,252 | 0 | 0 |
-| 6 | Echo | 10,503 | 0 | 0 |
-| — | HttpServeMux | 21,547 | 0 | 0 |
-| 7 | Fiber | 42,243 | 0 | 0 |
-| 8 | Chi | 62,158 | 57,776 | 314 |
-| 9 | Beego | 91,662 | 55,264 | 471 |
-| 10 | Macaron | 129,302 | 114,296 | 1,256 |
-| 11 | Goji v2 | 133,092 | 175,840 | 1,099 |
-| 12 | GorillaMux | 463,559 | 133,138 | 1,099 |
-| 13 | GoRestful | 685,145 | 677,824 | 2,193 |
-
----
-
-## Micro Benchmarks
-
-### Single Param
-
-Route: `/user/:name` — Request: `GET /user/gordon`
+One operation covers all 157 routes in the fixture.
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **BunRouter** | 17.58 | 0 | 0 |
-| 2 | **Echo** | 26.85 | 0 | 0 |
-| 3 | **Gin** | 30.80 | 0 | 0 |
-| 4 | HttpRouter | 46.41 | 32 | 1 |
-| 5 | **Zinc** | 47.84 | 0 | 0 |
-| 6 | Fiber | 161.0 | 0 | 0 |
-| 7 | HttpTreeMux | 269.1 | 352 | 3 |
-| 8 | Beego | 464.2 | 352 | 3 |
-| 9 | Chi | 474.9 | 704 | 4 |
-| 10 | Goji v2 | 656.4 | 1,136 | 8 |
-| 11 | GorillaMux | 902.4 | 1,152 | 8 |
-| 12 | Macaron | 940.5 | 1,064 | 10 |
-| 13 | GoRestful | 2,087 | 4,600 | 15 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | HttpRouter | 5,828 | 0 | 0 |
+| 2 | **Zinc** | 8,086 | 0 | 0 |
+| 3 | HttpTreeMux | 8,343 | 0 | 0 |
+| 4 | BunRouter | 8,599 | 0 | 0 |
+| 5 | Gin | 9,659 | 0 | 0 |
+| 6 | Echo | 10,009 | 0 | 0 |
+| 7 | http.ServeMux | 21,171 | 0 | 0 |
+| — | Fiber† | 40,900 | 0 | 0 |
+| 8 | Chi | 59,325 | 57,776 | 314 |
+| 9 | Beego | 91,645 | 55,264 | 471 |
+| 10 | Goji v2 | 120,575 | 175,840 | 1,099 |
+| 11 | Macaron | 121,298 | 114,296 | 1,256 |
+| 12 | GorillaMux | 455,376 | 133,138 | 1,099 |
+| 13 | GoRestful | 639,726 | 677,824 | 2,193 |
 
-### 5 Params
-
-Route: `/:a/:b/:c/:d/:e` — Request: `GET /test/test/test/test/test`
-
-| Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **Gin** | 56.63 | 0 | 0 |
-| 2 | **Zinc** | 63.81 | 0 | 0 |
-| 3 | **Echo** | 69.54 | 0 | 0 |
-| 4 | BunRouter | 78.37 | 0 | 0 |
-| 5 | HttpRouter | 144.6 | 160 | 1 |
-| 6 | Fiber | 348.0 | 0 | 0 |
-| 7 | HttpTreeMux | 491.2 | 576 | 6 |
-| 8 | Beego | 646.8 | 352 | 3 |
-| 9 | Chi | 710.9 | 704 | 4 |
-| 10 | Goji v2 | 831.1 | 1,200 | 8 |
-| 11 | Macaron | 1,027 | 1,064 | 10 |
-| 12 | GorillaMux | 1,453 | 1,216 | 8 |
-| 13 | GoRestful | 2,293 | 4,712 | 15 |
-
-### 20 Params
-
-Route: `/:a/:b/.../:t` (20 segments) — Request: `GET /a/b/.../t`
+### Single parameter
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **Zinc** | 123.4 | 0 | 0 |
-| 2 | **Gin** | 172.8 | 0 | 0 |
-| 3 | **Echo** | 203.1 | 0 | 0 |
-| 4 | HttpRouter | 434.7 | 704 | 1 |
-| 5 | BunRouter | 632.5 | 0 | 0 |
-| 6 | Fiber | 667.8 | 0 | 0 |
-| 7 | Goji v2 | 1,010 | 1,440 | 8 |
-| 8 | Beego | 1,487 | 352 | 3 |
-| 9 | Chi | 2,767 | 2,504 | 9 |
-| 10 | Macaron | 2,780 | 2,864 | 15 |
-| 11 | HttpTreeMux | 2,982 | 3,144 | 13 |
-| 12 | GorillaMux | 3,079 | 3,272 | 13 |
-| 13 | GoRestful | 4,963 | 7,008 | 20 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 17.75 | 0 | 0 |
+| 2 | Echo | 26.45 | 0 | 0 |
+| 3 | Gin | 31.89 | 0 | 0 |
+| 4 | HttpRouter | 49.73 | 32 | 1 |
+| 5 | **Zinc** | 55.63 | 0 | 0 |
+| — | Fiber† | 175.6 | 0 | 0 |
+| 6 | HttpTreeMux | 288.2 | 352 | 3 |
+| 7 | Beego | 523.8 | 352 | 3 |
+| 8 | Chi | 550.7 | 704 | 4 |
+| 9 | Goji v2 | 751.2 | 1,136 | 8 |
+| 10 | GorillaMux | 1,038 | 1,152 | 8 |
+| 11 | Macaron | 1,090 | 1,064 | 10 |
+| 12 | GoRestful | 2,413 | 4,600 | 15 |
 
-### Param Write
-
-Route: `/user/:name` with response write — Request: `GET /user/gordon`
+### Five parameters
 
 | Rank | Router | ns/op | B/op | allocs/op |
-| :--: | :----- | ----: | ---: | --------: |
-| 1 | **BunRouter** | 38.54 | 0 | 0 |
-| 2 | **Gin** | 40.19 | 0 | 0 |
-| 3 | **HttpRouter** | 49.13 | 32 | 1 |
-| 4 | **Zinc** | 56.30 | 0 | 0 |
-| 5 | Echo | 67.11 | 8 | 1 |
-| 6 | Fiber | 173.4 | 0 | 0 |
-| 7 | HttpTreeMux | 290.2 | 352 | 3 |
-| 8 | Chi | 484.4 | 704 | 4 |
-| 9 | Beego | 495.7 | 360 | 4 |
-| 10 | Goji v2 | 789.5 | 1,168 | 10 |
-| 11 | GorillaMux | 1,048 | 1,152 | 8 |
-| 12 | Macaron | 1,155 | 1,112 | 13 |
-| 13 | GoRestful | 2,462 | 4,608 | 16 |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | Gin | 60.51 | 0 | 0 |
+| 2 | **Zinc** | 70.91 | 0 | 0 |
+| 3 | Echo | 71.32 | 0 | 0 |
+| 4 | BunRouter | 82.79 | 0 | 0 |
+| 5 | HttpRouter | 163.5 | 160 | 1 |
+| — | Fiber† | 362.1 | 0 | 0 |
+| 6 | HttpTreeMux | 560.5 | 576 | 6 |
+| 7 | Beego | 664.1 | 352 | 3 |
+| 8 | Chi | 769.2 | 704 | 4 |
+| 9 | Goji v2 | 890.4 | 1,200 | 8 |
+| 10 | Macaron | 1,183 | 1,064 | 10 |
+| 11 | GorillaMux | 1,673 | 1,216 | 8 |
+| 12 | GoRestful | 2,873 | 4,712 | 15 |
+
+### Twenty parameters
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | **Zinc** | 125.5 | 0 | 0 |
+| 2 | Gin | 175.9 | 0 | 0 |
+| 3 | Echo | 206 | 0 | 0 |
+| 4 | HttpRouter | 505 | 704 | 1 |
+| 5 | BunRouter | 617 | 0 | 0 |
+| — | Fiber† | 723.2 | 0 | 0 |
+| 6 | Goji v2 | 1,139 | 1,440 | 8 |
+| 7 | Beego | 1,575 | 352 | 3 |
+| 8 | Chi | 3,071 | 2,504 | 9 |
+| 9 | Macaron | 3,130 | 2,864 | 15 |
+| 10 | HttpTreeMux | 3,172 | 3,144 | 13 |
+| 11 | GorillaMux | 3,550 | 3,272 | 13 |
+| 12 | GoRestful | 5,330 | 7,008 | 20 |
+
+### Parameter read and write
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 36.79 | 0 | 0 |
+| 2 | Gin | 40.52 | 0 | 0 |
+| 3 | HttpRouter | 52.9 | 32 | 1 |
+| 4 | Echo | 62.94 | 8 | 1 |
+| 5 | **Zinc** | 73.1 | 0 | 0 |
+| — | Fiber† | 197.3 | 0 | 0 |
+| 6 | HttpTreeMux | 302.6 | 352 | 3 |
+| 7 | Beego | 560.8 | 360 | 4 |
+| 8 | Chi | 571.9 | 704 | 4 |
+| 9 | Goji v2 | 823.3 | 1,168 | 10 |
+| 10 | GorillaMux | 1,053 | 1,152 | 8 |
+| 11 | Macaron | 1,259 | 1,112 | 13 |
+| 12 | GoRestful | 2,503 | 4,608 | 16 |
+
+### GitHub static route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 29.06 | 0 | 0 |
+| 2 | HttpRouter | 30.51 | 0 | 0 |
+| 3 | HttpTreeMux | 36.99 | 0 | 0 |
+| 4 | Gin | 41.5 | 0 | 0 |
+| 5 | Echo | 44.07 | 0 | 0 |
+| 6 | **Zinc** | 46.51 | 0 | 0 |
+| — | Fiber† | 256.6 | 0 | 0 |
+| 7 | Chi | 336.2 | 368 | 2 |
+| 8 | Beego | 542.8 | 352 | 3 |
+| 9 | Goji v2 | 753.8 | 1,120 | 7 |
+| 10 | Macaron | 811.7 | 728 | 8 |
+| 11 | GorillaMux | 2,124 | 848 | 7 |
+| 12 | GoRestful | 5,270 | 4,792 | 14 |
+
+### GitHub parameter route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | Gin | 70.12 | 0 | 0 |
+| 2 | **Zinc** | 80.39 | 0 | 0 |
+| 3 | Echo | 82.83 | 0 | 0 |
+| 4 | BunRouter | 102.2 | 0 | 0 |
+| 5 | HttpRouter | 130.4 | 96 | 1 |
+| 6 | HttpTreeMux | 383.2 | 384 | 4 |
+| — | Fiber† | 403.6 | 0 | 0 |
+| 7 | Chi | 683 | 704 | 4 |
+| 8 | Beego | 704 | 352 | 3 |
+| 9 | Goji v2 | 974.8 | 1,216 | 10 |
+| 10 | Macaron | 1,222 | 1,064 | 10 |
+| 11 | GorillaMux | 4,015 | 1,168 | 8 |
+| 12 | GoRestful | 6,268 | 4,696 | 15 |
+
+### Google+ static route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 13.12 | 0 | 0 |
+| 2 | HttpRouter | 15.78 | 0 | 0 |
+| 3 | HttpTreeMux | 23.46 | 0 | 0 |
+| 4 | Echo | 29.01 | 0 | 0 |
+| 5 | Gin | 32.27 | 0 | 0 |
+| 6 | **Zinc** | 39.72 | 0 | 0 |
+| — | Fiber† | 152 | 0 | 0 |
+| 7 | Chi | 319.3 | 368 | 2 |
+| 8 | Beego | 497.5 | 352 | 3 |
+| 9 | GorillaMux | 713.3 | 848 | 7 |
+| 10 | Goji v2 | 758.5 | 1,120 | 7 |
+| 11 | Macaron | 818.7 | 728 | 8 |
+| 12 | GoRestful | 2,405 | 4,272 | 14 |
+
+### Google+ parameter route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 25.8 | 0 | 0 |
+| 2 | Gin | 43.99 | 0 | 0 |
+| 3 | Echo | 45.71 | 0 | 0 |
+| 4 | **Zinc** | 74.48 | 0 | 0 |
+| 5 | HttpRouter | 77.16 | 64 | 1 |
+| — | Fiber† | 208.5 | 0 | 0 |
+| 6 | HttpTreeMux | 467.6 | 352 | 3 |
+| 7 | Beego | 588.4 | 352 | 3 |
+| 8 | Chi | 596.2 | 704 | 4 |
+| 9 | Goji v2 | 813.6 | 1,136 | 8 |
+| 10 | Macaron | 1,130 | 1,064 | 10 |
+| 11 | GorillaMux | 1,404 | 1,152 | 8 |
+| 12 | GoRestful | 2,753 | 4,616 | 15 |
+
+### Google+ two-parameter route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 55.28 | 0 | 0 |
+| 2 | Gin | 56.34 | 0 | 0 |
+| 3 | Echo | 64.83 | 0 | 0 |
+| 4 | **Zinc** | 84.56 | 0 | 0 |
+| 5 | HttpRouter | 89.35 | 64 | 1 |
+| 6 | HttpTreeMux | 368.9 | 384 | 4 |
+| — | Fiber† | 409.9 | 0 | 0 |
+| 7 | Chi | 642 | 704 | 4 |
+| 8 | Beego | 718.4 | 352 | 3 |
+| 9 | Goji v2 | 1,003 | 1,216 | 11 |
+| 10 | Macaron | 1,155 | 1,064 | 10 |
+| 11 | GoRestful | 2,839 | 4,712 | 15 |
+| 12 | GorillaMux | 2,971 | 1,168 | 8 |
+
+### Parse static route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | HttpRouter | 16.56 | 0 | 0 |
+| 2 | BunRouter | 20.34 | 0 | 0 |
+| 3 | Echo | 29.26 | 0 | 0 |
+| 4 | Gin | 31.38 | 0 | 0 |
+| 5 | HttpTreeMux | 35.2 | 0 | 0 |
+| 6 | **Zinc** | 42.05 | 0 | 0 |
+| — | Fiber† | 165.8 | 0 | 0 |
+| 7 | Chi | 312 | 368 | 2 |
+| 8 | Beego | 510.4 | 352 | 3 |
+| 9 | Goji v2 | 727.6 | 1,120 | 7 |
+| 10 | Macaron | 783.6 | 728 | 8 |
+| 11 | GorillaMux | 809.7 | 848 | 7 |
+| 12 | GoRestful | 2,811 | 4,792 | 14 |
+
+### Parse parameter route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 37.36 | 0 | 0 |
+| 2 | Gin | 38.89 | 0 | 0 |
+| 3 | Echo | 63.49 | 0 | 0 |
+| 4 | HttpRouter | 64.98 | 64 | 1 |
+| 5 | **Zinc** | 86.11 | 0 | 0 |
+| — | Fiber† | 219.1 | 0 | 0 |
+| 6 | HttpTreeMux | 278.7 | 352 | 3 |
+| 7 | Beego | 570.7 | 352 | 3 |
+| 8 | Chi | 604.2 | 704 | 4 |
+| 9 | Goji v2 | 828.2 | 1,168 | 9 |
+| 10 | GorillaMux | 1,037 | 1,152 | 8 |
+| 11 | Macaron | 1,052 | 1,064 | 10 |
+| 12 | GoRestful | 3,055 | 5,112 | 15 |
+
+### Parse two-parameter route
+
+| Rank | Router | ns/op | B/op | allocs/op |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | BunRouter | 40.99 | 0 | 0 |
+| 2 | Gin | 42.94 | 0 | 0 |
+| 3 | Echo | 44.6 | 0 | 0 |
+| 4 | **Zinc** | 74.87 | 0 | 0 |
+| 5 | HttpRouter | 75.21 | 64 | 1 |
+| — | Fiber† | 261.4 | 0 | 0 |
+| 6 | HttpTreeMux | 334.1 | 384 | 4 |
+| 7 | Chi | 579.3 | 704 | 4 |
+| 8 | Beego | 599.5 | 352 | 3 |
+| 9 | Goji v2 | 719.3 | 1,152 | 8 |
+| 10 | Macaron | 1,097 | 1,064 | 10 |
+| 11 | GorillaMux | 1,287 | 1,168 | 8 |
+| 12 | GoRestful | 3,376 | 5,536 | 15 |
+
+## Reproduce this run
+
+Use the pinned upstream commit, apply the local Zinc adapter, and point its `go.mod` replacement at the Zinc checkout under test. The raw 1,050 benchmark samples, memory estimates, and correctness output are saved locally in `benchmarks/results/gin-20260925/`.
+
+```bash
+GOTOOLCHAIN=go1.27.1 go test -count=1 ./...
+GOTOOLCHAIN=go1.27.1 go test -run='^$' -bench=. -benchmem -benchtime=100ms -count=5 -timeout=20m ./...
+```

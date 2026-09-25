@@ -15,7 +15,7 @@ const results = [...md.matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d
 }));
 const field = (label: string) => md.match(new RegExp(`${label}: \`([^\`]+)\``))?.[1] ?? "";
 const run = { commit: field("Zinc commit"), go: field("Go"), machine: field("Machine"), date: field("Date") };
-const historical = /Historical results/i.test(md);
+const mixedDate = /Mixed-date comparison/i.test(md);
 const wins = Object.fromEntries(frameworks.map((f) => [f, results.filter((r) => r.winner === f).length]));
 const runDate = run.date ? new Date(run.date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }) : "";
 
@@ -53,6 +53,7 @@ const first = workloads[0];
     <p class="caption">
       Scenarios where Zinc recorded the lowest latency against Gin, Echo, and Chi.
       Gin led {wins.Gin}, Chi {wins.Chi}, and Echo {wins.Echo}.
+      Zinc was measured on 25 September; rival samples are from 24 September.
     </p>
     <ol class="winmap" aria-label={`${wins.Zinc} of ${results.length} scenarios won by Zinc`}>
       {results.map((r) => (
@@ -61,7 +62,7 @@ const first = workloads[0];
     </ol>
     <p class="legend"><span><i class="z"></i>Zinc fastest</span><span><i></i>A rival fastest</span></p>
     <p class="env">
-      <span class="when">{historical && <span class="hist">Historical run</span>}{runDate}</span>
+      <span class="when">{mixedDate && <span class="hist">Mixed-date comparison</span>}{runDate}</span>
       <span>{run.machine} · {run.go} · commit {run.commit}</span>
     </p>
     <a class="more" href="/extra/benchmarks/">Full benchmark report →</a>
