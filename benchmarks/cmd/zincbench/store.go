@@ -217,3 +217,55 @@ func goVersion() string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// resolveRun finds a run by ID or unique ID prefix. "latest" names the newest
+// run and "" names the pinned baseline.
+func (s *Store) resolveRun(id string) (*Run, error) {
+	runs, err := s.runs()
+	if err != nil {
+		return nil, err
+	}
+	switch id {
+	case "":
+		if id = s.baseline(); id == "" {
+			return nil, errors.New("no baseline pinned; run `zincbench baseline <run-id>`")
+		}
+	case "latest":
+		if len(runs) == 0 {
+			return nil, errors.New("no runs recorded")
+		}
+		return runs[len(runs)-1], nil
+	}
+	var match *Run
+	for _, run := range runs {
+		if run.ID == id {
+			return run, nil
+		}
+		if strings.HasPrefix(run.ID, id) {
+			if match != nil {
+				return nil, fmt.Errorf("%q matches more than one run", id)
+			}
+			match = run
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("no run matches %q; see `zincbench list`", id)
+	}
+	return match, nil
+}
+
+// rivalSource resolves the run whose rival samples a Zinc-only record reuses.
+// A run that itself borrowed its rivals is fine: its samples are copies.
+func (s *Store) rivalSource(id string) (*Run, error) {
+	run, err := s.resolveRun(id)
+	if err != nil {
+		return nil, err
+	}
+	for _, sc := range run.Scenarios {
+		if len(sc) != len(frameworks) {
+			return nil, fmt.Errorf("run %s has no rival samples to reuse", run.ID)
+		}
+		break
+	}
+	return run, nil
+}

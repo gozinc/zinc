@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -94,5 +95,21 @@ func TestMergeZincWithRivalsPreservesSourceSamples(t *testing.T) {
 	delete(partial, "HelloWorld")
 	if _, _, err := mergeZincWithRivals(partial, source); err == nil {
 		t.Fatal("missing scenario was accepted")
+	}
+}
+
+func TestABCheckoutsLiveOutsideTheRepository(t *testing.T) {
+	root := t.TempDir()
+	s := &Store{root: root, results: filepath.Join(root, "benchmarks", "results")}
+	dir, err := s.abRoot()
+	if err != nil {
+		t.Skip("no user cache directory:", err)
+	}
+	if rel, err := filepath.Rel(root, dir); err == nil && !strings.HasPrefix(rel, "..") {
+		t.Fatalf("ab checkouts at %s, inside the repository %s", dir, root)
+	}
+	other := &Store{root: filepath.Join(root, "other")}
+	if otherDir, _ := other.abRoot(); otherDir == dir {
+		t.Fatal("two repositories share an ab checkout directory")
 	}
 }

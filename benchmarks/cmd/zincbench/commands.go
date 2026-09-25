@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -46,6 +47,9 @@ func cmdRecord(s *Store, args []string) error {
 	bench := fs.String("bench", "", "override the benchmark regexp (default: the head-to-head suite)")
 	pin := fs.Bool("baseline", false, "pin this run as the comparison baseline")
 	toolchain := fs.String("toolchain", "", "Go toolchain, e.g. go1.27.1 (default: the baseline's, so runs stay comparable; \"local\" uses your go)")
+	zincOnly := fs.Bool("zinc-only", false, "measure only Zinc and reuse the rival samples of -rivals")
+	rivals := fs.String("rivals", "", "run supplying rival samples for -zinc-only (default: the baseline)")
+	micro := fs.Bool("micro", true, "also run the Zinc-only API04 benchmarks")
 	_ = fs.Parse(args)
 
 	tc := *toolchain
@@ -61,34 +65,137 @@ func cmdRecord(s *Store, args []string) error {
 		os.Setenv("GOTOOLCHAIN", tc)
 	}
 
-	pattern := *bench
-	if pattern == "" {
-		pattern = suitePattern()
+	var source *Run
+	patterns := []string{*bench}
+	if *zincOnly {
+		var err error
+		if source, err = s.rivalSource(*rivals); err != nil {
+			return err
+		}
+		if *bench == "" {
+			patterns = zincOnlyPatterns(source)
+		}
+	} else if *bench == "" {
+		patterns = []string{suitePattern()}
 	}
+	if *micro && *bench == "" {
+		patterns = append(patterns, microPattern)
+	}
+
 	git := s.currentGit()
 	started := time.Now()
 	state := "clean"
 	if git.Dirty {
 		state = fmt.Sprintf("dirty, %d changed files", len(git.Changed))
 	}
-	fmt.Printf("Recording %s on %s (%s) with %s: %d × %s per benchmark\n\n", git.Short, git.Branch, state, goVersion(), *count, *benchtime)
+	mode := "all frameworks"
+	if source != nil {
+		mode = "Zinc only, rivals from " + source.ID
+	}
+	fmt.Printf("Recording %s on %s (%s) with %s, %s: %d × %s per benchmark\n\n", git.Short, git.Branch, state, goVersion(), mode, *count, *benchtime)
 
-	cmd := exec.Command("go", "test", "-run", "^$", "-bench", pattern, "-benchmem",
-		"-count", fmt.Sprint(*count), "-benchtime", *benchtime, ".")
-	cmd.Dir = filepath.Join(s.root, "benchmarks")
 	var raw bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &raw)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("go test failed: %w", err)
+	for _, pattern := range patterns {
+		if err := runBenchmarks(s, pattern, *count, *benchtime, &raw); err != nil {
+			return err
+		}
 	}
 
-	run, err := buildRun(s, raw.Bytes(), started, git, *note, *benchtime, *count)
+	var run *Run
+	var err error
+	if source != nil {
+		run, err = buildZincOnlyRun(s, raw.Bytes(), started, git, *note, *benchtime, source)
+	} else {
+		run, err = buildRun(s, raw.Bytes(), started, git, *note, *benchtime, *count)
+	}
 	if err != nil {
 		return err
 	}
 	run.Release = *release
 	return finish(s, run, raw.Bytes(), *pin)
+}
+
+// microPattern selects the Zinc-only benchmarks that track the 0.4 API work.
+const microPattern = "^BenchmarkAPI04"
+
+func runBenchmarks(s *Store, pattern string, count int, benchtime string, raw *bytes.Buffer) error {
+	cmd := exec.Command("go", "test", "-run", "^$", "-bench", pattern, "-benchmem",
+		"-count", fmt.Sprint(count), "-benchtime", benchtime, ".")
+	cmd.Dir = filepath.Join(s.root, "benchmarks")
+	cmd.Stdout = io.MultiWriter(os.Stdout, raw)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go test failed: %w", err)
+	}
+	return nil
+}
+
+// zincOnlyPatterns selects the Zinc case of every scenario in source. -bench
+// matches one regexp per sub-benchmark level, so scenarios nested one level
+// deeper (Func/Sub/Zinc) need a pattern of their own.
+func zincOnlyPatterns(source *Run) []string {
+	byDepth := map[int]map[string]bool{}
+	for name := range source.Scenarios {
+		fn, _, _ := strings.Cut(name, "/")
+		depth := strings.Count(name, "/")
+		if byDepth[depth] == nil {
+			byDepth[depth] = map[string]bool{}
+		}
+		byDepth[depth][fn] = true
+	}
+	depths := make([]int, 0, len(byDepth))
+	for depth := range byDepth {
+		depths = append(depths, depth)
+	}
+	sort.Ints(depths)
+	patterns := make([]string, 0, len(depths))
+	for _, depth := range depths {
+		fns := make([]string, 0, len(byDepth[depth]))
+		for fn := range byDepth[depth] {
+			fns = append(fns, fn)
+		}
+		sort.Strings(fns)
+		pattern := "^Benchmark(" + strings.Join(fns, "|") + ")$" + strings.Repeat("/.", depth) + "/^Zinc$"
+		patterns = append(patterns, pattern)
+	}
+	return patterns
+}
+
+// buildZincOnlyRun joins freshly measured Zinc samples with the rival samples
+// of source. RivalSource keeps the mixed-date comparison explicit.
+func buildZincOnlyRun(s *Store, raw []byte, when time.Time, git GitInfo, note, benchtime string, source *Run) (*Run, error) {
+	partial, zincOnly, header, err := parseFrameworkOutput(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if header["cpu"] != "" && header["cpu"] != source.Env.CPU {
+		return nil, fmt.Errorf("this machine (%s) differs from rival run %s (%s)", header["cpu"], source.ID, source.Env.CPU)
+	}
+	scenarios, count, err := mergeZincWithRivals(partial, source)
+	if err != nil {
+		return nil, err
+	}
+	host, _ := os.Hostname()
+	env := source.Env
+	env.Go = goVersion()
+	env.Host = strings.TrimSuffix(host, ".local")
+	env.Benchtime = benchtime
+	env.Count = count
+	rivalID := source.ID
+	if source.RivalSource != "" {
+		rivalID = source.RivalSource
+	}
+	return &Run{
+		Schema:      1,
+		ID:          runID(when, git),
+		CreatedAt:   when.UTC().Format(time.RFC3339),
+		Note:        note,
+		RivalSource: rivalID,
+		Git:         git,
+		Env:         env,
+		Scenarios:   scenarios,
+		ZincOnly:    zincOnly,
+	}, nil
 }
 
 func cmdImport(s *Store, args []string) error {
