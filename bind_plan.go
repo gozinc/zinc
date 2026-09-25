@@ -297,6 +297,84 @@ func bindFieldsFromValues(val reflect.Value, fields []bindingField, values url.V
 	return nil
 }
 
+// Short query strings can be bound directly without allocating a map for
+// parameters that the target does not use. Larger inputs keep net/url's
+// parser so binding cost does not grow with the product of fields and pairs.
+func bindFieldsFromQuery(val reflect.Value, fields []bindingField, c *Context) error {
+	if len(fields) == 0 || c == nil || c.request == nil || c.request.URL == nil {
+		return nil
+	}
+	if c.queryParams != nil {
+		return bindFieldsFromValues(val, fields, c.queryParams)
+	}
+	raw := c.request.URL.RawQuery
+	if raw == "" {
+		return nil
+	}
+	if len(raw) > 128 || len(fields) > 8 {
+		return bindFieldsFromValues(val, fields, c.QueryValues())
+	}
+	var first [8]string
+	var found [8]bool
+	var repeated [8][]string
+	for raw != "" {
+		pair, remaining, _ := strings.Cut(raw, "&")
+		raw = remaining
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		key, value, _ := strings.Cut(pair, "=")
+		if strings.ContainsAny(key, "%+") {
+			decoded, err := url.QueryUnescape(key)
+			if err != nil {
+				continue
+			}
+			key = decoded
+		}
+		if strings.ContainsAny(value, "%+") {
+			decoded, err := url.QueryUnescape(value)
+			if err != nil {
+				continue
+			}
+			value = decoded
+		}
+		for i, field := range fields {
+			if field.name != key {
+				continue
+			}
+			if !found[i] {
+				first[i], found[i] = value, true
+			} else if field.setter.usesAllValues() {
+				if repeated[i] == nil {
+					repeated[i] = []string{first[i]}
+				}
+				repeated[i] = append(repeated[i], value)
+			}
+		}
+	}
+	for i, field := range fields {
+		if !found[i] {
+			continue
+		}
+		inputs := repeated[i]
+		if inputs == nil {
+			single := [1]string{first[i]}
+			inputs = single[:]
+		}
+		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
+			return &bindFieldError{Field: field.label, Err: err}
+		}
+	}
+	return nil
+}
+
+func (s fieldSetter) usesAllValues() bool {
+	if s.kind == fieldSetterPointer {
+		return s.elem.usesAllValues()
+	}
+	return s.kind == fieldSetterSliceString || s.kind == fieldSetterSliceInt
+}
+
 func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.Header) error {
 	if len(fields) == 0 || len(header) == 0 {
 		return nil

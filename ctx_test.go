@@ -251,6 +251,81 @@ func TestContextTypedStoreGetters(t *testing.T) {
 	}
 }
 
+func TestQueryMatchesURLQuery(t *testing.T) {
+	for _, raw := range []string{
+		"name=first&name=second",
+		"name=&name=second",
+		"name=bad%ZZ&name=valid",
+		"name=bad;field&name=valid",
+		"%6eame=encoded&name=second",
+		"name=hello+world",
+		"name=hello%20world",
+		"na%ZZme=bad&name=valid",
+		"empty&=blank&other=a%26b",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/search", nil)
+			req.URL.RawQuery = raw
+			ctx := NewContext(httptest.NewRecorder(), req)
+			defer ctx.release()
+			for _, name := range []string{"name", "empty", "", "other", "missing"} {
+				if got, want := ctx.Query(name), req.URL.Query().Get(name); got != want {
+					t.Fatalf("Query(%q) = %q, want %q", name, got, want)
+				}
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/search?name=original", nil)
+	ctx := NewContext(httptest.NewRecorder(), req)
+	defer ctx.release()
+	ctx.QueryValues().Set("name", "changed")
+	if got := ctx.Query("name"); got != "changed" {
+		t.Fatalf("Query after QueryValues mutation = %q", got)
+	}
+}
+
+func TestBindFieldsFromQueryMatchesParsedValues(t *testing.T) {
+	type target struct {
+		Name  string   `query:"name"`
+		Tags  []string `query:"tag"`
+		Limit *int     `query:"limit"`
+	}
+	fields := bindingPlanFor(reflect.TypeOf(target{})).queryFields
+	for _, raw := range []string{
+		"name=first&name=second&tag=a&tag=b&limit=7",
+		"name=bad%ZZ&name=good+name&tag=bad;value&tag=a%26b",
+		"%6eame=encoded&tag=&tag=second",
+		"other=" + strings.Repeat("x", 130) + "&name=long",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/search", nil)
+			req.URL.RawQuery = raw
+			ctx := NewContext(httptest.NewRecorder(), req)
+			defer ctx.release()
+			var got, want target
+			if err := bindFieldsFromQuery(reflect.ValueOf(&got).Elem(), fields, ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := bindFieldsFromValues(reflect.ValueOf(&want).Elem(), fields, req.URL.Query()); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("raw query binding = %+v, parsed binding = %+v", got, want)
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/search?name=original", nil)
+	ctx := NewContext(httptest.NewRecorder(), req)
+	defer ctx.release()
+	ctx.QueryValues().Set("name", "changed")
+	var got target
+	if err := bindFieldsFromQuery(reflect.ValueOf(&got).Elem(), fields, ctx); err != nil || got.Name != "changed" {
+		t.Fatalf("binding after QueryValues mutation = %+v, %v", got, err)
+	}
+}
+
 func TestContextQueryAndPostFormCollections(t *testing.T) {
 	t.Run("query arrays and maps", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/search?tag=a&tag=b&filter[name]=zinc&filter[role]=admin", nil)

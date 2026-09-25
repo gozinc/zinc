@@ -374,7 +374,46 @@ func (c *Context) ParamOr(name, fallback string) string {
 
 // Query returns the first query value for name.
 func (c *Context) Query(name string) string {
-	return c.QueryValues().Get(name)
+	if c.queryParams != nil {
+		return c.queryParams.Get(name)
+	}
+	if c.request == nil || c.request.URL == nil {
+		return ""
+	}
+	return firstRawQueryValue(c.request.URL.RawQuery, name)
+}
+
+// firstRawQueryValue avoids building a map when only one value is needed.
+// Match net/url.ParseQuery's treatment of escapes, duplicate keys, and
+// unescaped semicolons so Query and QueryValues have the same result.
+func firstRawQueryValue(raw, name string) string {
+	for raw != "" {
+		field, remaining, _ := strings.Cut(raw, "&")
+		raw = remaining
+		if field == "" || strings.Contains(field, ";") {
+			continue
+		}
+		key, value, _ := strings.Cut(field, "=")
+		if strings.ContainsAny(key, "%+") {
+			decoded, err := url.QueryUnescape(key)
+			if err != nil {
+				continue
+			}
+			key = decoded
+		}
+		if key != name {
+			continue
+		}
+		if strings.ContainsAny(value, "%+") {
+			decoded, err := url.QueryUnescape(value)
+			if err != nil {
+				continue
+			}
+			return decoded
+		}
+		return value
+	}
+	return ""
 }
 
 // QueryOr returns the first query value or fallback when it is empty.
@@ -679,7 +718,7 @@ func (c *Context) readAndCacheBodyBytes() ([]byte, error) {
 	c.body = body
 	c.bodyErr = readErr
 	if readErr == nil {
-		c.request.Body = io.NopCloser(bytes.NewReader(body))
+		c.request.Body = newCachedBodyReader(body)
 	}
 	return body, readErr
 }
@@ -756,7 +795,7 @@ func (c *Context) readAndCacheBody(decode func(io.Reader) error) (int, error, er
 	c.body = body
 	c.bodyErr = readErr
 	if readErr == nil {
-		c.request.Body = io.NopCloser(bytes.NewReader(body))
+		c.request.Body = newCachedBodyReader(body)
 	}
 	return len(body), readErr, decodeErr
 }
@@ -767,6 +806,14 @@ func requestHasBody(req *http.Request) bool {
 	}
 	return true
 }
+
+type cachedBodyReader struct{ bytes.Reader }
+
+func newCachedBodyReader(body []byte) io.ReadCloser {
+	return &cachedBodyReader{Reader: *bytes.NewReader(body)}
+}
+
+func (*cachedBodyReader) Close() error { return nil }
 
 type bodyCaptureReader struct {
 	reader  io.Reader
