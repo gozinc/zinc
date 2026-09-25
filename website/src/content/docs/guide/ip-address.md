@@ -10,9 +10,9 @@ Behind a load balancer, every request appears to come from the load balancer. Th
 | Helper | Returns | Trusts headers? |
 |---|---|---|
 | `c.RemoteIP()` | The address of the direct peer, from `Request.RemoteAddr` | Never |
-| `c.IP()` | The first address in the forwarding header when the peer is trusted, otherwise the peer address | Only from trusted proxies |
+| `c.IP()` | The nearest untrusted address in the forwarding header when the peer is trusted, otherwise the peer address | Only from trusted proxies |
 
-`c.IPs()` returns the whole forwarded chain.
+`c.IPs()` returns the verified part of the chain, starting with the address `c.IP()` returns.
 
 ## Configure trusted proxies
 
@@ -42,11 +42,15 @@ With no trusted proxies, the default, `c.IP()` and `c.RemoteIP()` return the sam
 Trusting forwarding headers from an address you do not operate lets any client choose its own IP. That silently breaks rate limits, audit logs, and IP allow lists.
 :::
 
-### Make sure the proxy overwrites the header
+### How Zinc reads the chain
 
-`c.IP()` returns the **first**, leftmost address in the header. Many load balancers append to an `X-Forwarded-For` header the client already sent instead of replacing it. A client that sends `X-Forwarded-For: 203.0.113.9` then appears as `203.0.113.9`, even behind a trusted proxy.
+Each proxy appends the address it received the request from, so the rightmost entries are the ones your own proxies wrote. Zinc walks the header from right to left, skipping addresses you trust, and returns the first one you do not. Anything to the left of that hop could have been written by the client, so it is ignored.
 
-Configure the proxy at your edge to **replace** the header with the address it observed, or read a header that only the proxy sets:
+A client that sends `X-Forwarded-For: 203.0.113.9` through a trusted load balancer arrives as `203.0.113.9, 198.51.100.4`. Zinc returns `198.51.100.4`, the address the load balancer saw, and not the value the client chose. Malformed entries make Zinc fall back to the direct peer.
+
+List **every** proxy you operate. If an inner proxy is missing, `c.IP()` returns that proxy's address for every request.
+
+Proxies that set a single-value header also work:
 
 - nginx: `proxy_set_header X-Real-IP $remote_addr;` with `ProxyHeader = "X-Real-IP"`
 - Cloudflare: `ProxyHeader = "CF-Connecting-IP"`, trusting only Cloudflare's published ranges
@@ -57,6 +61,6 @@ Whatever header you choose, trust only the addresses of the proxies that set it.
 
 [Rate Limiter](/middleware/rate-limiter/)'s per-IP mode and the [RealIP](/middleware/utility/#realip) middleware both use `c.IP()`. Configure proxies before relying on either.
 
-Trust entries are validated and copied at application construction. Invalid IP addresses or CIDRs panic. Zinc walks forwarded addresses from right to left and stops at the first untrusted hop; values to its left are ignored. Malformed addresses encountered during that walk fall back to the direct peer. Configure every proxy you operate and ensure it appends or overwrites forwarding headers correctly.
+Trust entries are validated and copied when the app is created. Invalid IP addresses or CIDRs panic.
 
 `Scheme()` accepts only `http` or `https` from the last `X-Forwarded-Proto` value supplied by a trusted direct peer. Direct TLS always returns `https`. Proxies should overwrite this header with the protocol they have verified.

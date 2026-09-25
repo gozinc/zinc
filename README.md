@@ -106,20 +106,19 @@ Inside a handler, `c.Request()` and `c.Writer()` give you the underlying request
 
 Import from `github.com/0mjs/zinc/middleware`.
 
-| Job | Middleware |
+| Family | Middleware, in chain order |
 | --- | --- |
-| Protect | Basic Auth, Casbin, CORS, CSRF, Header Guards, JWT, Key Auth, Secure Headers, Session |
-| Observe | Body Dump, Jaeger, OpenTelemetry, pprof, Prometheus, Request ID, Request Logger |
-| Control | Body Limit, Context Timeout, Rate Limiter, Recover, Utility |
-| Transport | Decompress, Gzip, Method Override, Proxy, Redirect, Rewrite, Static, Trailing Slash |
+| Observe | OpenTelemetry, Request ID, Request Logger, Prometheus, Jaeger, Body Dump |
+| Contain | Recover, Context Timeout, Body Limit, Rate Limiter, Utility |
+| Shape | Redirect, Trailing Slash, Rewrite, Method Override |
+| Guard | Secure Headers, CORS, Header Guards, Session, CSRF, Basic Auth, Key Auth, JWT, Casbin |
+| Carry | Decompress, Gzip, Static, Proxy, pprof |
 
 OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middleware docs](https://zinc.carbonsoft.sh/middleware/overview/) cover configuration for each.
 
 ## Performance
 
-In the recorded comparison against Gin, Echo, and Chi, Zinc had the lowest latency in 62 of 77 workloads. That run used commit `5f77c75` on an Apple M1 Pro and predates the 0.3 hardening work. The [benchmark report](./BENCHMARKS.md) has the full results, environment, and commands. Results vary by workload and machine, so run the suite against the revision you deploy.
-
-On the Apple M1 Pro comparison, Zinc has the lowest median latency in 60 of 77 comparable scenarios against Gin, Echo, and Chi. Zinc was measured on 25 September 2026 at commit `42e11d2`; rival samples are reused from 24 September, so close results merit a fresh paired run. Correct response-header ownership adds one 16-byte allocation to common string-response paths. This score is not a release gate.
+In the latest comparison against Gin, Echo, and Chi, Zinc had the lowest median latency in 60 of 77 workloads. Zinc was measured on an Apple M1 Pro at commit `42e11d2`, using the rival samples recorded the day before, so rerun close results side by side before relying on them. The [benchmark report](./BENCHMARKS.md) has the full results, environment, and commands. Results vary by workload and machine, so run the suite against the revision you deploy.
 
 ## Good to know
 
@@ -128,7 +127,7 @@ On the Apple M1 Pro comparison, Zinc has the lowest median latency in 60 of 77 c
 
 ## Project status
 
-Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.2 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.2/) when you upgrade.
+Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.3 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.3/) when you upgrade.
 
 Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 

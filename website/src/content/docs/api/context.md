@@ -47,6 +47,7 @@ description: Reference for zinc.Context, grouped by task, with every request, re
 |---|---|
 | `Bind()` | The binder: `All`, `Path`, `Query`, `Header`, `Form`, `Body`, `JSON`, `XML`, `YAML`, `TOML`, `Text` |
 | `Validate(v)` | Runs the configured `Validator` directly |
+| `BodyLimit()` | The application's request-body budget, for middleware that transforms bodies |
 
 See [Binding](/guide/binding/).
 
