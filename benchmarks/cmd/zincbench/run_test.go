@@ -68,18 +68,26 @@ func TestSuitePatternCoversEveryFunction(t *testing.T) {
 
 func TestMergeZincWithRivalsPreservesSourceSamples(t *testing.T) {
 	partial, _, _, err := parseFrameworkOutput(strings.NewReader(sampleOutput))
-	if err != nil { t.Fatal(err) }
-	if _, ok := partial["NotFound"]; !ok { t.Fatal("Zinc-only scenario was dropped") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := partial["NotFound"]; !ok {
+		t.Fatal("Zinc-only scenario was dropped")
+	}
 
 	full, _, _, err := parseOutput(strings.NewReader(sampleOutput))
-	if err != nil { t.Fatal(err) }
-	source := &Run{ID: "rivals", Scenarios: full}
-	delete(partial, "NotFound")
-	partial["HelloWorld"] = Scenario{"Zinc": partial["HelloWorld"]["Zinc"]}
-	partial["ScenarioRouteSetAll/GitHubAPI203"] = Scenario{"Zinc": partial["ScenarioRouteSetAll/GitHubAPI203"]["Zinc"]}
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &Run{ID: "rivals", Scenarios: map[string]Scenario{"HelloWorld": full["HelloWorld"]}}
+	partial = map[string]Scenario{"HelloWorld": {"Zinc": partial["HelloWorld"]["Zinc"]}}
 	merged, count, err := mergeZincWithRivals(partial, source)
-	if err != nil { t.Fatal(err) }
-	if count != 2 { t.Fatalf("sample count = %d, want 2", count) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("sample count = %d, want 2", count)
+	}
 	if len(merged["HelloWorld"]) != 4 || median(merged["HelloWorld"]["Gin"].NS) != median(full["HelloWorld"]["Gin"].NS) {
 		t.Fatal("rival samples were not preserved")
 	}

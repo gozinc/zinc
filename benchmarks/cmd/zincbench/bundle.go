@@ -43,10 +43,11 @@ func cmdBundle(s *Store, args []string) error {
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(*out)
+	f, err := os.CreateTemp(filepath.Dir(*out), ".zincbench-bundle-*.zip")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(f.Name())
 	defer f.Close()
 	zw := zip.NewWriter(f)
 	defer zw.Close()
@@ -112,6 +113,9 @@ func cmdBundle(s *Store, args []string) error {
 		return err
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(f.Name(), *out); err != nil {
 		return err
 	}
 	fmt.Printf("Release bundle: %s (%d runs, %d extra files)\n", *out, len(selected), len(manifest.Extras))
