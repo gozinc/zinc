@@ -47,7 +47,7 @@ func performRequest(t *testing.T, app *App, method, target string, body io.Reade
 func newRecorderContext(t *testing.T, req *http.Request) (*Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	resp := httptest.NewRecorder()
-	ctx := NewContext(resp, req)
+	ctx := newContext(resp, req)
 	ctx.app = New()
 	return ctx, resp
 }

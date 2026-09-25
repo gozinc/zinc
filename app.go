@@ -513,7 +513,7 @@ func (a *App) addMount(entry mountedHandler, prefix string, info HandlerFunc, mi
 // AcquireContext creates an application-bound Context for advanced integrations.
 // The caller must eventually pass it to ReleaseContext.
 func (a *App) AcquireContext(w http.ResponseWriter, r *http.Request) *Context {
-	ctx := NewContext(w, r)
+	ctx := newContext(w, r)
 	ctx.app = a
 	return ctx
 }

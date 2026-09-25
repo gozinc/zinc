@@ -19,27 +19,36 @@ description: Reference for zinc.Context, grouped by task, with every request, re
 | `Scheme()` | `"http"` or `"https"`, honoring forwarded protocol headers from trusted proxies |
 | `Secure()` | Whether `Scheme()` is `"https"` |
 | `ContentType()` | The request media type, without parameters |
-| `GetHeader(name)` | A request header |
+| `Header(name)` | A request header |
 | `IsWebSocket()` | Whether this is a WebSocket upgrade |
 | `IsPreflight()` | Whether this is a CORS preflight |
-| `RequestID()` | The `X-Request-ID` request header |
 
 ## Parameters, query, and forms
 
 | Method | Returns |
 |---|---|
-| `Param(name)`, `ParamOr(name, fallback)` | A route parameter |
-| `Query(name)`, `QueryOr(name, fallback)` | A query value |
+| `Param(name)` | A route parameter, as a string |
+| `Query(name)` | A query value, as a string |
 | `QueryArray(name)` | Every value for a repeated query key |
 | `QueryMap(name)` | Bracket keys, such as `filter[status]`, as a map |
 | `QueryValues()` | The full `url.Values` |
-| `PostForm(name)`, `PostFormOr`, `PostFormArray`, `PostFormMap` | Body form values |
 | `FormValue(name)` | A form value from the body or the query, like `http.Request.FormValue` |
 | `FormFile(name)`, `FormFiles(name)` | Uploaded files |
 | `MultipartForm()` | The parsed multipart form |
 | `SaveFile(file, dst)` | Saves an uploaded file to disk |
 | `Cookie(name)`, `Cookies()` | Request cookies |
 | `BodyBytes()`, `BodyString()` | The raw body, cached for later reads |
+
+Typed versions are package functions, because Go methods can't be generic:
+
+| Function | Returns |
+|---|---|
+| `zinc.Param[T](c, name)` | `(T, error)`: a route parameter parsed as `T` |
+| `zinc.Query[T](c, name)` | `(T, error)`: a query value; missing counts as an error |
+| `zinc.QueryOr(c, name, fallback)` | `T`: a query value, or `fallback` when missing or unparsable |
+| `zinc.Form[T](c, name)`, `zinc.FormOr(c, name, fallback)` | The same for form values |
+
+`T` may be a string, bool, integer, or float type, an `encoding.TextUnmarshaler`, a named type over one of those, or a pointer to any of them. Errors are `*zinc.BindError` and answer 400 with the value's name.
 
 ## Binding and validation
 
@@ -62,9 +71,8 @@ These return the context, so they chain into a body method.
 | `Type(ext)` | `Content-Type` from a file extension, such as `"json"` |
 | `Location(url)` | The `Location` header |
 | `Vary(fields...)` | The `Vary` header |
-| `SetSameSite(mode)` | The default `SameSite` for cookies set afterwards |
 
-`SetCookie(cookie)` and `ClearCookie(names...)` write cookies.
+`SetCookie(cookie)` and `ClearCookie(cookie)` write cookies. `Config.CookieSameSite` sets a default `SameSite` mode.
 
 ## Response bodies
 
@@ -74,18 +82,17 @@ These return the context, so they chain into a body method.
 | `XML(v)`, `YAML(v)`, `TOML(v)` | Other structured formats |
 | `String(s)`, `HTML(s)` | Text or HTML |
 | `Send(v)` | A string as text, `[]byte` as `application/octet-stream`, anything else as JSON |
-| `Data(contentType, b)` | Bytes with a content type |
-| `Blob(status, contentType, b)`, `JSONBlob`, `XMLBlob`, `HTMLBlob` | Pre-encoded bytes with a status |
+| `Data(contentType, b)` | Bytes with a content type, such as `zinc.MIMEJSON` for pre-encoded JSON |
 | `NoContent()` | `204 No Content` |
 | `Render(name, data)` | A template, through the configured `Renderer` |
 | `File(path)`, `FileFS(name, fsys)` | A file |
-| `Attachment(path, name...)`, `Download(path, name...)` | A file as a download |
+| `Attachment(path, name...)` | A file as a download |
 | `Inline(path, name...)` | A file for display in the browser |
 | `Stream(contentType, reader)` | Data copied from a reader |
 | `SSE(event)` | Writes and flushes one server-sent event; `WriteTimeout` applies per event |
-| `Redirect(code, url)` | A redirect |
+| `Redirect(url)` | A redirect: 302, or the 3xx status set by `Status` |
 | `Accepts(types...)` | The best match for the `Accept` header |
-| `Negotiate(status, offers)` | The offer that best matches `Accept` |
+| `Negotiate(offers)` | The offer that best matches `Accept` |
 
 ## Middleware and errors
 
@@ -101,9 +108,8 @@ These return the context, so they chain into a body method.
 |---|---|
 | `Set(key, value)` | Stores a value for this request |
 | `Get(key)` | `(any, bool)` |
-| `MustGet(key)` | The value, or panics |
-| `GetString`, `GetBool`, `GetInt`, `GetInt64`, `GetFloat64` | A typed value, or its zero value |
-| `GetStringSlice`, `GetStringMap`, `GetStringMapString`, `GetStringMapStringSlice` | A typed collection, or `nil` |
+| `zinc.Value[T](c, key)` | `(T, bool)`: the value if it has type `T` |
+| `zinc.MustValue[T](c, key)` | `T`, or panics when missing or of another type |
 
 ## Client address
 

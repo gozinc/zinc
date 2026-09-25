@@ -330,7 +330,7 @@ func (r *Router) findFoldedInto(method, original, folded string, ctx *Context) H
 	}
 	var ranges paramRanges
 	for i := 0; i < ctx.paramCount; i++ {
-		ranges.set(i, paramRange{start: uint32(ctx.PathParams[i].start), end: uint32(ctx.PathParams[i].end)})
+		ranges.set(i, paramRange{start: uint32(ctx.pathParams[i].start), end: uint32(ctx.pathParams[i].end)})
 	}
 	remapFoldedParams(&ranges, ctx.paramCount, original, folded)
 	ctx.applyRouteParams(original, ctx.paramRoute, ranges)

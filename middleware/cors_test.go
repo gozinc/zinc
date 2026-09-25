@@ -28,11 +28,9 @@ func TestCORS(t *testing.T) {
 	// Helper function to run a test
 	runTest := func(middleware zinc.Middleware, req *http.Request, handler func(*zinc.Context) error) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		c := zinc.NewContext(w, req)
-
-		// Create a simple app for the test
 		app := zinc.New()
-		c.Set("app", app)
+		c := app.AcquireContext(w, req)
+		defer app.ReleaseContext(c)
 
 		// Manually run middleware then handler
 		if err := middleware(c); err != nil {

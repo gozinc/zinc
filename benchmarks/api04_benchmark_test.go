@@ -114,9 +114,9 @@ var api04Workloads = []struct {
 		build: func() http.Handler {
 			app := New()
 			app.Get("/users/{id}", func(c *Context) error {
-				id, err := strconv.Atoi(c.Param("id"))
+				id, err := Param[int](c, "id")
 				if err != nil {
-					return ErrBadRequest
+					return err
 				}
 				benchmarkSinkInt = id
 				return c.NoContent()
@@ -133,13 +133,8 @@ var api04Workloads = []struct {
 		build: func() http.Handler {
 			app := New()
 			app.Get("/users", func(c *Context) error {
-				page, limit := 1, 20
-				if n, err := strconv.Atoi(c.Query("page")); err == nil {
-					page = n
-				}
-				if n, err := strconv.Atoi(c.Query("limit")); err == nil {
-					limit = n
-				}
+				page := QueryOr(c, "page", 1)
+				limit := QueryOr(c, "limit", 20)
 				benchmarkSinkInt = page + limit
 				return c.NoContent()
 			})
@@ -160,8 +155,7 @@ var api04Workloads = []struct {
 				return c.Next()
 			})
 			app.Get("/me", func(c *Context) error {
-				value, _ := c.Get(api04UserKey)
-				u, _ := value.(*api04User)
+				u, _ := Value[*api04User](c, api04UserKey)
 				benchmarkSinkInt = u.ID
 				return c.NoContent()
 			})
@@ -175,7 +169,7 @@ var api04Workloads = []struct {
 		build: func() http.Handler {
 			app := New()
 			app.Get("/secure", func(c *Context) error {
-				benchmarkSinkBool = c.GetHeader("Authorization") != ""
+				benchmarkSinkBool = c.Header("Authorization") != ""
 				return c.NoContent()
 			})
 			return app
@@ -189,7 +183,7 @@ var api04Workloads = []struct {
 		name: "Redirect",
 		build: func() http.Handler {
 			app := New()
-			app.Get("/old", func(c *Context) error { return c.Redirect(http.StatusFound, "/login") })
+			app.Get("/old", func(c *Context) error { return c.Redirect("/login") })
 			return app
 		},
 		req:    func() preparedBenchmarkRequest { return newPreparedBenchmarkRequest(http.MethodGet, "/old", nil, nil) },
@@ -200,7 +194,7 @@ var api04Workloads = []struct {
 		build: func() http.Handler {
 			body := []byte(`{"id":42,"name":"Ada"}`)
 			app := New()
-			app.Get("/user", func(c *Context) error { return c.JSONBlob(http.StatusOK, body) })
+			app.Get("/user", func(c *Context) error { return c.Data(MIMEJSON, body) })
 			return app
 		},
 		req:    func() preparedBenchmarkRequest { return newPreparedBenchmarkRequest(http.MethodGet, "/user", nil, nil) },

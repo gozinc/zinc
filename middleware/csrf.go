@@ -220,7 +220,7 @@ func CSRFWithConfig(config CSRFConfig) zinc.Middleware {
 
 		state := CSRFState{
 			CookieName: cfg.Cookie.Name,
-			FetchSite:  normalizeCSRFFetchSite(c.GetHeader(zinc.HeaderSecFetchSite)),
+			FetchSite:  normalizeCSRFFetchSite(c.Header(zinc.HeaderSecFetchSite)),
 		}
 
 		if !isCSRFSafeMethod(req.Method) {
@@ -587,7 +587,7 @@ func enforceCSRFFetchSite(c *zinc.Context, cfg CSRFConfig, site CSRFFetchSite) e
 		return nil
 	}
 
-	origin := strings.TrimSpace(c.GetHeader(zinc.HeaderOrigin))
+	origin := strings.TrimSpace(c.Header(zinc.HeaderOrigin))
 	decision := CSRFDecision{
 		Site:   site,
 		Origin: origin,

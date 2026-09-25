@@ -23,7 +23,7 @@ Brace segments in a route pattern become parameters. Query values come from the 
 app.Get("/teams/{team}/members", func(c *zinc.Context) error {
 	return c.JSON(zinc.Map{
 		"team": c.Param("team"),
-		"role": c.QueryOr("role", "any"),
+		"role": zinc.QueryOr(c, "role", "any"),
 	})
 })
 ```

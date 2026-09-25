@@ -185,7 +185,7 @@ func RequestLoggerWithConfig(config RequestLoggerConfig) zinc.Middleware {
 			v.RoutePath = c.FullPath()
 		}
 		if config.LogRequestID {
-			requestID := c.RequestID()
+			requestID := c.Header(zinc.HeaderXRequestID)
 			if requestID == "" && rw != nil {
 				requestID = rw.Header().Get(zinc.HeaderXRequestID)
 			}

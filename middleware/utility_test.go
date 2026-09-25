@@ -53,7 +53,7 @@ func TestUtilityMiddleware(t *testing.T) {
 	t.Run("maybe", func(t *testing.T) {
 		app := zinc.New()
 		app.Use(Maybe(func(c *zinc.Context) bool {
-			return c.GetHeader("X-Guard") == "yes"
+			return c.Header("X-Guard") == "yes"
 		}, func(c *zinc.Context) error {
 			c.SetHeader("X-Guarded", "yes")
 			return c.Next()

@@ -27,7 +27,7 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(HeaderServer, a.config.ServerHeader)
 	}
 
-	ctx := NewContext(w, r)
+	ctx := newContext(w, r)
 	ctx.app = a
 
 	defer ctx.release()

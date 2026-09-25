@@ -32,7 +32,7 @@ app.Use(middleware.RateLimiter(middleware.RateLimiterConfig{
 	Rate:     30, // tokens per second
 	Capacity: 60, // maximum burst
 	KeyGenerator: func(c *zinc.Context) string {
-		return c.GetHeader("X-API-Key")
+		return c.Header("X-API-Key")
 	},
 	LimitReachedHandler: func(c *zinc.Context) error {
 		c.SetHeader("Retry-After", "1")

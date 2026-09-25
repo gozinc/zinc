@@ -63,7 +63,7 @@ func MethodOverrideWithConfig(config MethodOverrideConfig) zinc.Middleware {
 
 func MethodOverrideFromHeader(header string) MethodOverrideGetter {
 	return func(c *zinc.Context) string {
-		return c.GetHeader(header)
+		return c.Header(header)
 	}
 }
 

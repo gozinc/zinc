@@ -128,7 +128,7 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	// General binding is intentionally deterministic: path values are applied
 	// first, then query values, then the body. Later sources may overwrite
 	// earlier fields before validation runs once at the end.
-	mediaType := requestMediaType(c.GetHeader(HeaderContentType))
+	mediaType := requestMediaType(c.Header(HeaderContentType))
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
 	}
@@ -219,7 +219,7 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 }
 
 func (b defaultBinder) BindBody(c *Context, v any) error {
-	mediaType := requestMediaType(c.GetHeader(HeaderContentType))
+	mediaType := requestMediaType(c.Header(HeaderContentType))
 	switch mediaType {
 	case "", "application/json":
 		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(b.codec, v)
@@ -285,7 +285,7 @@ func (b defaultBinder) BindForm(c *Context, v any) error {
 	if err := c.limitFormBody(); err != nil {
 		return wrapBindError("form", err)
 	}
-	if requestMediaType(c.GetHeader(HeaderContentType)) == "multipart/form-data" {
+	if requestMediaType(c.Header(HeaderContentType)) == "multipart/form-data" {
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
 		}
@@ -574,7 +574,7 @@ func isTOMLMediaType(mediaType string) bool {
 }
 
 func bindMultipartForm(val reflect.Value, plan *bindingPlan, req *http.Request) error {
-	if err := req.ParseMultipartForm(32 << 20); err != nil {
+	if err := req.ParseMultipartForm(defaultMultipartMemory); err != nil {
 		return fmt.Errorf("parse multipart form: %w", err)
 	}
 	form := req.MultipartForm

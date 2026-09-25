@@ -341,7 +341,9 @@ func TestJWTMiddlewarePanicsWithoutParserOrKeyFunc(t *testing.T) {
 }
 
 func TestJWTMustAccessorsPanicWhenMissing(t *testing.T) {
-	c := zinc.NewContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	app := zinc.New()
+	c := app.AcquireContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	defer app.ReleaseContext(c)
 
 	assertPanicsJWT(t, func() {
 		_ = MustJWTToken(c)

@@ -26,7 +26,7 @@ func main() {
 		for {
 			select {
 			case now := <-ticker.C:
-				if err := c.SSE(zinc.SSEvent{
+				if err := c.SSE(zinc.Event{
 					Event: "clock",
 					ID:    strconv.FormatInt(now.Unix(), 10),
 					Data:  zinc.Map{"time": now.UTC()},

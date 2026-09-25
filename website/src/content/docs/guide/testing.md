@@ -99,6 +99,27 @@ func TestRequestID(t *testing.T) {
 }
 ```
 
+## Test one handler
+
+To test a handler on its own, register it on a one-route app. Route parameters, binding, and the error handler all behave exactly as in production:
+
+```go
+func TestShowUser(t *testing.T) {
+	app := zinc.New()
+	app.Get("/users/{id}", showUser)
+
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/abc", nil))
+
+	want := `{"error":{"status":400,"message":"invalid path parameter","fields":{"id":"must be an integer"}}}` + "\n"
+	if rec.Code != http.StatusBadRequest || rec.Body.String() != want {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+}
+```
+
+Zinc has no separate test package. A `*zinc.Context` only exists during a request, so there is nothing to construct by hand.
+
 ## Test over a real connection
 
 Use `httptest.NewServer` when behavior depends on a real client: redirects, cookies, streaming, or HTTP/2.

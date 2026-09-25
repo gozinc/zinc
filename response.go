@@ -27,20 +27,31 @@ import (
 // response write. SSE is the deliberate exception and supports multiple events.
 var ErrResponseAlreadySent = errors.New("response already sent")
 
+// MIME types for Context.Data and response headers. The text types include
+// the UTF-8 charset.
 const (
-	contentType = "Content-Type"
-	jsonType    = "application/json; charset=utf-8"
-	xmlType     = "application/xml; charset=utf-8"
-	yamlType    = "application/yaml; charset=utf-8"
-	tomlType    = "application/toml; charset=utf-8"
-	plainText   = "text/plain; charset=utf-8"
-	htmlType    = "text/html; charset=utf-8"
-	eventStream = "text/event-stream"
-	octetStream = "application/octet-stream"
+	MIMEJSON        = "application/json; charset=utf-8"
+	MIMEXML         = "application/xml; charset=utf-8"
+	MIMEHTML        = "text/html; charset=utf-8"
+	MIMEText        = "text/plain; charset=utf-8"
+	MIMEEventStream = "text/event-stream"
+	MIMEOctetStream = "application/octet-stream"
 )
 
-// SSEvent describes one Server-Sent Events message.
-type SSEvent struct {
+const (
+	contentType = "Content-Type"
+	jsonType    = MIMEJSON
+	xmlType     = MIMEXML
+	yamlType    = "application/yaml; charset=utf-8"
+	tomlType    = "application/toml; charset=utf-8"
+	plainText   = MIMEText
+	htmlType    = MIMEHTML
+	eventStream = MIMEEventStream
+	octetStream = MIMEOctetStream
+)
+
+// Event describes one Server-Sent Events message.
+type Event struct {
 	Event string
 	ID    string
 	Retry time.Duration
@@ -158,26 +169,6 @@ func (c *Context) Data(contentType string, b []byte) error {
 	}
 	_, err = writer.Write(b)
 	return err
-}
-
-// Blob writes bytes with an explicit status and content type.
-func (c *Context) Blob(status int, contentType string, b []byte) error {
-	return c.Status(status).Data(contentType, b)
-}
-
-// JSONBlob writes pre-encoded JSON.
-func (c *Context) JSONBlob(status int, b []byte) error {
-	return c.Blob(status, jsonType, b)
-}
-
-// XMLBlob writes pre-encoded XML.
-func (c *Context) XMLBlob(status int, b []byte) error {
-	return c.Blob(status, xmlType, b)
-}
-
-// HTMLBlob writes pre-encoded HTML.
-func (c *Context) HTMLBlob(status int, b []byte) error {
-	return c.Blob(status, htmlType, b)
 }
 
 // JSON encodes v using the configured JSON codec.
@@ -299,7 +290,7 @@ func (c *Context) Stream(contentType string, r io.Reader) error {
 // SSE writes and flushes one event, keeping the event-stream response open for
 // more calls. Config.WriteTimeout bounds each event rather than the whole
 // stream, so a stream may run for as long as the handler keeps sending.
-func (c *Context) SSE(event SSEvent) error {
+func (c *Context) SSE(event Event) error {
 	writer, writeBody, err := c.prepareSSE()
 	if err != nil || !writeBody {
 		return err
@@ -324,7 +315,7 @@ func (c *Context) Accepts(types ...string) string {
 	if len(types) == 0 {
 		return ""
 	}
-	header := c.GetHeader(HeaderAccept)
+	header := c.Header(HeaderAccept)
 	if strings.TrimSpace(header) == "" {
 		return types[0]
 	}
@@ -356,8 +347,9 @@ func (c *Context) Accepts(types ...string) string {
 	return best
 }
 
-// Negotiate selects an offered representation or returns ErrNotAcceptable.
-func (c *Context) Negotiate(status int, offers map[string]any) error {
+// Negotiate writes the offered representation that best matches the Accept
+// header, using the status set by Status, or returns ErrNotAcceptable.
+func (c *Context) Negotiate(offers map[string]any) error {
 	if len(offers) == 0 {
 		return ErrNotAcceptable
 	}
@@ -371,7 +363,6 @@ func (c *Context) Negotiate(status int, offers map[string]any) error {
 	if selected == "" {
 		return ErrNotAcceptable
 	}
-	c.Status(status)
 	return c.writeNegotiated(selected, offers[selected])
 }
 
@@ -447,13 +438,15 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 	}
 }
 
-// Redirect writes a redirect response, defaulting code to 302.
-func (c *Context) Redirect(code int, location string) error {
-	if code == 0 {
-		code = http.StatusFound
-	}
+// Redirect sends location with 302 Found, or with the redirect status chosen
+// by Status, such as c.Status(http.StatusMovedPermanently).Redirect("/new").
+func (c *Context) Redirect(location string) error {
 	if c.written {
 		return ErrResponseAlreadySent
+	}
+	code := c.status
+	if code < 300 || code > 399 {
+		code = http.StatusFound
 	}
 	c.Location(location)
 	c.Writer().WriteHeader(code)
@@ -477,11 +470,6 @@ func (c *Context) Attachment(filePath string, name ...string) error {
 		downloadName = name[0]
 	}
 	return c.serveFile(filePath, nil, downloadName)
-}
-
-// Download is an alias for Attachment.
-func (c *Context) Download(filePath string, name ...string) error {
-	return c.Attachment(filePath, name...)
 }
 
 // Inline serves a file with an inline Content-Disposition.
@@ -513,30 +501,28 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 	c.writeCookie(cookie)
 }
 
-// SetSameSite supplies a default SameSite mode for subsequently written cookies.
-func (c *Context) SetSameSite(mode http.SameSite) *Context {
-	c.sameSite = mode
-	return c
-}
-
-// ClearCookie expires each named cookie at the root path.
-func (c *Context) ClearCookie(names ...string) {
-	expires := time.Unix(1, 0).UTC()
-	for _, name := range names {
-		c.writeCookie(&http.Cookie{
-			Name:    name,
-			Value:   "",
-			Path:    "/",
-			MaxAge:  -1,
-			Expires: expires,
-		})
+// ClearCookie tells the client to delete cookie. Name, Path, and Domain must
+// match the cookie being removed; Path defaults to "/".
+//
+//	c.ClearCookie(&http.Cookie{Name: "session"})
+func (c *Context) ClearCookie(cookie *http.Cookie) {
+	if cookie == nil {
+		return
 	}
+	cleared := *cookie
+	cleared.Value = ""
+	cleared.MaxAge = -1
+	cleared.Expires = time.Unix(1, 0).UTC()
+	if cleared.Path == "" {
+		cleared.Path = "/"
+	}
+	c.writeCookie(&cleared)
 }
 
 func (c *Context) writeCookie(cookie *http.Cookie) {
-	if c.sameSite != 0 && cookie != nil && cookie.SameSite == 0 {
+	if cookie != nil && cookie.SameSite == 0 && c.app != nil && c.app.config.CookieSameSite != 0 {
 		clone := *cookie
-		clone.SameSite = c.sameSite
+		clone.SameSite = c.app.config.CookieSameSite
 		cookie = &clone
 	}
 	http.SetCookie(c.Writer(), cookie)
@@ -593,7 +579,7 @@ func (c *Context) prepareSSE() (http.ResponseWriter, bool, error) {
 	return c.prepareResponse(eventStream)
 }
 
-func (c *Context) writeSSEEvent(w io.Writer, event SSEvent) error {
+func (c *Context) writeSSEEvent(w io.Writer, event Event) error {
 	if event.Event != "" {
 		if err := writeSSEField(w, "event", event.Event); err != nil {
 			return err

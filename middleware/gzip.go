@@ -48,7 +48,7 @@ func GzipWithConfig(config GzipConfig) zinc.Middleware {
 			return c.Next()
 		}
 
-		if !requestAcceptsGzip(c.GetHeader(zinc.HeaderAcceptEncoding)) {
+		if !requestAcceptsGzip(c.Header(zinc.HeaderAcceptEncoding)) {
 			appendVary(c.Writer().Header(), zinc.HeaderAcceptEncoding)
 			return c.Next()
 		}

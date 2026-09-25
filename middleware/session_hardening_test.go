@@ -141,7 +141,7 @@ func TestSessionSSEFlushesBeforeHandlerReturns(t *testing.T) {
 		if err := MustSession(c).Set("user", "alice"); err != nil {
 			return err
 		}
-		if err := c.SSE(zinc.SSEvent{Data: "hello"}); err != nil {
+		if err := c.SSE(zinc.Event{Data: "hello"}); err != nil {
 			return err
 		}
 		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {

@@ -53,7 +53,7 @@ func TrailingSlashWithConfig(config TrailingSlashConfig) zinc.Middleware {
 		}
 
 		if cfg.Redirect {
-			return c.Redirect(cfg.StatusCode, pathWithRawQuery(nextPath, req.URL.RawQuery))
+			return c.Status(cfg.StatusCode).Redirect(pathWithRawQuery(nextPath, req.URL.RawQuery))
 		}
 
 		c.SetPath(nextPath)

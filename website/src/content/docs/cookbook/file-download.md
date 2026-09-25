@@ -29,7 +29,7 @@ func main() {
 		}
 
 		path := filepath.Join("exports", id+".csv")
-		return c.Download(path, "report-"+id+".csv")
+		return c.Attachment(path, "report-"+id+".csv")
 	})
 
 	app.Get("/manual", func(c *zinc.Context) error {

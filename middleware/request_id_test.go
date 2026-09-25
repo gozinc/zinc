@@ -25,8 +25,8 @@ func TestRequestIDGeneratesAndPublishesID(t *testing.T) {
 		if !state.Generated {
 			t.Fatal("state should mark generated id")
 		}
-		if c.RequestID() != "req-generated" {
-			t.Fatalf("context request id=%q", c.RequestID())
+		if c.Header(zinc.HeaderXRequestID) != "req-generated" {
+			t.Fatalf("request header id=%q", c.Header(zinc.HeaderXRequestID))
 		}
 		return c.String(RequestIDValue(c))
 	})

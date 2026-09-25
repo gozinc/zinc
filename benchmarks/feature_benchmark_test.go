@@ -680,7 +680,7 @@ func buildGinNestedGroupMiddlewareAPIHandler() http.Handler {
 func buildZincUnauthorizedRejectHandler() http.Handler {
 	app := New()
 	app.Use(func(c *Context) error {
-		if c.GetHeader("Authorization") == "" {
+		if c.Header("Authorization") == "" {
 			benchmarkSinkBool = true
 			return c.Status(http.StatusUnauthorized).NoContent()
 		}

@@ -29,6 +29,13 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1` | [Configuration](#configuration) |
 | A goroutine calling `Listen` plus `Shutdown` on a signal | `ListenContext` does both | [Graceful shutdown](#graceful-shutdown) |
 | `zinc.GetVersion()`, `zinc.GetVersionHeader()` | Removed: use `zinc.Version` | [Configuration](#configuration) |
+| `c.GetString`, `c.GetInt`, `c.MustGet`, and the other typed getters | Replaced by `zinc.Value[T]` and `zinc.MustValue[T]` | [Request values](#request-values) |
+| `c.ParamOr`, `c.QueryOr`, `c.PostForm*` | Replaced by `zinc.QueryOr`, `zinc.Form`, and `c.FormValue` | [Request values](#request-values) |
+| `c.GetHeader`, `c.RequestID` | `c.Header`; the request ID comes from the middleware | [Request values](#request-values) |
+| `c.Blob`, `c.JSONBlob`, `c.XMLBlob`, `c.HTMLBlob`, `c.Download` | `c.Data` with `zinc.MIME*` constants; `c.Attachment` | [Responses](#responses) |
+| `c.Redirect(code, url)`, `c.Negotiate(status, offers)` | The status moves to `c.Status(...)` | [Responses](#responses) |
+| `c.ClearCookie(names...)`, `c.SetSameSite` | `c.ClearCookie(*http.Cookie)`, `Config.CookieSameSite` | [Responses](#responses) |
+| `zinc.SSEvent`, `zinc.NewContext`, `c.PathParams` | `zinc.Event`; the other two are internal | [Responses](#responses) |
 
 ## Group middleware order
 
@@ -98,7 +105,7 @@ A target that carries a message also requires that message. If you compared `HTT
 Manual flushing after `c.SSE` still works, but you can remove it:
 
 ```go
-if err := c.SSE(zinc.SSEvent{Data: msg}); err != nil {
+if err := c.SSE(zinc.Event{Data: msg}); err != nil {
 	return err
 }
 // no longer needed:
@@ -219,3 +226,50 @@ if err := app.ListenContext(ctx, ":8080"); err != nil {
 ```
 
 `Listen`, `Serve`, and `Shutdown` still work as before.
+
+## Request values
+
+Zinc 0.4 adds typed accessors. They are package functions, because Go methods cannot be generic:
+
+```go
+id, err := zinc.Param[int64](c, "id")      // 400 naming "id" if it isn't a number
+since, err := zinc.Query[time.Time](c, "since")
+page := zinc.QueryOr(c, "page", 1)         // T inferred from the fallback
+user := zinc.MustValue[*User](c, userKey)  // replaces c.MustGet(userKey).(*User)
+```
+
+| 0.3 | 0.4 |
+|---|---|
+| `strconv.Atoi(c.Param("id"))` plus your own 400 | `zinc.Param[int](c, "id")` |
+| `c.QueryOr("page", "1")` | `zinc.QueryOr(c, "page", "1")`, or `zinc.QueryOr(c, "page", 1)` for an `int` |
+| `c.ParamOr("id", "me")` | `c.Param("id")`, falling back yourself when it is empty |
+| `c.GetString(key)`, `c.GetInt(key)`, … | `v, _ := zinc.Value[string](c, key)` |
+| `c.MustGet(key)` | `zinc.MustValue[T](c, key)` |
+| `c.PostForm(name)` | `c.FormValue(name)` or `zinc.Form[string](c, name)` |
+| `c.PostFormOr(name, fallback)` | `zinc.FormOr(c, name, fallback)` |
+| `c.PostFormArray`, `c.PostFormMap` | Bind the form into a struct with `c.Bind().Form(&v)` |
+| `c.GetHeader(name)` | `c.Header(name)` |
+| `c.RequestID()` | `middleware.RequestIDValue(c)`, or `c.Header(zinc.HeaderXRequestID)` |
+
+`c.FormValue` and `zinc.Form` follow `http.Request.FormValue`: a body value wins, and the query string is a fallback. `c.PostForm` read only the body.
+
+## Responses
+
+The status argument moves out of the response helpers and into `c.Status`:
+
+| 0.3 | 0.4 |
+|---|---|
+| `c.Redirect(302, "/login")` | `c.Redirect("/login")` (302 by default) |
+| `c.Redirect(301, "/new")` | `c.Status(301).Redirect("/new")` |
+| `c.Negotiate(200, offers)` | `c.Negotiate(offers)` |
+| `c.JSONBlob(200, b)` | `c.Data(zinc.MIMEJSON, b)` |
+| `c.Blob(201, ct, b)` | `c.Status(201).Data(ct, b)` |
+| `c.XMLBlob`, `c.HTMLBlob` | `c.Data(zinc.MIMEXML, b)`, `c.Data(zinc.MIMEHTML, b)` |
+| `c.Download(path)` | `c.Attachment(path)` |
+| `c.ClearCookie("session")` | `c.ClearCookie(&http.Cookie{Name: "session"})` |
+| `c.SetSameSite(mode)` | `zinc.Config{CookieSameSite: mode}` |
+| `zinc.SSEvent{...}` | `zinc.Event{...}` |
+
+`ClearCookie` now keeps the path and domain you pass, so it can remove a cookie set with `Path: "/admin"` or a domain. In 0.3 it always cleared at `/` without a domain, and couldn't remove those cookies.
+
+`zinc.NewContext` and `c.PathParams` are internal. A `Context` without an app could not bind or encode JSON safely. Use `app.AcquireContext` in the rare adapter that needs one, and `httptest` against `app.ServeHTTP` in tests.

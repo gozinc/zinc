@@ -146,7 +146,7 @@ func TestRateLimiterCustomKeyGenerator(t *testing.T) {
 		Rate:     1,
 		Capacity: 1,
 		KeyGenerator: func(c *zinc.Context) string {
-			return c.GetHeader("X-Key")
+			return c.Header("X-Key")
 		},
 	}))
 	app.Get("/keyed", func(c *zinc.Context) error {

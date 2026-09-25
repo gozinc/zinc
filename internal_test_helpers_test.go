@@ -7,7 +7,7 @@ package zinc
 // primitives. Routing and method-negotiation algorithms remain in production.
 func (c *Context) setParam(key, value string) {
 	c.ensurePathParamCapacity(c.paramCount + 1)
-	c.PathParams[c.paramCount] = param{key: key, value: value, start: directParamStart}
+	c.pathParams[c.paramCount] = param{key: key, value: value, start: directParamStart}
 	c.paramCount++
 	c.paramRoute = nil
 }

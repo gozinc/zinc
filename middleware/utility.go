@@ -92,7 +92,7 @@ func AllowContentType(types ...string) zinc.Middleware {
 func AllowContentEncoding(encodings ...string) zinc.Middleware {
 	allowed := stringSet(encodings)
 	return func(c *zinc.Context) error {
-		raw := strings.TrimSpace(c.GetHeader(zinc.HeaderContentEncoding))
+		raw := strings.TrimSpace(c.Header(zinc.HeaderContentEncoding))
 		if raw == "" {
 			raw = "identity"
 		}
@@ -136,7 +136,7 @@ func RouteHeaders(rules ...HeaderRoute) zinc.Middleware {
 
 	return func(c *zinc.Context) error {
 		for _, rule := range compiled {
-			value := c.GetHeader(rule.Header)
+			value := c.Header(rule.Header)
 			if value == "" {
 				continue
 			}

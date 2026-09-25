@@ -271,7 +271,7 @@ func TestSSEStreamOutlivesWriteTimeout(t *testing.T) {
 	const events = 5
 	app.Get("/events", func(c *zinc.Context) error {
 		for i := 0; i < events; i++ {
-			if err := c.SSE(zinc.SSEvent{Data: i}); err != nil {
+			if err := c.SSE(zinc.Event{Data: i}); err != nil {
 				return err
 			}
 			time.Sleep(120 * time.Millisecond) // 600 ms in total

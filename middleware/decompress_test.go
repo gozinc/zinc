@@ -20,7 +20,7 @@ func TestDecompressGzipRequestBody(t *testing.T) {
 	app := zinc.New()
 	app.Use(Decompress())
 	app.Post("/echo", func(c *zinc.Context) error {
-		if got := c.GetHeader(zinc.HeaderContentEncoding); got != "" {
+		if got := c.Header(zinc.HeaderContentEncoding); got != "" {
 			t.Fatalf("content-encoding=%q", got)
 		}
 		if c.Request().ContentLength != -1 {
@@ -104,7 +104,7 @@ func TestDecompressSkipper(t *testing.T) {
 		Skipper: func(*zinc.Context) bool { return true },
 	}))
 	app.Post("/echo", func(c *zinc.Context) error {
-		if got := c.GetHeader(zinc.HeaderContentEncoding); got != "gzip" {
+		if got := c.Header(zinc.HeaderContentEncoding); got != "gzip" {
 			t.Fatalf("content-encoding=%q", got)
 		}
 		return c.String("ok")

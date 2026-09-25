@@ -772,8 +772,8 @@ func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 	if got := ctx.Param(names[9]); got != "10" {
 		t.Fatalf("param10=%q", got)
 	}
-	if len(ctx.PathParams) < len(names) || ctx.PathParams[9].key != names[9] {
-		t.Fatalf("path params not expanded: len=%d last=%+v", len(ctx.PathParams), ctx.PathParams[9])
+	if len(ctx.pathParams) < len(names) || ctx.pathParams[9].key != names[9] {
+		t.Fatalf("path params not expanded: len=%d last=%+v", len(ctx.pathParams), ctx.pathParams[9])
 	}
 
 	key := routeCacheKey{method: MethodGet, path: path}

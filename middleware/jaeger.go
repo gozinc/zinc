@@ -107,7 +107,7 @@ func resolveJaegerConfig(config JaegerConfig) JaegerConfig {
 }
 
 func newJaegerSpan(c *zinc.Context, operation string, start time.Time) JaegerSpan {
-	traceID, parentID, flags := parseUberTraceID(c.GetHeader(HeaderUberTraceID))
+	traceID, parentID, flags := parseUberTraceID(c.Header(HeaderUberTraceID))
 	if traceID == "" {
 		traceID = randomHex(16)
 	}
