@@ -5,11 +5,11 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/0mjs/zinc?style=flat-square)](https://goreportcard.com/report/github.com/0mjs/zinc)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
-A high-performance application layer for `net/http`.
+**Galvanize `net/http`.**
 
-Zinc adds fast routing, request binding, structured errors, response helpers, and production middleware to Go's standard HTTP stack. It does not replace that stack: a Zinc app is an `http.Handler`, and handlers always have access to the original request and response writer.
+Zinc is a fast, thin application layer for Go's standard HTTP stack. It adds routing, binding, central error handling, response helpers, and production middleware. A Zinc app is still an `http.Handler`, so everything you already use with `net/http` keeps working.
 
-[Documentation](https://zinc.carbonsoft.sh) · [Quick start](https://zinc.carbonsoft.sh/getting-started/quick-start) · [Middleware](https://zinc.carbonsoft.sh/middleware) · [API reference](https://pkg.go.dev/github.com/0mjs/zinc)
+[Documentation](https://zinc.carbonsoft.sh) · [Quick start](https://zinc.carbonsoft.sh/guide/quickstart/) · [Middleware](https://zinc.carbonsoft.sh/middleware/overview/) · [API reference](https://pkg.go.dev/github.com/0mjs/zinc)
 
 ## Install
 
@@ -19,167 +19,118 @@ go get github.com/0mjs/zinc
 
 Zinc requires Go 1.25 or newer.
 
-## Start a server
+## A small API
 
 ```go
 package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/middleware"
 )
+
+type User struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+var users = map[string]User{"42": {ID: "42", Name: "Ada"}}
 
 func main() {
 	app := zinc.New()
+	app.Use(middleware.Recover(), middleware.RequestID())
 
-	app.Get("/", func(c *zinc.Context) error {
-		return c.String("Hello from Zinc!")
+	api := app.Group("/api")
+
+	api.Get("/users/{id}", func(c *zinc.Context) error {
+		user, ok := users[c.Param("id")]
+		if !ok {
+			return zinc.ErrNotFound
+		}
+		return c.JSON(user)
+	})
+
+	api.Post("/users", func(c *zinc.Context) error {
+		var user User
+		if err := c.Bind().JSON(&user); err != nil {
+			return zinc.ErrBadRequest.WithMessage("invalid user").WithCause(err)
+		}
+		users[user.ID] = user
+		return c.Status(http.StatusCreated).JSON(user)
 	})
 
 	log.Fatal(app.Listen(":8080"))
 }
 ```
 
-Run it, then make a request:
-
 ```sh
-curl http://localhost:8080
+curl localhost:8080/api/users/42
+# {"id":"42","name":"Ada"}
 ```
 
-```text
-Hello from Zinc!
-```
+Handlers return errors, and one error handler turns them into responses. Invalid or conflicting routes fail at startup rather than at request time.
 
-## Why Zinc?
+## What you get
 
-The standard library has excellent HTTP contracts. Building an application directly on top of them still leaves a fair amount of repetitive work.
-
-Zinc fills that gap without introducing another HTTP engine:
-
-- concise handlers with central error handling
-- fast routing, route groups, and middleware chains
-- binding and validation for request data
-- helpers for JSON, files, streams, templates, and redirects
-- direct access to `http.Request`, `http.ResponseWriter`, `http.Handler`, and `http.Server`
-
-The aim is simple application code that still behaves like ordinary Go.
+- **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.
+- **Binding:** path, query, header, form, multipart, JSON, XML, YAML, and TOML input, with an optional validator.
+- **Responses:** JSON, text, files, streams, templates, and redirects.
+- **Errors:** typed HTTP errors with safe client messages and wrapped causes.
+- **Middleware:** security, observability, limits, and transport, listed below.
+- **Replaceable parts:** swap the binder, validator, JSON codec, renderer, or error handler through `zinc.Config`.
 
 ## Still `net/http`
 
-`App` implements `http.Handler`, so you can use it with a server you own:
+Zinc wraps the standard library rather than replacing it:
 
 ```go
-server := &http.Server{
-	Addr:              ":8080",
-	Handler:           app,
-	ReadHeaderTimeout: 5 * time.Second,
-}
+// Run it on a server you configure.
+server := &http.Server{Addr: ":8080", Handler: app, ReadHeaderTimeout: 5 * time.Second}
 
-log.Fatal(server.ListenAndServe())
-```
-
-Standard handlers can own individual routes:
-
-```go
+// Serve a route with any standard handler.
 app.HandleHTTP("GET /metrics", promhttp.Handler())
 
-app.HandleHTTP("GET /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, r.PathValue("id"))
-}))
+// Wrap the app in standard middleware.
+app.UseHTTP(otelhttp.NewMiddleware("api"))
+
+// Hand a whole subtree to an existing handler. The prefix is stripped.
+app.Mount("/legacy", legacyMux)
 ```
 
-Standard middleware can wrap the entire application:
+Inside a handler, `c.Request()` and `c.Writer()` give you the underlying request and response writer.
 
-```go
-app.UseHTTP(requestTracing, authenticateRequest)
-```
+## Middleware
 
-Handlers that own a whole subtree can be mounted:
+Import from `github.com/0mjs/zinc/middleware`.
 
-```go
-app.Mount("/legacy", legacyMux) // receives paths with "/legacy" removed
-```
+| Job | Middleware |
+| --- | --- |
+| Protect | Basic Auth, Casbin, CORS, CSRF, Header Guards, JWT, Key Auth, Secure Headers, Session |
+| Observe | Body Dump, Jaeger, OpenTelemetry, pprof, Prometheus, Request ID, Request Logger |
+| Control | Body Limit, Context Timeout, Rate Limiter, Recover, Utility |
+| Transport | Decompress, Gzip, Method Override, Proxy, Redirect, Rewrite, Static, Trailing Slash |
 
-Inside a Zinc handler, the standard request and writer are available when you need them:
-
-```go
-app.Get("/request", func(c *zinc.Context) error {
-	r := c.Request()
-	w := c.Writer()
-
-	w.Header().Set("X-Method", r.Method)
-	return c.String("ok")
-})
-```
-
-This keeps standard middleware, observability tools, test helpers, server configuration, cancellation, and request-scoped values usable.
-
-## Routing and middleware
-
-Routes can be grouped and middleware can be applied to the whole app or one part of it:
-
-Every route method accepts typed `zinc.HandlerFunc` handlers. Zinc does not use untyped response shorthands.
-
-```go
-app.Use(middleware.RequestID())
-app.Use(middleware.Recover())
-
-api := app.Group("/api", requireAuth)
-
-api.Get("/health", func(c *zinc.Context) error {
-	return c.JSON(zinc.Map{"status": "ok"})
-})
-```
-
-Routes declared in source fail fast if a pattern is invalid or conflicts with another route. Use `app.TryHandle(spec)` when route definitions come from configuration or plugins and need ordinary error handling.
-
-Zinc includes middleware for common concerns such as recovery, request IDs, logging, CORS, compression, authentication, rate limiting, security headers, metrics, and tracing. See the [middleware documentation](https://zinc.carbonsoft.sh/middleware) for configuration and examples.
-
-## Binding and errors
-
-Handlers return errors. Zinc sends successful responses through the context and passes failures to one central error handler.
-
-```go
-type CreateUser struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-app.Post("/users", func(c *zinc.Context) error {
-	var input CreateUser
-	if err := c.Bind().JSON(&input); err != nil {
-		return zinc.ErrBadRequest.WithMessage("invalid request").WithCause(err)
-	}
-
-	return c.Status(http.StatusCreated).JSON(input)
-})
-```
-
-`*zinc.Context` is pooled and lives only for the active request. Extract values before starting background work; use `c.Request().Context()` when that work should share request cancellation, or deliberately use `context.WithoutCancel` when it must not.
-
-Binding supports path, query, header, JSON, XML, YAML, TOML, form, and multipart input. The binder, validator, JSON codec, renderer, and error handler can all be replaced through `zinc.Config`.
+OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middleware docs](https://zinc.carbonsoft.sh/middleware/overview/) cover configuration for each.
 
 ## Performance
 
-Zinc keeps benchmarks in the repository so performance claims can be checked against the code that produced them.
+In the recorded comparison against Gin, Echo, and Chi, Zinc had the lowest latency in 62 of 77 workloads. That run used commit `5f77c75` on an Apple M1 Pro and predates the 0.3 hardening work. The [benchmark report](./BENCHMARKS.md) has the full results, environment, and commands. Results vary by workload and machine, so run the suite against the revision you deploy.
 
 On the Apple M1 Pro comparison, Zinc has the lowest median latency in 60 of 77 comparable scenarios against Gin, Echo, and Chi. Zinc was measured on 25 September 2026 at commit `42e11d2`; rival samples are reused from 24 September, so close results merit a fresh paired run. Correct response-header ownership adds one 16-byte allocation to common string-response paths. This score is not a release gate.
 
-Results vary by workload and machine. See the [full benchmark report](./BENCHMARKS.md) for the environment, command, scorecard, and complete results.
+## Good to know
 
-## Packages
-
-| Package | Purpose |
-| --- | --- |
-| `github.com/0mjs/zinc` | Application, router, context, binding, responses, rendering, and static files |
-| `github.com/0mjs/zinc/middleware` | First-party HTTP middleware |
+- `*zinc.Context` is pooled and valid only during its request. Copy values out before starting background work. Use `c.Request().Context()` when that work should be cancelled with the request.
+- Use `app.TryHandle(spec)` for routes that come from configuration or plugins. It returns an error instead of panicking.
 
 ## Project status
 
-Zinc is pre-1.0. Pin a release and read the [Zinc 0.2 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.2) and [release notes](https://github.com/0mjs/zinc/releases) when upgrading.
+Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.2 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.2/) when you upgrade.
 
-Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/0mjs/zinc/issues). See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
+Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
