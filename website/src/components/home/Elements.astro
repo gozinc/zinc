@@ -38,7 +38,7 @@ const formula = elements.filter((e) => initial.has(e.sym));
         </div>
         <ol aria-label={`${f.name} middleware`}>
           {elements.map((e, i) => e.family === f.id && (
-            <li data-on={initial.has(e.sym) ? "" : undefined}>
+            <li data-on={initial.has(e.sym) ? "" : undefined} style={`--plate-position: ${(i * 37) % 320}px ${(i * 53) % 320}px`}>
               <button type="button" data-sym={e.sym} aria-pressed={String(initial.has(e.sym))}>
                 <span class="num">{i + 1}</span>
                 <span class="sym">{e.sym}</span>
@@ -149,51 +149,41 @@ const formula = elements.filter((e) => initial.has(e.sym));
 </script>
 
 <style>
-  /* Each family has a photographed metal surface. The image stays decorative;
-     contrast comes from the per-metal wash and text colors. */
+  /* The quiet metal finishes distinguish families by tone and grain;
+     selected elements keep the more detailed Zinc spangle. */
   .elements :global([data-group="observe"]) {
     --plate-image: url("/middleware-metals/observe-copper.webp");
-    --plate-wash: rgba(28, 12, 4, 0.08);
     --plate-ink: #fff9f2;
-    --plate-muted-ink: #f4dec9;
+    --plate-muted-ink: #fff1e5;
     --plate-edge: #7d4e30;
   }
   .elements :global([data-group="contain"]) {
-    --plate-image: url("/middleware-metals/control-titanium.webp");
-    --plate-wash: rgba(255, 255, 255, 0.24);
+    --plate-image: url("/middleware-metals/contain-titanium.webp");
     --plate-ink: #17202d;
     --plate-muted-ink: #334052;
     --plate-edge: #a6aab7;
   }
-  /* Chromium borrows the aluminium plate under a cold, bright wash until it
-     has a texture of its own. */
   .elements :global([data-group="shape"]) {
-    --plate-image: url("/middleware-metals/transport-aluminium.webp");
-    --plate-wash: linear-gradient(135deg, rgba(214, 232, 255, 0.5), rgba(120, 150, 190, 0.28));
+    --plate-image: url("/middleware-metals/shape-chromium.webp");
     --plate-ink: #152033;
     --plate-muted-ink: #2f415a;
     --plate-edge: #9fb2c9;
   }
   .elements :global([data-group="guard"]) {
-    --plate-image: url("/middleware-metals/protect-iron.webp");
-    --plate-wash: rgba(8, 14, 22, 0.07);
+    --plate-image: url("/middleware-metals/guard-iron.webp");
     --plate-ink: #f8fafc;
     --plate-muted-ink: #dce4ec;
     --plate-edge: #38434e;
   }
   .elements :global([data-group="carry"]) {
-    --plate-image: url("/middleware-metals/transport-aluminium.webp");
-    --plate-wash: rgba(255, 255, 255, 0.06);
+    --plate-image: url("/middleware-metals/carry-aluminium.webp");
     --plate-ink: #202a34;
     --plate-muted-ink: #374451;
     --plate-edge: #bbc2c9;
   }
 
   .elements :global([data-group]) {
-    --plate: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
-  }
-  .elements :global([data-group="shape"]) {
-    --plate: var(--plate-wash), var(--plate-image) center / cover;
+    --plate: var(--plate-image) var(--plate-position, 0 0) / 320px repeat;
   }
 
   .head {
