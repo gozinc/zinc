@@ -2,11 +2,11 @@
   "name": "zinc-frost",
   "type": "dark",
   "colors": {
-    "editor.background": "#14171b",
+    "editor.background": "#0f1215",
     "editor.foreground": "#d8dee9",
     "editor.selectionBackground": "#2b3340",
     "editorLineNumber.foreground": "#475061",
-    "terminal.background": "#14171b",
+    "terminal.background": "#0f1215",
     "terminal.foreground": "#d8dee9",
     "focusBorder": "#88c0d0"
   },

@@ -9,9 +9,9 @@ const zincFrost = ExpressiveCodeTheme.fromJSONString(
 
 // Code frames are dark plates in both site themes.
 const plate = {
-  bg: "#14171b",
-  bar: "#181b20",
-  line: "#252a31",
+  bg: "#0f1215",
+  bar: "#13161a",
+  line: "#1f242a",
   mute: "#7d889a",
 };
 
@@ -79,7 +79,7 @@ export default defineConfig({
           tag: "link",
           attrs: {
             rel: "stylesheet",
-            href: "https://fonts.googleapis.com/css2?family=Michroma&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap",
+            href: "https://fonts.googleapis.com/css2?family=Michroma&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap",
           },
         },
       ],
@@ -199,6 +199,7 @@ export default defineConfig({
           borderColor: plate.line,
           codeFontFamily: "var(--sl-font-mono)",
           codeFontSize: "0.8rem",
+          codeFontWeight: "500",
           codeLineHeight: "1.7",
           codePaddingBlock: "1rem",
           codePaddingInline: "1.15rem",
