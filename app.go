@@ -49,6 +49,8 @@ type RouteInfo struct {
 	Params  []string
 	Mounted bool
 	Handler string
+	// Status is the success status declared with Route.Status, or 0.
+	Status int
 }
 
 // Route is a registered route. Registration methods return it so the route
@@ -71,6 +73,20 @@ func (r Route) Name(name string) Route {
 	return r
 }
 
+// Status declares the route's success status for a Typed handler, such as
+// http.StatusCreated for a route that creates a resource. Other handlers set
+// their status with Context.Status. It panics unless code is 2xx.
+func (r Route) Status(code int) Route {
+	if r.table == nil {
+		panic("zinc: Status on a route that was not registered")
+	}
+	if code < 200 || code > 299 {
+		panic(fmt.Sprintf("zinc: route status %d is not a success status", code))
+	}
+	r.table.routeInfos[r.index].status = uint16(code)
+	return r
+}
+
 // RouteSpec describes a route supplied by configuration, plugins, or generated code.
 type RouteSpec struct {
 	Name    string
@@ -80,11 +96,13 @@ type RouteSpec struct {
 }
 
 type routeMeta struct {
-	name      string
-	method    string
-	path      string
-	params    []string
-	mounted   bool
+	name    string
+	method  string
+	path    string
+	params  []string
+	mounted bool
+	// status fits in the padding after mounted, so it adds no size per route.
+	status    uint16
 	handlerPC uintptr
 }
 
@@ -96,6 +114,7 @@ func (m routeMeta) export() RouteInfo {
 		Params:  append([]string(nil), m.params...),
 		Mounted: m.mounted,
 		Handler: handlerNameFromPC(m.handlerPC),
+		Status:  int(m.status),
 	}
 }
 

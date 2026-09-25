@@ -202,6 +202,72 @@ var api04Workloads = []struct {
 	},
 }
 
+// api04CreateInput and api04CreateOutput are the typed-handler workload: a
+// create request bound from path, query, header, and a JSON body.
+type api04CreateInput struct {
+	OrgID   string `path:"org"`
+	DryRun  bool   `query:"dry_run"`
+	TraceID string `header:"X-Trace-ID"`
+	Email   string `json:"email"`
+}
+
+type api04CreateOutput struct {
+	Org   string `json:"org"`
+	Email string `json:"email"`
+}
+
+func api04CreateRequest() preparedBenchmarkRequest {
+	return newPreparedBenchmarkRequest(http.MethodPost, "/orgs/acme/users?dry_run=true", []byte(`{"email":"ada@example.com"}`),
+		http.Header{"Content-Type": {"application/json"}, "X-Trace-Id": {"t-1"}})
+}
+
+func init() {
+	api04Workloads = append(api04Workloads,
+		struct {
+			name   string
+			build  func() http.Handler
+			req    func() preparedBenchmarkRequest
+			status int
+		}{
+			name: "TypedCreate",
+			build: func() http.Handler {
+				app := New()
+				app.Post("/orgs/{org}/users", Typed(func(c *Context, in api04CreateInput) (api04CreateOutput, error) {
+					return api04CreateOutput{Org: in.OrgID, Email: in.Email}, nil
+				})).Status(http.StatusCreated)
+				return app
+			},
+			req:    api04CreateRequest,
+			status: http.StatusCreated,
+		},
+		struct {
+			name   string
+			build  func() http.Handler
+			req    func() preparedBenchmarkRequest
+			status int
+		}{
+			// The same contract written by hand, for comparison with TypedCreate.
+			name: "HandwrittenCreate",
+			build: func() http.Handler {
+				app := New()
+				app.Post("/orgs/{org}/users", func(c *Context) error {
+					var in api04CreateInput
+					if err := c.Bind().Header(&in); err != nil {
+						return err
+					}
+					if err := c.Bind().All(&in); err != nil {
+						return err
+					}
+					return c.Status(http.StatusCreated).JSON(api04CreateOutput{Org: in.OrgID, Email: in.Email})
+				})
+				return app
+			},
+			req:    api04CreateRequest,
+			status: http.StatusCreated,
+		},
+	)
+}
+
 func runAPI04Workload(b *testing.B, name string) {
 	for _, w := range api04Workloads {
 		if w.name != name {
@@ -232,6 +298,8 @@ func BenchmarkAPI04StoreValue(b *testing.B)           { runAPI04Workload(b, "Sto
 func BenchmarkAPI04HeaderRead(b *testing.B)           { runAPI04Workload(b, "HeaderRead") }
 func BenchmarkAPI04Redirect(b *testing.B)             { runAPI04Workload(b, "Redirect") }
 func BenchmarkAPI04PreencodedJSON(b *testing.B)       { runAPI04Workload(b, "PreencodedJSON") }
+func BenchmarkAPI04TypedCreate(b *testing.B)          { runAPI04Workload(b, "TypedCreate") }
+func BenchmarkAPI04HandwrittenCreate(b *testing.B)    { runAPI04Workload(b, "HandwrittenCreate") }
 
 // BenchmarkAPI04RouteRegistration registers 1,000 parameter routes. P5 makes
 // the method helpers return a Route; this must stay allocation-neutral.

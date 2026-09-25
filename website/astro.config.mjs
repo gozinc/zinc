@@ -94,6 +94,7 @@ export default defineConfig({
             page("Routing", "/guide/routing/"),
             page("Request Data", "/guide/request/"),
             page("Binding", "/guide/binding/"),
+            page("Typed Handlers", "/guide/typed-handlers/"),
             page("Context", "/guide/context/"),
             page("Responses and Rendering", "/guide/responses-and-rendering/"),
             page("Errors", "/guide/errors/"),
@@ -168,6 +169,7 @@ export default defineConfig({
           items: [
             page("All Recipes", "/cookbook/"),
             page("CRUD API", "/cookbook/crud/"),
+            page("Typed CRUD API", "/cookbook/typed-crud/"),
             page("SQLite CRUD API", "/cookbook/sqlite-crud-api/"),
             page("Signed Webhooks", "/cookbook/signed-webhook/"),
             page("Health and Readiness", "/cookbook/health-readiness/"),

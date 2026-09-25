@@ -23,11 +23,26 @@ app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
 
 Every method accepts a chain: middleware first, then the handler. Invalid or conflicting patterns panic at registration. See [Routing](/guide/routing/).
 
-The returned `Route` names the route for URL building. `Name` panics on a duplicate name:
+The returned `Route` has two methods:
+
+| Method | Purpose |
+|---|---|
+| `Name(name) Route` | A unique name for `URL` and `RouteByName`; panics on a duplicate |
+| `Status(code) Route` | The success status of a [typed handler](/guide/typed-handlers/), such as `201`; panics unless `code` is 2xx |
 
 ```go
 app.Get("/users/{id}", showUser).Name("users.show")
+app.Post("/users", zinc.Typed(createUser)).Status(zinc.StatusCreated)
 ```
+
+## Typed handlers
+
+| Function | Returns |
+|---|---|
+| `zinc.Typed[In, Out](fn func(*Context, In) (Out, error)) HandlerFunc` | A handler that binds and validates `In`, calls `fn`, and writes `Out` as JSON |
+| `zinc.NoContent` | The `Out` type for a response without a body: `204` unless another status is declared |
+
+See [Typed Handlers](/guide/typed-handlers/).
 
 `TryHandle` takes a `RouteSpec`:
 
