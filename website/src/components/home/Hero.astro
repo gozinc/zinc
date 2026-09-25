@@ -370,7 +370,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
   .router {
     --lit: #88c0d0;
     --guide: #353b44;
-    --rule: #252a31; /* the plate is dark in both themes, so its rules are fixed too */
+    --rule: #1f242a; /* the plate is dark in both themes, so its rules are fixed too */
     background: var(--z-plate);
     border: 1px solid var(--rule);
     border-radius: 10px;
@@ -396,7 +396,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
   /* The request bar looks like a field you can type in, because it is one. */
   .r-request {
     align-items: center;
-    background: #0e1115;
+    background: #0a0c0f;
     border: 1px solid #2c323a;
     border-radius: 8px;
     cursor: text;
@@ -652,7 +652,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     border: 0;
     border-radius: 0;
     display: grid;
-    font: 400 0.76rem/1.65 var(--sl-font-mono);
+    font: var(--z-code-weight) 0.76rem/1.65 var(--sl-font-mono);
     margin: 0;
     overflow: visible;
     padding: 0;

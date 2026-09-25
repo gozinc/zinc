@@ -5,6 +5,7 @@
   --sl-sidebar-width: 17.25rem;
   --sl-font: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --sl-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --z-code-weight: 500; /* code reads a touch heavier than UI labels */
   --z-font-display: "Michroma", "Eurostile", "Arial Black", sans-serif;
   --z-radius: 6px;
   --z-radius-sm: 4px;
@@ -18,31 +19,31 @@
   --sl-color-gray-2: #c2c7cd;
   --sl-color-gray-3: #969da5;
   --sl-color-gray-4: #6b727a;
-  --sl-color-gray-5: #2a2e34;
-  --sl-color-gray-6: #16181b;
-  --sl-color-black: #0d0f11;
-  --sl-color-accent-low: #1c2229;
+  --sl-color-gray-5: #24282d;
+  --sl-color-gray-6: #101215;
+  --sl-color-black: #07080a;
+  --sl-color-accent-low: #151a20;
   --sl-color-accent: #aebccb;
   --sl-color-accent-high: #dfe6ee;
   --sl-color-text-accent: #dfe6ee;
-  --sl-color-bg: #0d0f11;
-  --sl-color-bg-nav: rgba(13, 15, 17, 0.86);
-  --sl-color-bg-sidebar: #0d0f11;
+  --sl-color-bg: #07080a;
+  --sl-color-bg-nav: rgba(7, 8, 10, 0.86);
+  --sl-color-bg-sidebar: #07080a;
   --sl-color-bg-inline-code: rgba(174, 188, 203, 0.08);
-  --sl-color-hairline: #202328;
-  --sl-color-hairline-light: #2c3036;
+  --sl-color-hairline: #181b1f;
+  --sl-color-hairline-light: #23272c;
 
   --z-text: #e8eaec;
   --z-body: #c2c7cd;
   --z-muted: #868e97;
   --z-soft: #5b626a;
-  --z-panel: #131518;
-  --z-panel-soft: #16191c;
+  --z-panel: #0d0f12;
+  --z-panel-soft: #111316;
   --z-zn: #aebccb;
   --z-zn-soft: rgba(174, 188, 203, 0.08);
-  --z-plate: #14171b;
-  --z-plate-bar: #181b20;
-  --z-plate-line: #252a31;
+  --z-plate: #0f1215;
+  --z-plate-bar: #13161a;
+  --z-plate-line: #1f242a;
   --z-plate-ink: #d8dee9;
   --z-plate-mute: #7d889a;
   --z-code-kw: #81a1c1;
@@ -86,7 +87,7 @@
   --z-panel-soft: #eceef0;
   --z-zn: #5d6b7b;
   --z-zn-soft: rgba(93, 107, 123, 0.08);
-  --z-plate-line: #14171b;
+  --z-plate-line: #0f1215;
   --z-note: #5d6b7b;
   --z-tip: #3f6e52;
   --z-caution: #8a6a1f;
@@ -517,7 +518,7 @@ starlight-toc a[aria-current="true"] {
   color: var(--z-text);
   font-family: var(--sl-font-mono);
   font-size: 0.84em;
-  font-weight: 400;
+  font-weight: var(--z-code-weight);
   padding: 0.1em 0.38em;
 }
 
@@ -744,4 +745,9 @@ main > .hero,
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}
+
+/* Code rendered by Astro's <Code> on the homepage matches the doc code blocks. */
+.astro-code {
+  font-weight: var(--z-code-weight);
 }
