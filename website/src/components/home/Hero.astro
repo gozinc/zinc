@@ -1,4 +1,6 @@
 ---
+import fs from "node:fs";
+import path from "node:path";
 import { presets, resolve, explain, treeRows, pathKeys } from "./router";
 
 const rows = treeRows();
@@ -6,13 +8,18 @@ const initial = presets[0];
 const result = resolve(initial);
 const lit = new Set(result.winner ? pathKeys(result.winner.route.pattern) : [""]);
 const captured = Object.fromEntries(result.winner?.params ?? []);
+
+// The release shown in the hero comes from version.go, so it cannot drift.
+const versionFile = path.resolve(process.cwd(), "../version.go");
+const version = fs.readFileSync(versionFile, "utf8").match(/const Version = "([^"]+)"/)?.[1];
+if (!version) throw new Error(`No Version constant in ${versionFile}`);
 ---
 
 <section class="lead">
   <div class="intro">
     <p class="meta">
       <span class="tile" aria-hidden="true"><b>30</b>Zn</span>
-      <span>v0.2.1</span><i></i><span>MIT</span><i></i><span>Go 1.25+</span>
+      <span>v{version}</span><i></i><span>MIT</span><i></i><span>Go 1.25+</span>
     </p>
     <h1>Galvanize <code>net/http</code>.</h1>
     <p class="lede">

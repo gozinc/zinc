@@ -52,12 +52,12 @@ Or pass a full `middleware.CORSConfig` to `CORSWithConfig`. Start from `middlewa
 Cookies and `Authorization` headers are only sent cross-origin when you allow credentials. List every trusted origin explicitly when you do.
 
 :::danger[Never combine * with credentials]
-With `AllowOrigins: ["*"]` and `AllowCredentials: true`, Zinc echoes back **whatever origin the request names**, together with `Access-Control-Allow-Credentials: true`. Any website can then make authenticated requests with your users' cookies and read the responses. Always list exact origins when credentials are allowed.
+Reflecting any origin together with `Access-Control-Allow-Credentials: true` would let every website make authenticated requests with your users' cookies and read the responses. Zinc refuses that configuration: `AllowOrigins: ["*"]` with `AllowCredentials: true` panics when the middleware is created. List exact origins when credentials are allowed.
 :::
+
+With credentials enabled, an empty origin list denies all cross-origin access. Without credentials, it allows `*`. Partial configurations fill in default methods and headers, and a negative `MaxAge` panics.
 
 ## Next steps
 
 - [CSRF](/middleware/csrf/) protects cookie-authenticated endpoints from forged requests.
 - [Secure Headers](/middleware/secure/) sets the other browser security headers.
-
-Partial configurations default methods and headers. Empty origins allow `*` only when credentials are disabled; with credentials enabled, empty origins deny all cross-origin access. Wildcard origins combined with credentials panic during construction: list trusted origins explicitly. Negative `MaxAge` also fails at construction.

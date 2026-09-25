@@ -43,7 +43,7 @@ go mod tidy
 ```
 
 :::caution[Zinc is pre-1.0]
-Minor releases can contain deliberate API changes. Pin a version in production and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading. Moving from 0.1? Follow [Migrating to 0.2](/extra/migration-0.2/).
+Minor releases can contain deliberate API changes. Pin a version in production and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading. Upgrading from 0.2? Follow [Migrating to 0.3](/extra/migration-0.3/). From 0.1, start with [Migrating to 0.2](/extra/migration-0.2/).
 :::
 
 ## Next steps

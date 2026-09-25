@@ -552,8 +552,9 @@ func (a *App) RouteByName(name string) (RouteInfo, bool) {
 	return meta.export(), true
 }
 
-// URL builds a named route URL. Segment parameters are escaped; catch-all
-// values are inserted verbatim so callers can supply a complete suffix.
+// URL builds a named route URL. Segment parameters are escaped and must be
+// non-empty without slashes; catch-all values keep their slashes and escape
+// '?', '#', and '%', so the URL routes back to the same values.
 func (a *App) URL(name string, params ...string) (string, error) {
 	meta, ok := a.router.routeMetaByName(name)
 	if !ok {
