@@ -1,7 +1,7 @@
 ---
 import fs from "node:fs";
 import path from "node:path";
-import { presets, resolve, explain, treeRows, pathKeys } from "./router";
+import { presets, resolve, treeRows, pathKeys, segments, codeLines } from "./router";
 
 const rows = treeRows();
 const initial = presets[0];
@@ -39,15 +39,31 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
 
   <div class="router" data-router>
     <div class="r-head">
-      <span class="r-title">Route tree</span>
-      <span class="r-hint" data-hint>Type any path</span>
+      <span class="r-title">Router</span>
+      <span class="r-hint" data-hint>Edit the path, or pick an example</span>
     </div>
 
-    <label class="r-input">
+    <label class="r-request">
       <span class="method">GET</span>
-      <input type="text" value={initial} spellcheck="false" autocomplete="off" aria-label="Request path to match" data-path />
+      <input type="text" value={initial} placeholder="/users/42" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Request path to match" data-path />
       <span class="caret" aria-hidden="true"></span>
+      <span class="verdict" data-verdict data-ok={result.winner ? "true" : "false"}>{result.winner ? "200" : "404"}</span>
     </label>
+
+    <!-- Every preset is laid out invisibly in the same cell, so the ruler and
+         the code below are always as tall as the tallest example. -->
+    <div class="slot">
+      {presets.map((p) => (
+        <ol class="ruler ghost" aria-hidden="true">
+          {segments(resolve(p)).map((g) => <li data-kind={g.kind}><span class="text">{g.text}</span><span class="label">{g.label}</span></li>)}
+        </ol>
+      ))}
+      <ol class="ruler" aria-label="How the path splits into segments" data-ruler>
+        {segments(result).map((g) => (
+          <li data-kind={g.kind}><span class="text">{g.text}</span><span class="label">{g.label}</span></li>
+        ))}
+      </ol>
+    </div>
 
     <ol class="tree" aria-label="Registered routes as a tree">
       {rows.map((r) => (
@@ -55,16 +71,20 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
           <span class="guide" aria-hidden="true">{r.guide}</span>
           <span class="seg">{r.seg}</span>
           <span class="cap" data-cap>{r.name && lit.has(r.key) && captured[r.name] !== undefined ? ` = "${captured[r.name]}"` : ""}</span>
-          {r.handler && <span class="handler"><b data-code></b>{r.handler}</span>}
+          {r.handler && <span class="handler">{r.handler}</span>}
         </li>
       ))}
     </ol>
 
-    <div class="r-result" aria-live="polite">
-      <p class="status" data-status data-ok={result.winner ? "true" : "false"}>
-        {result.winner ? `200 · ${result.winner.route.handler}` : "404 · not found"}
-      </p>
-      <p class="why" data-why>{explain(result)}</p>
+    <div class="slot r-code">
+      {presets.map((p) => (
+        <pre class="code ghost" aria-hidden="true">{codeLines(resolve(p)).map((line) => (
+          <span class="line">{line.map(([t, c]) => <span class={`t-${c}`}>{t}</span>)}</span>
+        ))}</pre>
+      ))}
+      <pre class="code" aria-live="polite" data-code>{codeLines(result).map((line) => (
+        <span class="line">{line.map(([t, c]) => <span class={`t-${c}`}>{t}</span>)}</span>
+      ))}</pre>
     </div>
 
     <div class="r-presets" role="group" aria-label="Example paths">
@@ -74,7 +94,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
 </section>
 
 <script>
-  import { resolve, explain, pathKeys, presets } from "./router";
+  import { resolve, pathKeys, presets, segments, codeLines } from "./router";
 
   document.querySelectorAll<HTMLButtonElement>(".lead .install").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -97,12 +117,20 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
 
   document.querySelectorAll<HTMLElement>("[data-router]").forEach((root) => {
     const input = root.querySelector<HTMLInputElement>("[data-path]")!;
-    const status = root.querySelector<HTMLElement>("[data-status]")!;
-    const why = root.querySelector<HTMLElement>("[data-why]")!;
+    const verdict = root.querySelector<HTMLElement>("[data-verdict]")!;
+    const ruler = root.querySelector<HTMLElement>("[data-ruler]")!;
+    const code = root.querySelector<HTMLElement>("[data-code]")!;
     const hint = root.querySelector<HTMLElement>("[data-hint]")!;
     const nodes = [...root.querySelectorAll<HTMLElement>("li[data-key]")];
     const presetButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-preset]")];
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const el = (tag: string, cls: string, text = "") => {
+      const e = document.createElement(tag);
+      e.className = cls;
+      e.textContent = text;
+      return e;
+    };
 
     const render = () => {
       const result = resolve(input.value);
@@ -110,7 +138,6 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
       const path = w ? pathKeys(w.route.pattern) : [""];
       const captured = new Map(w?.params ?? []);
       const lost = new Set(result.others.flatMap((o) => pathKeys(o.route.pattern)));
-      const depth = path.length;
 
       for (const n of nodes) {
         const key = n.dataset.key!;
@@ -119,20 +146,28 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
         n.toggleAttribute("data-lit", i >= 0);
         n.toggleAttribute("data-lost", i < 0 && lost.has(key));
         n.toggleAttribute("data-win", !!w && key === path[path.length - 1]);
-        const cap = n.querySelector<HTMLElement>("[data-cap]")!;
         const name = n.dataset.name;
-        cap.textContent = i >= 0 && name && captured.has(name) ? ` = "${captured.get(name)}"` : "";
-        const code = n.querySelector<HTMLElement>("[data-code]");
-        if (code) code.textContent = w && key === path[path.length - 1] ? "200" : "";
+        n.querySelector<HTMLElement>("[data-cap]")!.textContent =
+          i >= 0 && name && captured.has(name) ? ` = "${captured.get(name)}"` : "";
       }
-      // The verdict arrives after the request has reached the bottom of the tree.
-      root.style.setProperty("--settle", `${depth * STEP}ms`);
-      status.textContent = w ? `200 · ${w.route.handler}` : "404 · not found";
-      status.dataset.ok = String(Boolean(w));
-      why.textContent = explain(result);
-      root.classList.remove("settled");
-      void root.offsetWidth; // restart the fade
-      root.classList.add("settled");
+
+      verdict.textContent = w ? "200" : "404";
+      verdict.dataset.ok = String(Boolean(w));
+      ruler.replaceChildren(
+        ...segments(result).map((g) => {
+          const li = document.createElement("li");
+          li.dataset.kind = g.kind;
+          li.append(el("span", "text", g.text), el("span", "label", g.label));
+          return li;
+        }),
+      );
+      code.replaceChildren(
+        ...codeLines(result).map((line) => {
+          const span = el("span", "line");
+          span.append(...line.map(([t, c]) => el("span", `t-${c}`, t)));
+          return span;
+        }),
+      );
       presetButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === input.value)));
     };
 
@@ -144,7 +179,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
       demo = false;
       clearTimeout(timer);
       root.classList.remove("typing");
-      hint.textContent = "Type any path";
+      hint.textContent = "Your turn: edit the path";
     };
     const typeOut = (text: string, done: () => void) => {
       let i = 0;
@@ -162,12 +197,13 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     const loop = () => { if (!demo) return; typeOut(presets[next], () => { next = (next + 1) % presets.length; loop(); }); };
 
     input.addEventListener("input", () => { stopDemo(); render(); });
+    input.addEventListener("focus", () => input.select());
     for (const ev of ["pointerdown", "keydown", "focusin"]) root.addEventListener(ev, stopDemo);
     presetButtons.forEach((b) => b.addEventListener("click", () => { stopDemo(); input.value = b.dataset.preset || "/"; render(); }));
 
     render();
     if (demo) {
-      hint.textContent = "Watching examples · click to try";
+      hint.textContent = "Playing examples · click to take over";
       const seen = new IntersectionObserver((entries) => {
         if (!demo) return seen.disconnect();
         if (entries[0].isIntersecting) timer = window.setTimeout(loop, 2400);
@@ -357,13 +393,23 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     color: var(--z-plate-mute);
   }
 
-  .r-input {
+  /* The request bar looks like a field you can type in, because it is one. */
+  .r-request {
     align-items: center;
-    border-bottom: 1px solid var(--rule);
+    background: #0e1115;
+    border: 1px solid #2c323a;
+    border-radius: 8px;
+    cursor: text;
     display: flex;
-    gap: 0.8rem;
-    padding: 0.95rem 1.1rem;
+    gap: 0.75rem;
+    margin: 0.9rem 1.1rem 0;
+    padding: 0.55rem 0.55rem 0.55rem 0.8rem;
     position: relative;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .r-request:hover {
+    border-color: #3a424c;
   }
 
   .method {
@@ -372,19 +418,110 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     font-weight: 600;
   }
 
-  .r-input input {
+  .r-request input {
     background: transparent;
     border: 0;
     caret-color: var(--lit);
     color: #eceff4;
     flex: 1;
-    font: 400 1.02rem/1.4 var(--sl-font-mono);
+    font: 400 1rem/1.4 var(--sl-font-mono);
     min-width: 0;
     outline: none;
+    padding: 0;
   }
 
-  .r-input:focus-within {
-    box-shadow: inset 0 -1px 0 var(--lit);
+  .r-request input::placeholder {
+    color: #4c5561;
+  }
+
+  .r-request:focus-within {
+    border-color: var(--lit);
+    box-shadow: 0 0 0 3px rgba(136, 192, 208, 0.14);
+  }
+
+  .verdict {
+    border: 1px solid rgba(163, 190, 140, 0.35);
+    border-radius: 5px;
+    color: var(--z-code-str);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.3rem 0.45rem;
+  }
+
+  .verdict[data-ok="false"] {
+    border-color: rgba(208, 135, 112, 0.4);
+    color: #d08770;
+  }
+
+  /* The path, cut into the segments the router compares. */
+  .ruler {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0;
+    padding: 0.6rem 1.1rem 0.2rem;
+  }
+
+  /* Stack the live content on its invisible presets; the cell takes the
+     height of the tallest, at whatever width the panel has. */
+  .slot {
+    display: grid;
+  }
+
+  .slot > * {
+    grid-area: 1 / 1;
+  }
+
+  .ghost {
+    visibility: hidden;
+  }
+
+  .ruler :global(li) {
+    border-top: 2px solid #39414b;
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    min-width: 2.2rem;
+    padding: 0.35rem 0.5rem 0 0;
+  }
+
+  .ruler :global(.text) {
+    color: #d8dee9;
+    font-size: 0.78rem;
+  }
+
+  .ruler :global(.label) {
+    color: #5f6a79;
+    font-size: 0.64rem;
+  }
+
+  .ruler :global(li[data-kind="static"]) {
+    border-color: #7d889a;
+  }
+
+  .ruler :global(li[data-kind="param"]) {
+    border-color: var(--lit);
+  }
+
+  .ruler :global(li[data-kind="param"]) :global(.label) {
+    color: var(--lit);
+  }
+
+  .ruler :global(li[data-kind="catchall"]) {
+    border-color: var(--z-code-num);
+  }
+
+  .ruler :global(li[data-kind="catchall"]) :global(.label) {
+    color: var(--z-code-num);
+  }
+
+  .ruler :global(li[data-kind="none"]) {
+    border-color: rgba(208, 135, 112, 0.55);
+  }
+
+  .ruler :global(li[data-kind="none"]) :global(.text) {
+    color: #9aa4b2;
   }
 
   /* A block caret shown while the demo types, since the input is not focused. */
@@ -397,8 +534,6 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     background: var(--lit);
     display: block;
     height: 1.05rem;
-    position: absolute;
-    right: 1.1rem;
     width: 0.45rem;
   }
 
@@ -469,11 +604,6 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     transition: color 240ms ease var(--d, 0ms);
   }
 
-  .handler b {
-    color: var(--z-code-str);
-    font-weight: 600;
-  }
-
   /* The request's path through the tree. */
   li[data-lit] .guide {
     color: var(--lit);
@@ -510,42 +640,33 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     text-decoration-color: #5b6470;
   }
 
-  .r-result {
+  /* The Go that produces this result. It updates instantly. */
+  .r-code {
     border-top: 1px solid var(--rule);
+    padding: 0.8rem 1.1rem;
+  }
+
+  .code {
+    align-content: start;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     display: grid;
-    gap: 0.4rem;
-    min-height: 5.6rem;
-    padding: 0.95rem 1.1rem;
-  }
-
-  .status {
-    color: var(--z-code-str);
-    font-size: 0.82rem;
-    font-weight: 600;
+    font: 400 0.76rem/1.65 var(--sl-font-mono);
     margin: 0;
+    overflow: visible;
+    padding: 0;
   }
 
-  .status[data-ok="false"] {
-    color: #d08770;
+  .r-code :global(.line) {
+    white-space: pre-wrap;
   }
 
-  .why {
-    color: var(--z-plate-mute);
-    font: 400 0.8rem/1.5 var(--sl-font);
-    margin: 0;
-  }
-
-  .settled .status,
-  .settled .why {
-    animation: arrive 260ms ease both var(--settle, 0ms);
-  }
-
-  @keyframes arrive {
-    from {
-      opacity: 0;
-      transform: translateY(3px);
-    }
-  }
+  .r-code :global(.t-id) { color: #d8dee9; }
+  .r-code :global(.t-fn) { color: #88c0d0; }
+  .r-code :global(.t-str) { color: #a3be8c; }
+  .r-code :global(.t-pn) { color: #7d889a; }
+  .r-code :global(.t-cm) { color: #6c788e; }
 
   .r-presets {
     border-top: 1px solid var(--rule);
@@ -587,9 +708,5 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
       transition: none;
     }
 
-    .settled .status,
-    .settled .why {
-      animation: none;
-    }
   }
 </style>

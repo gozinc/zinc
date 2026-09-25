@@ -36,6 +36,15 @@ export const kindOf = (segment: string): Kind =>
 
 export const nameOf = (segment: string) => segment.replace(/^\{|\.\.\.\}$|\}$/g, "");
 
+// A stray "%" must not break the demo, so undecodable values stay raw.
+const decode = (part: string) => {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+};
+
 const split = (path: string) => path.split("/").filter((s, i, all) => i > 0 && !(s === "" && i === all.length - 1));
 
 function tryMatch(route: Route, path: string): Match | null {
@@ -56,7 +65,7 @@ function tryMatch(route: Route, path: string): Match | null {
     if (part === undefined) return null;
     if (kind === "param") {
       if (part === "") return null;
-      params.push([nameOf(seg), decodeURIComponent(part)]);
+      params.push([nameOf(seg), decode(part)]);
     } else if (seg.toLowerCase() !== part.toLowerCase()) {
       return null;
     }
@@ -75,9 +84,9 @@ function compare(a: Match, b: Match) {
 }
 
 export function resolve(input: string): Result {
-  let path = input.trim() || "/";
+  // Accept pasted URLs as well as paths: drop the origin, query, and fragment.
+  let path = input.trim().replace(/^[a-z][a-z\d+.-]*:\/\/[^/]*/i, "").split(/[?#]/)[0] || "/";
   if (!path.startsWith("/")) path = `/${path}`;
-  path = path.split(/[?#]/)[0];
   const matches = routes.map((r) => tryMatch(r, path)).filter((m): m is Match => m !== null).sort(compare);
   return { path, winner: matches[0] ?? null, others: matches.slice(1) };
 }
@@ -149,4 +158,53 @@ export function pathKeys(pattern: string): string[] {
     keys.push(key);
   }
   return keys;
+}
+
+// The request path split into segments, each labelled with the pattern part
+// that consumed it. A catch-all consumes the rest of the path as one segment.
+export interface Segment {
+  text: string;
+  kind: Kind | "none";
+  label: string;
+}
+
+export function segments(result: Result): Segment[] {
+  const parts = split(result.path);
+  if (!parts.length) return [{ text: "/", kind: "none", label: result.winner ? "root" : "no route" }];
+  const w = result.winner;
+  if (!w) return parts.map((text) => ({ text: `/${text}`, kind: "none", label: "no match" }));
+  const pattern = split(w.route.pattern);
+  const out: Segment[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const kind = kindOf(pattern[i]);
+    if (kind === "catchall") {
+      out.push({ text: `/${parts.slice(i).join("/")}`, kind, label: `{${nameOf(pattern[i])}...}` });
+      break;
+    }
+    out.push({ text: `/${parts[i]}`, kind, label: kind === "param" ? `{${nameOf(pattern[i])}}` : "static" });
+  }
+  return out;
+}
+
+// The Go a reader would write to get this result, as highlighted tokens.
+export type Token = [text: string, cls: "id" | "fn" | "str" | "pn" | "cm"];
+
+export function codeLines(result: Result): Token[][] {
+  const w = result.winner;
+  const note: Token[] = [["// " + explain(result), "cm"]];
+  if (!w) {
+    return [[[`// No route matches GET ${result.path}.`, "cm"]], [["// The app's not-found handler answers 404.", "cm"]]];
+  }
+  const lines: Token[][] = [
+    [["app", "id"], [".", "pn"], ["Get", "fn"], ["(", "pn"], [`"${w.route.pattern}"`, "str"], [", ", "pn"], [w.route.handler, "id"], [")", "pn"]],
+  ];
+  const width = Math.max(0, ...w.params.map(([n]) => n.length));
+  for (const [name, value] of w.params) {
+    lines.push([
+      ["c", "id"], [".", "pn"], ["Param", "fn"], ["(", "pn"], [`"${name}"`, "str"], [")", "pn"],
+      [" ".repeat(width - name.length + 1) + `// ${JSON.stringify(value)}`, "cm"],
+    ]);
+  }
+  lines.push(note);
+  return lines;
 }
