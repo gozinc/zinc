@@ -19,10 +19,11 @@ const contracts = [
       your app is still an <code>http.Handler</code>, and standard handlers, middleware, and servers
       plug straight in.
     </p>
-    <ul class="contracts">
-      {contracts.map((c) => (
-        <li data-link={c.part} tabindex="0">
-          <span class="note">{c.note}</span>
+    <p class="pick">Pick one to see where it plugs into the stack.</p>
+    <ul class="contracts" role="tablist" aria-label="Ways standard net/http code plugs into Zinc" data-contracts>
+      {contracts.map((c, i) => (
+        <li role="tab" data-link={c.part} aria-selected={String(i === 0)} tabindex={i === 0 ? "0" : "-1"}>
+          <span class="note"><b class="num" aria-hidden="true">{i + 1}</b>{c.note}</span>
           <div class="snippet"><Code code={c.code} lang="go" theme={zincFrost as any} /></div>
         </li>
       ))}
@@ -30,7 +31,7 @@ const contracts = [
     <a class="more" href="/guide/http-interoperability/">Zinc and net/http →</a>
   </div>
 
-  <figure class="section-cut" data-cut aria-label="Cross-section: your handlers sit on a thin Zinc coat, over standard middleware and net/http">
+  <figure class="section-cut" data-cut data-focus="server" aria-label="Cross-section: your handlers sit on a thin Zinc coat, over standard middleware and net/http">
     <header class="cut-head">
       <span>Section A–A</span>
       <span>request ↑ · response ↓</span>
@@ -44,7 +45,7 @@ const contracts = [
       <div class="parts">
         <span class="part">listUsers</span>
         <span class="part">createUser</span>
-        <span class="part std" data-part="handler">promhttp.Handler()</span>
+        <span class="part std" data-part="handler"><b class="pin" aria-hidden="true">2</b>promhttp.Handler()</span>
       </div>
       <p class="legend">
         <span><i aria-hidden="true"></i>zinc.HandlerFunc</span>
@@ -58,7 +59,7 @@ const contracts = [
     </div>
 
     <div class="layer mw" data-part="middleware">
-      <strong>Standard middleware</strong>
+      <strong><b class="pin" aria-hidden="true">3</b>Standard middleware</strong>
       <span>otelhttp · func(http.Handler) http.Handler</span>
     </div>
 
@@ -68,7 +69,7 @@ const contracts = [
         <span>the standard library, untouched</span>
       </div>
       <div class="parts">
-        <span class="part metal" data-part="server">http.Server&#123;Handler: app&#125;</span>
+        <span class="part metal" data-part="server"><b class="pin" aria-hidden="true">1</b>http.Server&#123;Handler: app&#125;</span>
         <span class="part metal">*http.Request</span>
         <span class="part metal">http.ResponseWriter</span>
       </div>
@@ -82,16 +83,38 @@ const contracts = [
 </section>
 
 <script>
-  // Point at a contract and the cut shows where it attaches.
+  // Each contract is a tab: the selected one stays highlighted in the cut, and
+  // hovering another previews it without changing the selection.
   document.querySelectorAll<HTMLElement>("[data-coat]").forEach((root) => {
     const cut = root.querySelector<HTMLElement>("[data-cut]")!;
-    root.querySelectorAll<HTMLElement>("[data-link]").forEach((li) => {
-      const on = () => (cut.dataset.focus = li.dataset.link);
-      const off = () => delete cut.dataset.focus;
-      li.addEventListener("pointerenter", on);
-      li.addEventListener("pointerleave", off);
-      li.addEventListener("focusin", on);
-      li.addEventListener("focusout", off);
+    const tabs = [...root.querySelectorAll<HTMLElement>("[data-link]")];
+    let selected = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+
+    const show = (i: number) => (cut.dataset.focus = tabs[i].dataset.link);
+    const select = (i: number, focus = false) => {
+      selected = (i + tabs.length) % tabs.length;
+      tabs.forEach((t, j) => {
+        t.setAttribute("aria-selected", String(j === selected));
+        t.tabIndex = j === selected ? 0 : -1;
+      });
+      show(selected);
+      if (focus) tabs[selected].focus();
+    };
+
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => select(i));
+      t.addEventListener("pointerenter", () => show(i));
+      t.addEventListener("pointerleave", () => show(selected));
+      t.addEventListener("keydown", (e) => {
+        const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+        if (step) {
+          e.preventDefault();
+          select(selected + step, true);
+        } else if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          select(i);
+        }
+      });
     });
   });
 </script>
@@ -186,27 +209,76 @@ const contracts = [
     color: var(--z-zn);
   }
 
+  .copy > p.pick {
+    color: var(--z-soft);
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    margin: 0 0 0.9rem;
+    max-width: none;
+  }
+
   .contracts li {
+    border: 1px solid transparent;
     border-radius: 10px;
-    cursor: default;
-    margin-inline: -0.6rem;
+    cursor: pointer;
+    margin-inline: -0.7rem;
     outline: none;
-    padding: 0.5rem 0.6rem 0.6rem;
-    transition: background-color 160ms ease;
+    padding: 0.6rem 0.7rem 0.7rem;
+    transition: background-color 160ms ease, border-color 160ms ease;
   }
 
-  .contracts li:hover,
-  .contracts li:focus-visible {
+  .contracts li:hover {
+    background: color-mix(in srgb, var(--z-panel) 60%, transparent);
+  }
+
+  .contracts li[aria-selected="true"] {
     background: var(--z-panel);
+    border-color: var(--sl-color-hairline-light);
   }
 
-  .contracts li:hover .note,
-  .contracts li:focus-visible .note {
+  .contracts li:focus-visible {
+    border-color: var(--z-muted);
+  }
+
+  .note {
+    align-items: center;
+    display: flex;
+    gap: 0.55rem;
+  }
+
+  .contracts li[aria-selected="true"] .note {
     color: var(--z-text);
   }
 
-  .contracts li:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--z-muted);
+  /* The same numbered marker sits on the contract and on the part it plugs
+     into, so the link is visible before anyone interacts. */
+  .num,
+  .pin {
+    align-items: center;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    display: inline-flex;
+    flex: none;
+    font: 600 0.62rem/1 var(--sl-font-mono);
+    height: 1.15rem;
+    justify-content: center;
+    opacity: 0.7;
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+    width: 1.15rem;
+  }
+
+  .pin {
+    margin-right: 0.5rem;
+    vertical-align: -0.1em;
+  }
+
+  .contracts li[aria-selected="true"] .num,
+  .section-cut[data-focus="server"] [data-part="server"] .pin,
+  .section-cut[data-focus="handler"] [data-part="handler"] .pin,
+  .section-cut[data-focus="middleware"] .mw .pin {
+    background: #c3ccd6; /* zinc, the same in both themes */
+    border-color: #8e99a6;
+    color: #16191c;
+    opacity: 1;
   }
 
   /* The cut, drawn like a section drawing: each material has its own fill. */
@@ -384,31 +456,19 @@ const contracts = [
     color: #d5dbe1;
   }
 
-  /* Focus: dim everything except the part the hovered contract names. */
-  .section-cut[data-focus] .layer,
+  /* The selected contract's part is ringed; the other parts step back. */
   .section-cut[data-focus] .part {
-    opacity: 0.35;
-  }
-
-  .section-cut[data-focus="handler"] .app,
-  .section-cut[data-focus="server"] .steel,
-  .section-cut[data-focus="middleware"] .mw {
-    opacity: 1;
+    opacity: 0.6;
   }
 
   .section-cut[data-focus="handler"] [data-part="handler"],
   .section-cut[data-focus="server"] [data-part="server"] {
-    box-shadow: 0 0 0 2px var(--z-zn);
+    box-shadow: 0 0 0 2px #c3ccd6;
     opacity: 1;
   }
 
   .section-cut[data-focus="middleware"] .mw {
-    box-shadow: inset 0 0 0 2px var(--z-zn);
-  }
-
-  .section-cut[data-focus="server"] .steel .label,
-  .section-cut[data-focus="handler"] .app .label {
-    opacity: 1;
+    box-shadow: inset 0 0 0 2px #c3ccd6;
   }
 
   @media (max-width: 60rem) {
