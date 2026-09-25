@@ -1,49 +1,12 @@
 ---
-// The 29 first-party middleware, laid out as a periodic table and grouped by job.
-// Each family is cast in a real metal chosen for what it does.
-type Group = "protect" | "observe" | "control" | "transport";
+// The 29 middleware as a periodic table. Numbers follow chain order, rows are
+// families, and selecting parts galvanizes them into a ready-to-paste stack.
+import { defaultPreset, elements, families, presets, snippet, tokenize } from "./middlewareTable";
 
-const groups: { id: Group; name: string; metal: string; symbol: string }[] = [
-  { id: "protect", name: "Protect", metal: "iron", symbol: "Fe" }, // armour
-  { id: "observe", name: "Observe", metal: "copper", symbol: "Cu" }, // carries the signals
-  { id: "control", name: "Control", metal: "titanium", symbol: "Ti" }, // holds under load
-  { id: "transport", name: "Transport", metal: "aluminium", symbol: "Al" }, // light and fast
-];
-
-const elements: [string, string, string, Group, string][] = [
-  ["Ba", "Basic Auth", "BasicAuth", "protect", "basic-auth"],
-  ["Cb", "Casbin", "CasbinAuth", "protect", "casbin-auth"],
-  ["Co", "CORS", "CORS", "protect", "cors"],
-  ["Cf", "CSRF", "CSRF", "protect", "csrf"],
-  ["Hg", "Header Guards", "AllowContentType", "protect", "header-guards"],
-  ["Jw", "JWT", "JWT", "protect", "jwt"],
-  ["Ka", "Key Auth", "KeyAuth", "protect", "key-auth"],
-  ["Sh", "Secure Headers", "Secure", "protect", "secure"],
-  ["Ss", "Session", "SessionCookie", "protect", "session"],
-  ["Bd", "Body Dump", "BodyDump", "observe", "body-dump"],
-  ["Jg", "Jaeger", "Jaeger", "observe", "jaeger"],
-  ["Ot", "OpenTelemetry", "otelhttp", "observe", "open-telemetry"],
-  ["Pp", "pprof", "Pprof", "observe", "pprof"],
-  ["Pm", "Prometheus", "Prometheus", "observe", "prometheus"],
-  ["Ri", "Request ID", "RequestID", "observe", "request-id"],
-  ["Lg", "Request Logger", "RequestLogger", "observe", "request-logger"],
-  ["Bl", "Body Limit", "BodyLimit", "control", "body-limit"],
-  ["Ct", "Context Timeout", "ContextTimeout", "control", "context-timeout"],
-  ["Rl", "Rate Limiter", "RateLimiter", "control", "rate-limiter"],
-  ["Rc", "Recover", "Recover", "control", "recover"],
-  ["Ut", "Utility", "NoCache", "control", "utility"],
-  ["Dz", "Decompress", "Decompress", "transport", "decompress"],
-  ["Gz", "Gzip", "Gzip", "transport", "gzip"],
-  ["Mo", "Method Override", "MethodOverride", "transport", "method-override"],
-  ["Px", "Proxy", "Proxy", "transport", "proxy"],
-  ["Rd", "Redirect", "Redirect", "transport", "redirect"],
-  ["Rw", "Rewrite", "Rewrite", "transport", "rewrite"],
-  ["St", "Static", "Static", "transport", "static"],
-  ["Ts", "Trailing Slash", "TrailingSlash", "transport", "trailing-slash"],
-];
-
-const count = (g: Group) => elements.filter((e) => e[3] === g).length;
-const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, (typeof groups)[number]>;
+const initial = new Set(defaultPreset.parts);
+const first = (id: string) => elements.findIndex((e) => e.family === id) + 1;
+const last = (id: string) => elements.findLastIndex((e) => e.family === id) + 1;
+const formula = elements.filter((e) => initial.has(e.sym));
 ---
 
 <section class="elements" data-elements>
@@ -52,78 +15,185 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
       <p class="kicker">Middleware</p>
       <h2>A periodic table of production parts.</h2>
       <p class="cast">
-        Each family is cast in its own metal: {groups.map((g, i) => (
-          <>{i > 0 && (i === groups.length - 1 ? ", and " : ", ")}{g.name} in <span class="metal" data-group={g.id}>{g.metal}</span></>
-        ))}. Hover any part to galvanize it.
+        Numbered in chain order: each part wraps everything after it. Select parts to galvanize them
+        into a stack, and the table writes the <code>app.Use</code> call in the right order.
       </p>
     </div>
-    <div class="filters" role="radiogroup" aria-label="Filter middleware">
-      <button type="button" role="radio" aria-checked="true" data-filter="all">All <span>{elements.length}</span></button>
-      {groups.map((g) => (
-        <button type="button" role="radio" aria-checked="false" data-filter={g.id} data-group={g.id}>
-          <i class="swatch" aria-hidden="true"></i>{g.name} <span>{count(g.id)}</span>
-        </button>
+    <div class="presets" role="group" aria-label="Start from a common stack">
+      <span>Start from</span>
+      {presets.map((p) => (
+        <button type="button" data-preset={p.id} aria-pressed={String(p.id === defaultPreset.id)}>{p.name}</button>
       ))}
     </div>
   </div>
 
-  <ol class="table">
-    {elements.map(([sym, name, fn, group, slug], i) => (
-      <li data-group={group} data-first={i === 0 || elements[i - 1][3] !== group ? "" : undefined}>
-        <a href={`/middleware/${slug}/`}>
-          <span class="top"><span class="num">{i + 1}</span><span class="grp" title={`${metal[group].name}: ${metal[group].metal}`}>{metal[group].symbol}</span></span>
-          <span class="sym">{sym}</span>
-          <span class="name">{name}</span>
-          <span class="fn">{fn}</span>
-        </a>
-      </li>
+  <div class="table">
+    {families.map((f) => (
+      <div class="period" data-group={f.id}>
+        <div class="stage">
+          <span class="chip" aria-hidden="true" title={f.metal}>{f.symbol}</span>
+          <strong>{f.name}</strong>
+          <span class="range" title={f.metal}>{first(f.id)}–{last(f.id)}</span>
+          <span class="role">{f.role}</span>
+        </div>
+        <ol aria-label={`${f.name} middleware`}>
+          {elements.map((e, i) => e.family === f.id && (
+            <li data-on={initial.has(e.sym) ? "" : undefined}>
+              <button type="button" data-sym={e.sym} aria-pressed={String(initial.has(e.sym))}>
+                <span class="num">{i + 1}</span>
+                <span class="sym">{e.sym}</span>
+                <span class="name">{e.name}</span>
+                <span class="fn">{e.fn}</span>
+              </button>
+              <a class="doc" href={`/middleware/${e.slug}/`} aria-label={`${e.name} docs`}>↗</a>
+            </li>
+          ))}
+        </ol>
+      </div>
     ))}
-  </ol>
+  </div>
+
+  <div class="compound">
+    <div class="formula-side">
+      <p class="label">Your compound</p>
+      <p class="formula" data-formula aria-live="polite">
+        {formula.map((e) => <span class="part" data-group={e.family}>{e.sym}</span>)}
+      </p>
+      <p class="meta"><span data-count>{formula.length} parts</span>, outermost first</p>
+      <button type="button" class="clear" data-clear>Clear</button>
+    </div>
+    <div class="code-side">
+      <div class="bar">
+        <span>main.go</span>
+        <button type="button" data-copy>Copy</button>
+      </div>
+      <pre><code data-code>{tokenize(snippet(initial)).map((t) => <span class={`t-${t.kind}`}>{t.text}</span>)}</code></pre>
+    </div>
+  </div>
 </section>
 
 <script>
+  import { elements, inChainOrder, presets, snippet, tokenize } from "./middlewareTable";
+
+  const family = Object.fromEntries(elements.map((e) => [e.sym, e.family]));
+
   document.querySelectorAll<HTMLElement>("[data-elements]").forEach((root) => {
-    const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-filter]")];
-    buttons.forEach((b) =>
-      b.addEventListener("click", () => {
-        const f = b.dataset.filter!;
-        buttons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
-        root.dataset.active = f === "all" ? "" : f;
+    const tiles = [...root.querySelectorAll<HTMLButtonElement>("[data-sym]")];
+    const presetButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-preset]")];
+    const formula = root.querySelector<HTMLElement>("[data-formula]")!;
+    const count = root.querySelector<HTMLElement>("[data-count]")!;
+    const code = root.querySelector<HTMLElement>("[data-code]")!;
+    const copy = root.querySelector<HTMLButtonElement>("[data-copy]")!;
+    const selected = new Set(tiles.filter((t) => t.getAttribute("aria-pressed") === "true").map((t) => t.dataset.sym!));
+
+    const render = () => {
+      for (const t of tiles) {
+        const on = selected.has(t.dataset.sym!);
+        t.setAttribute("aria-pressed", String(on));
+        t.parentElement!.toggleAttribute("data-on", on);
+      }
+      const key = [...selected].sort().join();
+      for (const b of presetButtons) {
+        const p = presets.find((x) => x.id === b.dataset.preset)!;
+        b.setAttribute("aria-pressed", String([...p.parts].sort().join() === key));
+      }
+      const parts = inChainOrder(selected);
+      formula.replaceChildren(
+        ...parts.map((e) => {
+          const s = document.createElement("span");
+          s.className = "part";
+          s.dataset.group = family[e.sym];
+          s.textContent = e.sym;
+          return s;
+        }),
+      );
+      count.textContent = `${parts.length} ${parts.length === 1 ? "part" : "parts"}`;
+      code.replaceChildren(
+        ...tokenize(snippet(selected)).map((t) => {
+          const s = document.createElement("span");
+          s.className = `t-${t.kind}`;
+          s.textContent = t.text;
+          return s;
+        }),
+      );
+      copy.textContent = "Copy";
+    };
+
+    tiles.forEach((t) =>
+      t.addEventListener("click", () => {
+        const sym = t.dataset.sym!;
+        if (!selected.delete(sym)) selected.add(sym);
+        render();
       }),
     );
+    presetButtons.forEach((b) =>
+      b.addEventListener("click", () => {
+        selected.clear();
+        presets.find((p) => p.id === b.dataset.preset)!.parts.forEach((s) => selected.add(s));
+        render();
+      }),
+    );
+    root.querySelector("[data-clear]")!.addEventListener("click", () => {
+      selected.clear();
+      render();
+    });
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(snippet(selected));
+        copy.textContent = "Copied";
+      } catch {
+        copy.textContent = "Press ⌘C";
+      }
+    });
   });
 </script>
 
 <style>
   /* Each family has a photographed metal surface. The image stays decorative;
      contrast comes from the per-metal wash and text colors. */
-  [data-group="protect"] {
-    --plate-image: url("/middleware-metals/protect-iron.webp");
-    --plate-wash: rgba(8, 14, 22, 0.07);
-    --plate-ink: #f8fafc;
-    --plate-muted-ink: #dce4ec;
-    --plate-edge: #38434e;
-  }
-  [data-group="observe"] {
+  .elements :global([data-group="observe"]) {
     --plate-image: url("/middleware-metals/observe-copper.webp");
     --plate-wash: rgba(28, 12, 4, 0.08);
     --plate-ink: #fff9f2;
     --plate-muted-ink: #f4dec9;
     --plate-edge: #7d4e30;
   }
-  [data-group="control"] {
+  .elements :global([data-group="contain"]) {
     --plate-image: url("/middleware-metals/control-titanium.webp");
     --plate-wash: rgba(255, 255, 255, 0.24);
     --plate-ink: #17202d;
     --plate-muted-ink: #334052;
     --plate-edge: #a6aab7;
   }
-  [data-group="transport"] {
+  /* Chromium borrows the aluminium plate under a cold, bright wash until it
+     has a texture of its own. */
+  .elements :global([data-group="shape"]) {
+    --plate-image: url("/middleware-metals/transport-aluminium.webp");
+    --plate-wash: linear-gradient(135deg, rgba(214, 232, 255, 0.5), rgba(120, 150, 190, 0.28));
+    --plate-ink: #152033;
+    --plate-muted-ink: #2f415a;
+    --plate-edge: #9fb2c9;
+  }
+  .elements :global([data-group="guard"]) {
+    --plate-image: url("/middleware-metals/protect-iron.webp");
+    --plate-wash: rgba(8, 14, 22, 0.07);
+    --plate-ink: #f8fafc;
+    --plate-muted-ink: #dce4ec;
+    --plate-edge: #38434e;
+  }
+  .elements :global([data-group="carry"]) {
     --plate-image: url("/middleware-metals/transport-aluminium.webp");
     --plate-wash: rgba(255, 255, 255, 0.06);
     --plate-ink: #202a34;
     --plate-muted-ink: #374451;
     --plate-edge: #bbc2c9;
+  }
+
+  .elements :global([data-group]) {
+    --plate: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
+  }
+  .elements :global([data-group="shape"]) {
+    --plate: var(--plate-wash), var(--plate-image) center / cover;
   }
 
   .head {
@@ -156,93 +226,136 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
     font-size: 0.95rem;
     line-height: 1.6;
     margin: 0.9rem 0 0;
-    max-width: 52ch;
+    max-width: 56ch;
   }
 
-  .metal {
-    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
-    border: 1px solid var(--plate-edge);
-    border-radius: 4px;
-    color: var(--plate-ink);
-    font: 500 0.82em/1 var(--sl-font-mono);
-    padding: 0.12em 0.4em;
-    white-space: nowrap;
+  .cast code {
+    background: var(--sl-color-bg-inline-code);
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: var(--z-radius-sm);
+    color: var(--z-text);
+    font: 400 0.84em var(--sl-font-mono);
+    padding: 0.05em 0.35em;
   }
 
-  .filters {
+  .presets {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
   }
 
-  .filters button {
-    align-items: center;
+  .presets > span {
+    color: var(--z-soft);
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    margin-right: 0.3rem;
+  }
+
+  .presets button,
+  .clear,
+  .bar button {
     background: transparent;
     border: 1px solid var(--sl-color-hairline);
     border-radius: 999px;
     color: var(--z-muted);
     cursor: pointer;
-    display: inline-flex;
     font: 500 0.8rem/1 var(--sl-font);
-    gap: 0.45rem;
     padding: 0.5rem 0.8rem;
     transition: color 120ms ease, border-color 120ms ease;
   }
 
-  .swatch {
-    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
-    border: 1px solid var(--plate-edge);
-    border-radius: 3px;
-    height: 0.85rem;
-    width: 0.85rem;
-  }
-
-  .filters button span {
-    color: var(--z-soft);
-    font: 400 0.72rem/1 var(--sl-font-mono);
-  }
-
-  .filters button:hover,
-  .filters button[aria-checked="true"] {
+  .presets button:hover,
+  .presets button[aria-pressed="true"],
+  .clear:hover {
     border-color: var(--z-muted);
     color: var(--z-text);
   }
 
+  /* One grid per family, sharing column widths so the tiles line up. */
   .table {
     display: grid;
     gap: 6px;
-    grid-template-columns: repeat(9, minmax(0, 1fr));
+  }
+
+  .period {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: 8.5rem repeat(9, minmax(0, 1fr));
+  }
+
+  .period ol {
+    display: contents;
+  }
+
+  .stage {
+    align-content: center;
+    border-left: 2px solid var(--plate-edge);
+    display: grid;
+    gap: 0.2rem;
+    grid-template-columns: auto 1fr;
+    padding: 0.3rem 0.6rem 0.3rem 0.75rem;
+  }
+
+  .chip {
+    align-items: center;
+    background: var(--plate);
+    border: 1px solid var(--plate-edge);
+    border-radius: 4px;
+    color: var(--plate-ink);
+    display: inline-flex;
+    font: 400 0.72rem/1 var(--z-font-display);
+    grid-row: span 2;
+    height: 1.9rem;
+    justify-content: center;
+    margin-right: 0.55rem;
+    width: 1.9rem;
+  }
+
+  .stage strong {
+    align-self: end;
+    color: var(--z-text);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+
+  .range {
+    color: var(--z-soft);
+    font: 400 0.66rem/1.2 var(--sl-font-mono);
+  }
+
+  .role {
+    color: var(--z-muted);
+    font-size: 0.72rem;
+    grid-column: 1 / -1;
+    line-height: 1.35;
+    margin-top: 0.3rem;
+  }
+
+  .period li {
     list-style: none;
     margin: 0;
-    padding: 0;
+    position: relative;
   }
 
-  .table li[data-first] {
-    grid-column-start: 1;
-  }
-
-  .table li {
-    margin: 0;
-    transition: opacity 200ms ease;
-  }
-
-  .table a {
+  .period li > button {
     aspect-ratio: 1 / 0.92;
-    background: linear-gradient(var(--plate-wash), var(--plate-wash)), var(--plate-image) center / cover;
+    background: var(--plate);
     border: 1px solid var(--plate-edge);
     border-radius: 6px;
     color: var(--plate-ink);
+    cursor: pointer;
     display: grid;
+    font: inherit;
     grid-template-rows: auto 1fr auto auto;
-    max-width: 100%;
     padding: 0.55rem 0.65rem 0.6rem;
     position: relative;
-    text-decoration: none;
+    text-align: left;
     transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+    width: 100%;
   }
 
-  /* Hover galvanizes the plate: the same spangle as the Zinc tile. */
-  .table a::after {
+  /* Selecting a part galvanizes it: the same spangle as the Zinc tile. */
+  .period li > button::after {
     background: #c9ced3 url("/zn-spangle-hd.webp") center / 180px auto;
     border-radius: inherit;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
@@ -250,66 +363,56 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
     inset: -1px;
     opacity: 0;
     position: absolute;
-    transition: opacity 200ms ease;
+    transition: opacity 220ms ease;
     z-index: 0;
   }
 
-  .table a > * {
+  .period li > button > * {
     position: relative;
+    transition: color 220ms ease;
     z-index: 1;
-    transition: color 200ms ease;
   }
 
-  .table a:hover,
-  .table a:focus-visible {
-    border-color: transparent;
-    box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.6);
+  .period li:hover > button,
+  .period li > button:focus-visible {
+    box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
     transform: translateY(-2px);
   }
 
-  .table a:hover::after,
-  .table a:focus-visible::after {
+  .period li[data-on] > button {
+    border-color: transparent;
+    outline: 2px solid var(--z-text);
+    outline-offset: 2px;
+  }
+
+  .period li[data-on] > button::after {
     opacity: 1;
   }
 
-  .table a:hover > *,
-  .table a:focus-visible > * {
+  .period li[data-on] > button > *,
+  .period li[data-on] .doc {
     color: #1a1d21;
   }
 
-  .top {
-    align-items: center;
-    display: flex;
-    justify-content: space-between;
+  .period li[data-on] .num,
+  .period li[data-on] .fn {
+    color: #3a4047;
   }
 
-  .num,
-  .grp {
+  .num {
     color: var(--plate-muted-ink);
     font: 500 0.64rem/1 var(--sl-font-mono);
-  }
-
-  .grp {
-    color: var(--plate-ink);
-    font-weight: 600;
-    opacity: 0.8;
-  }
-
-  .table a:hover .num,
-  .table a:hover .grp,
-  .table a:hover .fn {
-    color: #3a4047;
   }
 
   .sym {
     align-self: center;
     color: var(--plate-ink);
-    font: 400 clamp(1.1rem, 1.9vw, 1.55rem)/1 var(--z-font-display);
+    font: 400 clamp(1.1rem, 1.8vw, 1.5rem)/1 var(--z-font-display);
     letter-spacing: -0.02em;
   }
 
   .name {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     font-weight: 600;
     line-height: 1.2;
     overflow: hidden;
@@ -319,36 +422,198 @@ const metal = Object.fromEntries(groups.map((g) => [g.id, g])) as Record<Group, 
 
   .fn {
     color: var(--plate-muted-ink);
-    font: 400 0.62rem/1.4 var(--sl-font-mono);
+    font: 400 0.6rem/1.4 var(--sl-font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  [data-active="protect"] li:not([data-group="protect"]),
-  [data-active="observe"] li:not([data-group="observe"]),
-  [data-active="control"] li:not([data-group="control"]),
-  [data-active="transport"] li:not([data-group="transport"]) {
-    opacity: 0.16;
+  .doc {
+    align-items: center;
+    border-radius: 4px;
+    color: var(--plate-muted-ink);
+    display: inline-flex;
+    font-size: 0.72rem;
+    height: 1.5rem;
+    justify-content: center;
+    opacity: 0.55;
+    position: absolute;
+    right: 0.25rem;
+    text-decoration: none;
+    top: 0.2rem;
+    transition: opacity 120ms ease, transform 160ms ease;
+    width: 1.5rem;
+    z-index: 2;
   }
 
+  .period li:hover .doc {
+    transform: translateY(-2px);
+  }
+
+  .doc:hover,
+  .doc:focus-visible {
+    background: rgba(0, 0, 0, 0.18);
+    opacity: 1;
+  }
+
+  /* The compound: a formula and the code it stands for. */
+  .compound {
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    margin-top: 1.25rem;
+    overflow: hidden;
+  }
+
+  .formula-side {
+    align-content: start;
+    display: grid;
+    gap: 0.75rem;
+    justify-items: start;
+    padding: 1.25rem 1.35rem;
+  }
+
+  .label {
+    color: var(--z-muted);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+    margin: 0;
+  }
+
+  .formula {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    min-height: 2.2rem;
+  }
+
+  .formula :global(.part) {
+    align-items: center;
+    background: var(--plate);
+    border: 1px solid var(--plate-edge);
+    border-radius: 5px;
+    color: var(--plate-ink);
+    display: inline-flex;
+    font: 400 0.95rem/1 var(--z-font-display);
+    height: 2.2rem;
+    justify-content: center;
+    min-width: 2.2rem;
+    padding-inline: 0.35rem;
+  }
+
+  .meta {
+    color: var(--z-soft);
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    margin: 0;
+  }
+
+  .clear {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.7rem;
+  }
+
+  .code-side {
+    background: var(--z-plate);
+    border-left: 1px solid #252a31;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-width: 0;
+  }
+
+  .bar {
+    align-items: center;
+    border-bottom: 1px solid #252a31;
+    color: #8b95a3;
+    display: flex;
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    justify-content: space-between;
+    padding: 0.45rem 0.6rem 0.45rem 1rem;
+  }
+
+  .bar button {
+    border-color: #2f353d;
+    color: #aeb7c2;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .bar button:hover {
+    border-color: #59626d;
+    color: #e5e9f0;
+  }
+
+  pre {
+    background: transparent;
+    border: 0;
+    color: #d8dee9;
+    font: 400 0.8rem/1.6 var(--sl-font-mono);
+    margin: 0;
+    min-height: 13.5rem;
+    overflow-x: auto;
+    padding: 0.9rem 1rem;
+    tab-size: 4;
+  }
+
+  pre :global(.t-fn) { color: #88c0d0; }
+  pre :global(.t-str) { color: #a3be8c; }
+  pre :global(.t-num) { color: #b48ead; }
+  pre :global(.t-punct) { color: #7d889a; }
+  pre :global(.t-prop) { color: #c3cddb; }
+  pre :global(.t-comment) { color: #6c788e; }
+
   @media (max-width: 72rem) {
-    .table {
-      grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+    .period {
+      grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
     }
 
-    .table li[data-first] {
-      grid-column-start: auto;
+    .stage {
+      grid-column: 1 / -1;
+      grid-template-columns: auto auto 1fr;
+      align-items: center;
+    }
+
+    .chip {
+      grid-row: auto;
+    }
+
+    .stage strong {
+      align-self: center;
+      margin-right: 0.5rem;
+    }
+
+    .role {
+      grid-column: auto;
+      margin: 0;
+      text-align: right;
+    }
+  }
+
+  @media (max-width: 50rem) {
+    .compound {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .code-side {
+      border-left: 0;
+      border-top: 1px solid #252a31;
+    }
+
+    .role {
+      display: none;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .table a,
-    .table a::after {
+    .period li > button,
+    .period li > button::after,
+    .doc {
       transition: none;
     }
 
-    .table a:hover {
+    .period li:hover > button,
+    .period li:hover .doc {
       transform: none;
     }
   }
