@@ -968,14 +968,17 @@ func (c *Context) FullPath() string {
 	return c.routeInfo.path
 }
 
-// LastError returns the most recent error passed to Error.
+// LastError returns the most recent error passed to HandleError.
 func (c *Context) LastError() error {
 	return c.lastErr
 }
 
-// Error records err and immediately delegates it to the application's error
-// handler. Calling it is terminal only if the handler writes a response.
-func (c *Context) Error(err error) {
+// HandleError sends err to the application's error handler now instead of
+// returning it. Middleware that must observe the final response, such as a
+// logger, uses it; a handler normally just returns the error. The error
+// handler runs once per request, so a later return of the same failure is
+// ignored.
+func (c *Context) HandleError(err error) {
 	if err == nil {
 		return
 	}
@@ -983,21 +986,6 @@ func (c *Context) Error(err error) {
 	if c.app != nil {
 		c.app.handleError(c, err)
 	}
-}
-
-// AbortWithStatus returns an HTTP error for the handler chain to propagate.
-func (c *Context) AbortWithStatus(code int) error {
-	return NewError(code)
-}
-
-// AbortWithJSON writes v as JSON using code.
-func (c *Context) AbortWithJSON(code int, v any) error {
-	return c.Status(code).JSON(v)
-}
-
-// Fail returns err unchanged for concise handler returns.
-func (c *Context) Fail(err error) error {
-	return err
 }
 
 // Route returns metadata for the matched route.

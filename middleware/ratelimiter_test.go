@@ -135,7 +135,7 @@ func TestDefaultRateLimiterLimitReachedHandler(t *testing.T) {
 	if limited == nil {
 		t.Fatal("expected at least one request to hit default rate limit")
 	}
-	if body := limited.Body.String(); body != "Rate limit exceeded" {
+	if body := limited.Body.String(); body != jsonErrorBody(http.StatusTooManyRequests, "rate limit exceeded") {
 		t.Fatalf("body=%q", body)
 	}
 }

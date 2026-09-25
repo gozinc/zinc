@@ -52,7 +52,7 @@ When you pass a config, set both `Rate` and `Capacity`. They default to `0`, whi
 | `KeyGenerator` | none | Returns the bucket key for a request |
 | `IPLookup` | none | Returns a client identity; used when `KeyGenerator` is not set |
 | `StatusCode` | `429` | Status when the limit is hit |
-| `LimitReachedHandler` | plain-text `429` | Writes the response when the limit is hit |
+| `LimitReachedHandler` | returns a `429` error with the message `rate limit exceeded` | Runs when the limit is hit; its error goes to the application's error handler |
 
 Keys are chosen in this order: `KeyGenerator`, then `IPLookup`, then one global bucket.
 

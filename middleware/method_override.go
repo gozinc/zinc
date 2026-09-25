@@ -52,7 +52,7 @@ func MethodOverrideWithConfig(config MethodOverrideConfig) zinc.Middleware {
 			return c.Next()
 		}
 		if !methodInSet(override, cfg.Methods) {
-			return zinc.ErrMethodNotAllowed.WithMessage("method override not allowed")
+			return zinc.NewError(zinc.StatusMethodNotAllowed, "method override not allowed")
 		}
 
 		req.Header.Set(HeaderXOriginalMethod, req.Method)

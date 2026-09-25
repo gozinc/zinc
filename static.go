@@ -63,7 +63,7 @@ func (a *App) staticFS(prefix string, filesystem fs.FS, middleware []HandlerFunc
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	a.mount(prefix, newStaticHandler(filesystem, cfg), middleware)
+	a.mountNative(prefix, newStaticHandler(filesystem, cfg), middleware)
 	return nil
 }
 
@@ -84,30 +84,28 @@ func (a *App) FileFS(path, file string, filesystem fs.FS) error {
 }
 
 // newStaticHandler limits methods before resolving paths so unsupported
-// requests never touch the filesystem.
-func newStaticHandler(filesystem fs.FS, cfg StaticConfig) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// requests never touch the filesystem. Misses and failures are returned to the
+// application's error handler, like any other route.
+func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, *http.Request) error {
+	return func(c *Context, r *http.Request) error {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set(HeaderAllow, "GET, HEAD")
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-			return
+			c.SetHeader(HeaderAllow, "GET, HEAD")
+			return ErrMethodNotAllowed
 		}
 
 		name, err := staticPathName(r.URL.Path)
 		if err != nil {
-			http.NotFound(w, r)
-			return
+			return ErrNotFound
 		}
 
-		if err := serveStaticPath(w, r, filesystem, name, cfg); err != nil {
-			switch {
-			case errors.Is(err, fs.ErrNotExist), errors.Is(err, fs.ErrInvalid), errors.Is(err, fs.ErrPermission):
-				http.NotFound(w, r)
-			default:
-				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		if err := serveStaticPath(c.Writer(), r, filesystem, name, cfg); err != nil {
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) || errors.Is(err, fs.ErrPermission) {
+				return ErrNotFound.Wrap(err)
 			}
+			return err
 		}
-	})
+		return nil
+	}
 }
 
 // confinedDirFS retains one OS root per static mount after its first open.

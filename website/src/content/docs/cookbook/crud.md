@@ -67,10 +67,10 @@ func main() {
 	widgets.Post("/", func(c *zinc.Context) error {
 		var input WidgetInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
+			return err // 400 with the failing field
 		}
 		if input.Name == "" {
-			return zinc.ErrBadRequest.WithMessage("name is required")
+			return zinc.BadRequest("name is required")
 		}
 
 		store.mu.Lock()
@@ -85,14 +85,14 @@ func main() {
 	widgets.Get("/{id}", func(c *zinc.Context) error {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			return zinc.ErrBadRequest.WithMessage("id must be an integer")
+			return zinc.BadRequest("id must be an integer")
 		}
 
 		store.mu.RLock()
 		widget, ok := store.items[id]
 		store.mu.RUnlock()
 		if !ok {
-			return zinc.ErrNotFound.WithMessage("widget not found")
+			return zinc.NotFound("widget not found")
 		}
 		return c.JSON(widget)
 	})
@@ -100,21 +100,21 @@ func main() {
 	widgets.Put("/{id}", func(c *zinc.Context) error {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			return zinc.ErrBadRequest.WithMessage("id must be an integer")
+			return zinc.BadRequest("id must be an integer")
 		}
 
 		var input WidgetInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
+			return err
 		}
 		if input.Name == "" {
-			return zinc.ErrBadRequest.WithMessage("name is required")
+			return zinc.BadRequest("name is required")
 		}
 
 		store.mu.Lock()
 		if _, ok := store.items[id]; !ok {
 			store.mu.Unlock()
-			return zinc.ErrNotFound.WithMessage("widget not found")
+			return zinc.NotFound("widget not found")
 		}
 		widget := Widget{ID: id, Name: input.Name}
 		store.items[id] = widget
@@ -126,13 +126,13 @@ func main() {
 	widgets.Delete("/{id}", func(c *zinc.Context) error {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			return zinc.ErrBadRequest.WithMessage("id must be an integer")
+			return zinc.BadRequest("id must be an integer")
 		}
 
 		store.mu.Lock()
 		if _, ok := store.items[id]; !ok {
 			store.mu.Unlock()
-			return zinc.ErrNotFound.WithMessage("widget not found")
+			return zinc.NotFound("widget not found")
 		}
 		delete(store.items, id)
 		store.mu.Unlock()

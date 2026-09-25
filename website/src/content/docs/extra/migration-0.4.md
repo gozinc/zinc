@@ -19,6 +19,11 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | `errors.Is` against `zinc.Err*` values | Copies and wrapped errors now match by status | [Matching HTTP errors](#matching-http-errors) |
 | `c.OriginalURL()` after a rewrite | It returns the URL as received | [Original URL](#original-url) |
 | `c.SSE` with manual flushing | Each event is flushed for you, and streams outlive `WriteTimeout` | [Server-sent events](#server-sent-events) |
+| Clients that read error bodies | Errors are JSON by default | [JSON error bodies](#json-error-bodies) |
+| `WithMessage`, `WithCause`, `WithMeta`, `Meta` | Replaced by constructors, `Wrap`, and `WithDetail` | [Building errors](#building-errors) |
+| A `Validator` | Failures answer 422 instead of 500 | [Validation errors](#validation-errors) |
+| `c.Fail`, `c.AbortWithStatus`, `c.AbortWithJSON`, `c.Error` | Removed or renamed | [Context error helpers](#context-error-helpers) |
+| `middleware.RateLimiter` with the default handler | It returns a 429 error instead of writing text | [JSON error bodies](#json-error-bodies) |
 
 ## Group middleware order
 
@@ -68,10 +73,10 @@ A tag with options but no name, such as `query:",omitempty"`, still opts in unde
 
 ## Matching HTTP errors
 
-`errors.Is` now matches HTTP errors by status. Copies made with `WithMessage`, `WithCause`, `WithMeta`, or `WithHeader` match the sentinel they came from, as do errors that wrap them:
+`errors.Is` now matches HTTP errors by status. Errors made by the constructors and copies made by `Wrap`, `WithDetail`, or `WithHeader` match the sentinel for their status, as do errors that wrap them:
 
 ```go
-err := fmt.Errorf("load: %w", zinc.ErrNotFound.WithMessage("user not found"))
+err := fmt.Errorf("load: %w", zinc.NotFound("user not found"))
 errors.Is(err, zinc.ErrNotFound) // 0.3: false; 0.4: true
 ```
 
@@ -93,4 +98,76 @@ if err := c.SSE(zinc.SSEvent{Data: msg}); err != nil {
 }
 // no longer needed:
 // if f, ok := c.Writer().(http.Flusher); ok { f.Flush() }
+```
+
+## JSON error bodies
+
+The default error handler now writes JSON instead of plain text. That includes the router's 404 and 405 responses, static-file misses, and errors from built-in middleware:
+
+```text
+0.3: HTTP/1.1 404 Not Found
+     Content-Type: text/plain; charset=utf-8
+
+     user not found
+
+0.4: HTTP/1.1 404 Not Found
+     Content-Type: application/json; charset=utf-8
+
+     {"error":{"status":404,"message":"user not found"}}
+```
+
+Binding failures add a `fields` object naming what was wrong, and `WithDetail` values appear under `details`. The rules for what reaches the client are unchanged: an unknown error sends only its status text.
+
+If clients depend on text bodies, keep them:
+
+```go
+cfg.ErrorHandler = zinc.TextErrors
+```
+
+The rate limiter's default handler used to write `Rate limit exceeded` itself. It now returns a 429 error, so the response follows your error handler like every other error.
+
+Two error responses changed status. **A missing file served by `c.FileFS`** was a 500 and is now a 404. **Static directories** now send their 404 and 405 responses through the error handler instead of net/http's `404 page not found` text.
+
+## Building errors
+
+`WithMessage`, `WithCause`, `WithMeta`, and the `Meta` field are removed:
+
+| 0.3 | 0.4 |
+|---|---|
+| `zinc.ErrNotFound.WithMessage("user not found")` | `zinc.NotFound("user not found")` |
+| `zinc.ErrBadRequest.WithMessage("bad cursor").WithCause(err)` | `zinc.BadRequest("bad cursor").Wrap(err)` |
+| `zinc.ErrTeapot.WithMessage("no coffee")` | `zinc.NewError(zinc.StatusTeapot, "no coffee")` |
+| `err.WithMeta("field", "email")` | `err.WithDetail("field", "email")`, now written to the body |
+| `httpErr.Meta` | `httpErr.Details` |
+
+Constructors exist for 400, 401, 403, 404, 409, 410, 422, 429, 500, and 503. `NewError(code, message)` covers every other status.
+
+**Return binding errors unchanged.** `return zinc.ErrBadRequest.WithMessage("invalid body").WithCause(err)` after a failed bind still compiles as `zinc.BadRequest("invalid body").Wrap(err)`, but it now hides the field details that the default handler would send. Use `return err`.
+
+Domain errors can choose their own status by implementing `StatusCode() int`, which removes most error-mapping code from handlers. See [Errors](/guide/errors/).
+
+## Validation errors
+
+In 0.3, a `Validator` failure reached the default handler as an unknown error and answered **500**. In 0.4 it is wrapped in `*zinc.ValidationError` and answers **422 Unprocessable Entity**. If the validator's error has a `Fields() map[string]string` method, the fields appear in the body. A validator that already returned an HTTP error keeps its status.
+
+## Context error helpers
+
+| 0.3 | 0.4 |
+|---|---|
+| `return c.Fail(err)` | `return err` |
+| `return c.AbortWithStatus(code)` | `return zinc.NewError(code)` |
+| `return c.AbortWithJSON(code, v)` | `return c.Status(code).JSON(v)` |
+| `c.Error(err)` | `c.HandleError(err)` |
+
+`c.HandleError` is for middleware that needs the final status, such as a logger. Handlers should return errors.
+
+A custom error handler that inspects `*zinc.HTTPError` keeps working. To log failures without replacing the response format, wrap the default:
+
+```go
+cfg.ErrorHandler = func(c *zinc.Context, err error) {
+	if zinc.StatusCode(err) >= 500 {
+		slog.Error("request failed", "err", err)
+	}
+	zinc.DefaultErrorHandler(c, err)
+}
 ```

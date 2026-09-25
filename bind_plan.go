@@ -40,6 +40,8 @@ type bindingField struct {
 type bindFieldError struct {
 	Source string
 	Field  string
+	Name   string
+	Reason string
 	Err    error
 }
 
@@ -274,6 +276,31 @@ func compileFieldSetterDepth(typ reflect.Type, depth int) fieldSetter {
 	return fieldSetter{kind: fieldSetterUnsupportedKind, unsupportedKind: typ.Kind()}
 }
 
+// bindError records the failing field under both its Go name, for logs, and
+// its request name with a client-safe reason, for the error response.
+func (f bindingField) bindError(source string, err error) *bindFieldError {
+	return &bindFieldError{Source: source, Field: f.label, Name: f.name, Reason: f.setter.reason(), Err: err}
+}
+
+// reason describes, for clients, the value a setter accepts.
+func (s fieldSetter) reason() string {
+	switch s.kind {
+	case fieldSetterBool:
+		return "must be a boolean"
+	case fieldSetterInt, fieldSetterSliceInt:
+		return "must be an integer"
+	case fieldSetterUint:
+		return "must be a non-negative integer"
+	case fieldSetterFloat:
+		return "must be a number"
+	case fieldSetterPointer:
+		if s.elem != nil {
+			return s.elem.reason()
+		}
+	}
+	return ""
+}
+
 func (s fieldSetter) supportsFiles() bool {
 	switch s.kind {
 	case fieldSetterFileHeaderValue, fieldSetterFileHeaderPtr, fieldSetterSliceFileHeaderValue, fieldSetterSliceFileHeaderPtr:
@@ -295,7 +322,7 @@ func bindFieldsFromValues(val reflect.Value, fields []bindingField, values url.V
 			continue
 		}
 		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
-			return &bindFieldError{Field: field.label, Err: err}
+			return field.bindError("", err)
 		}
 	}
 	return nil
@@ -366,7 +393,7 @@ func bindFieldsFromQuery(val reflect.Value, fields []bindingField, c *Context) e
 			inputs = single[:]
 		}
 		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
-			return &bindFieldError{Field: field.label, Err: err}
+			return field.bindError("", err)
 		}
 	}
 	return nil
@@ -391,7 +418,7 @@ func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.
 			continue
 		}
 		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
-			return &bindFieldError{Field: field.label, Err: err}
+			return field.bindError("", err)
 		}
 	}
 	return nil
@@ -409,7 +436,7 @@ func bindFieldsFromMultipartFiles(val reflect.Value, fields []bindingField, file
 			continue
 		}
 		if err := field.setter.setFiles(val.Field(field.index), inputs); err != nil {
-			return &bindFieldError{Source: "form", Field: field.label, Err: err}
+			return field.bindError("form", err)
 		}
 	}
 	return nil
@@ -428,7 +455,7 @@ func bindFieldsFromPath(val reflect.Value, fields []bindingField, c *Context) er
 		}
 		single := [1]string{input}
 		if err := field.setter.set(val.Field(field.index), single[:]); err != nil {
-			return &bindFieldError{Source: "path", Field: field.label, Err: err}
+			return field.bindError("path", err)
 		}
 	}
 	return nil

@@ -48,7 +48,7 @@ func main() {
 	api.Get("/users/{id}", func(c *zinc.Context) error {
 		user, ok := users[c.Param("id")]
 		if !ok {
-			return zinc.ErrNotFound
+			return zinc.NotFound("user not found")
 		}
 		return c.JSON(user)
 	})
@@ -56,7 +56,7 @@ func main() {
 	api.Post("/users", func(c *zinc.Context) error {
 		var user User
 		if err := c.Bind().JSON(&user); err != nil {
-			return zinc.ErrBadRequest.WithMessage("invalid user").WithCause(err)
+			return err // 400 with the failing field
 		}
 		users[user.ID] = user
 		return c.Status(http.StatusCreated).JSON(user)
@@ -69,6 +69,9 @@ func main() {
 ```sh
 curl localhost:8080/api/users/42
 # {"id":"42","name":"Ada"}
+
+curl localhost:8080/api/users/7
+# {"error":{"status":404,"message":"user not found"}}
 ```
 
 Handlers return errors, and one error handler turns them into responses. Invalid or conflicting routes fail at startup rather than at request time.
@@ -78,7 +81,7 @@ Handlers return errors, and one error handler turns them into responses. Invalid
 - **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.
 - **Binding:** path, query, header, form, multipart, JSON, XML, YAML, and TOML input, with an optional validator.
 - **Responses:** JSON, text, files, streams, templates, and redirects.
-- **Errors:** typed HTTP errors with safe client messages and wrapped causes.
+- **Errors:** JSON error responses by default, short constructors like `zinc.NotFound("…")`, and domain errors that choose their own status. Internal error text never reaches clients.
 - **Middleware:** security, observability, limits, and transport, listed below.
 - **Replaceable parts:** swap the binder, validator, JSON codec, renderer, or error handler through `zinc.Config`.
 

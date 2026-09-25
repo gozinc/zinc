@@ -25,7 +25,7 @@ func main() {
 	app.Get("/reports/{id}", func(c *zinc.Context) error {
 		id := c.Param("id")
 		if !reportID.MatchString(id) {
-			return zinc.ErrBadRequest.WithMessage("invalid report id")
+			return zinc.BadRequest("invalid report id")
 		}
 
 		path := filepath.Join("exports", id+".csv")

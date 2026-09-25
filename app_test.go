@@ -645,7 +645,7 @@ func TestRouteNotFoundPatterns(t *testing.T) {
 	}
 
 	silent := performRequest(t, app, http.MethodGet, "/silent", nil, nil)
-	if silent.Code != http.StatusNotFound || strings.TrimSpace(silent.Body.String()) != http.StatusText(http.StatusNotFound) {
+	if silent.Code != http.StatusNotFound || silent.Body.String() != `{"error":{"status":404,"message":"Not Found"}}`+"\n" {
 		t.Fatalf("silent=%d %q", silent.Code, silent.Body.String())
 	}
 
@@ -708,13 +708,13 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 		if mna.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("status=%d", mna.Code)
 		}
-		if body := strings.TrimSpace(mna.Body.String()); body != http.StatusText(http.StatusMethodNotAllowed) {
+		if body := mna.Body.String(); body != `{"error":{"status":405,"message":"Method Not Allowed"}}`+"\n" {
 			t.Fatalf("body=%q", mna.Body.String())
 		}
 		if allow := mna.Header().Get(HeaderAllow); allow != "GET" {
 			t.Fatalf("allow=%q", allow)
 		}
-		if ctype := mna.Header().Get(HeaderContentType); ctype != "text/plain; charset=utf-8" {
+		if ctype := mna.Header().Get(HeaderContentType); ctype != jsonType {
 			t.Fatalf("content-type=%q", ctype)
 		}
 
@@ -740,10 +740,11 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 		if notFound.Code != http.StatusNotFound {
 			t.Fatalf("status=%d", notFound.Code)
 		}
-		if body := strings.TrimSpace(notFound.Body.String()); body != http.StatusText(http.StatusNotFound) {
+		// A custom 404 handler that writes nothing falls back to the error handler.
+		if body := notFound.Body.String(); body != `{"error":{"status":404,"message":"Not Found"}}`+"\n" {
 			t.Fatalf("body=%q", notFound.Body.String())
 		}
-		if ctype := notFound.Header().Get(HeaderContentType); ctype != "text/plain; charset=utf-8" {
+		if ctype := notFound.Header().Get(HeaderContentType); ctype != jsonType {
 			t.Fatalf("content-type=%q", ctype)
 		}
 	})
@@ -820,13 +821,13 @@ func TestContextErrorAndLastError(t *testing.T) {
 	}
 
 	ctx.app = nil
-	ctx.Error(nil)
+	ctx.HandleError(nil)
 	if ctx.LastError() != nil {
 		t.Fatalf("last error=%v", ctx.LastError())
 	}
 
 	want := errors.New("boom")
-	ctx.Error(want)
+	ctx.HandleError(want)
 	if !errors.Is(ctx.LastError(), want) {
 		t.Fatalf("last error=%v", ctx.LastError())
 	}
@@ -846,7 +847,7 @@ func TestContextErrorAndLastError(t *testing.T) {
 			}
 		},
 	})
-	ctx2.Error(want)
+	ctx2.HandleError(want)
 
 	if !hit {
 		t.Fatal("custom error handler was not invoked")
@@ -860,56 +861,55 @@ func TestContextErrorAndLastError(t *testing.T) {
 }
 
 func TestDefaultErrorHandlerBranches(t *testing.T) {
-	defaultErrorHandler(nil, errors.New("ignored"))
+	DefaultErrorHandler(nil, errors.New("ignored"))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	ctx, rec := newRecorderContext(t, req)
 	defer ctx.release()
 
-	defaultErrorHandler(ctx, nil)
+	DefaultErrorHandler(ctx, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d", rec.Code)
 	}
 
 	ctx.written = true
-	defaultErrorHandler(ctx, errors.New("ignored"))
+	DefaultErrorHandler(ctx, errors.New("ignored"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d", rec.Code)
 	}
 
 	ctx2, rec2 := newRecorderContext(t, req)
 	defer ctx2.release()
-	defaultErrorHandler(ctx2, NewError(http.StatusConflict).WithMessage("conflict"))
+	DefaultErrorHandler(ctx2, NewError(http.StatusConflict, "conflict"))
 	if rec2.Code != http.StatusConflict {
 		t.Fatalf("status=%d", rec2.Code)
 	}
-	if body := rec2.Body.String(); body != "conflict" {
+	if body := rec2.Body.String(); body != `{"error":{"status":409,"message":"conflict"}}`+"\n" {
 		t.Fatalf("body=%q", body)
 	}
 
 	ctx3, rec3 := newRecorderContext(t, req)
 	defer ctx3.release()
 	wrapped := fmt.Errorf("wrapped: %w", NewError(http.StatusGone))
-	defaultErrorHandler(ctx3, wrapped)
+	DefaultErrorHandler(ctx3, wrapped)
 	if rec3.Code != http.StatusGone {
 		t.Fatalf("status=%d", rec3.Code)
 	}
 
 	ctx4, rec4 := newRecorderContext(t, req)
 	defer ctx4.release()
-	defaultErrorHandler(ctx4, errors.New("boom"))
+	DefaultErrorHandler(ctx4, errors.New("boom"))
 	if rec4.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d", rec4.Code)
 	}
 
 	ctx5, rec5 := newRecorderContext(t, req)
 	defer ctx5.release()
-	httpErr := NewError(http.StatusUnauthorized).
-		WithMessage("denied").
+	httpErr := Unauthorized("denied").
 		WithHeader("X-Reason", "auth").
-		WithCause(errors.New("root cause")).
-		WithMeta("kind", "auth")
-	defaultErrorHandler(ctx5, httpErr)
+		Wrap(errors.New("root cause")).
+		WithDetail("kind", "auth")
+	DefaultErrorHandler(ctx5, httpErr)
 	if rec5.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec5.Code)
 	}
@@ -919,40 +919,27 @@ func TestDefaultErrorHandlerBranches(t *testing.T) {
 	if !errors.Is(httpErr, httpErr.Cause) {
 		t.Fatal("expected cause to unwrap")
 	}
-	if httpErr.Meta["kind"] != "auth" {
-		t.Fatalf("meta=%v", httpErr.Meta)
+	if got := rec5.Body.String(); got != `{"error":{"status":401,"message":"denied","details":{"kind":"auth"}}}`+"\n" {
+		t.Fatalf("body=%q", got)
 	}
 }
 
-func TestHTTPErrorHelpersCloneGlobalsAndAbortHelpers(t *testing.T) {
+func TestHTTPErrorHelpersCloneGlobals(t *testing.T) {
 	base := ErrNotFound
-	updated := base.WithMessage("custom").WithHeader("X-Test", "ok")
-	if base.Message != "" {
-		t.Fatalf("base message=%q", base.Message)
+	updated := base.WithDetail("id", 7).WithHeader("X-Test", "ok").Wrap(errors.New("cause"))
+	if base.Message != "" || base.Details != nil || base.Headers != nil || base.Cause != nil {
+		t.Fatalf("base mutated: %+v", base)
 	}
-	if base.Headers != nil {
-		t.Fatalf("base headers=%v", base.Headers)
-	}
-	if updated.Message != "custom" || updated.Headers.Get("X-Test") != "ok" {
+	if updated.Details["id"] != 7 || updated.Headers.Get("X-Test") != "ok" || updated.Cause == nil {
 		t.Fatalf("updated=%+v", updated)
 	}
-
-	app := New()
-	app.Get("/abort", func(c *Context) error {
-		return c.AbortWithStatus(http.StatusForbidden)
-	})
-	app.Get("/abort-json", func(c *Context) error {
-		return c.AbortWithJSON(http.StatusCreated, Map{"ok": true})
-	})
-
-	abortResp := performRequest(t, app, http.MethodGet, "/abort", nil, nil)
-	if abortResp.Code != http.StatusForbidden {
-		t.Fatalf("status=%d", abortResp.Code)
+	// Details and headers are copied, so derived errors never share state.
+	again := updated.WithDetail("more", true)
+	if _, ok := updated.Details["more"]; ok {
+		t.Fatal("WithDetail mutated its receiver's details")
 	}
-
-	jsonResp := performRequest(t, app, http.MethodGet, "/abort-json", nil, nil)
-	if jsonResp.Code != http.StatusCreated || !strings.Contains(jsonResp.Body.String(), `"ok":true`) {
-		t.Fatalf("json resp=%d %q", jsonResp.Code, jsonResp.Body.String())
+	if again.Details["id"] != 7 {
+		t.Fatalf("details not carried over: %+v", again.Details)
 	}
 }
 
@@ -994,7 +981,7 @@ func TestShutdownReleasesConfinedStaticRoots(t *testing.T) {
 }
 
 func TestHTTPErrorIsMatchesByStatus(t *testing.T) {
-	derived := ErrNotFound.WithMessage("user not found").WithHeader("X-Test", "ok")
+	derived := NewError(StatusNotFound, "user not found").WithHeader("X-Test", "ok")
 	wrapped := fmt.Errorf("lookup: %w", derived)
 	cases := []struct {
 		name   string
@@ -1006,9 +993,9 @@ func TestHTTPErrorIsMatchesByStatus(t *testing.T) {
 		{"wrapped copy matches its sentinel", wrapped, ErrNotFound, true},
 		{"NewError matches the sentinel for its code", NewError(StatusNotFound), ErrNotFound, true},
 		{"different status does not match", derived, ErrGone, false},
-		{"target with a message requires that message", derived, ErrNotFound.WithMessage("other"), false},
-		{"target with the same message matches", derived, ErrNotFound.WithMessage("user not found"), true},
-		{"sentinel does not match a more specific target", ErrNotFound, ErrNotFound.WithMessage("user not found"), false},
+		{"target with a message requires that message", derived, NewError(StatusNotFound, "other"), false},
+		{"target with the same message matches", derived, NewError(StatusNotFound, "user not found"), true},
+		{"sentinel does not match a more specific target", ErrNotFound, NewError(StatusNotFound, "user not found"), false},
 		{"non-HTTP target does not match", derived, errors.New("not found"), false},
 	}
 	for _, tc := range cases {
@@ -1019,7 +1006,7 @@ func TestHTTPErrorIsMatchesByStatus(t *testing.T) {
 
 	// Is must not hide the cause chain.
 	cause := errors.New("db down")
-	if !errors.Is(ErrServiceUnavailable.WithCause(cause), cause) {
+	if !errors.Is(ErrServiceUnavailable.Wrap(cause), cause) {
 		t.Fatal("cause no longer reachable through errors.Is")
 	}
 }

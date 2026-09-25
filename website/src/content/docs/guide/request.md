@@ -57,7 +57,7 @@ app.Post("/profile", func(c *zinc.Context) error {
 app.Post("/documents", func(c *zinc.Context) error {
 	file, err := c.FormFile("document")
 	if err != nil {
-		return zinc.ErrBadRequest.WithMessage("document is required")
+		return zinc.BadRequest("document is required")
 	}
 
 	// Never trust the client's filename. Keep only its base name, or generate your own.

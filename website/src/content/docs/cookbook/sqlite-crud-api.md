@@ -87,10 +87,10 @@ func main() {
 	app.Post("/todos", func(c *zinc.Context) error {
 		var input CreateTodoInput
 		if err := c.Bind().JSON(&input); err != nil {
-			return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
+			return err // 400 with the failing field
 		}
 		if input.Title == "" {
-			return zinc.ErrBadRequest.WithMessage("title is required")
+			return zinc.BadRequest("title is required")
 		}
 
 		result, err := db.Exec("insert into todos(title, done) values(?, 0)", input.Title)
@@ -109,7 +109,7 @@ func main() {
 	app.Patch("/todos/{id}/done", func(c *zinc.Context) error {
 		id := c.Param("id")
 		if id == "" {
-			return zinc.ErrBadRequest.WithMessage("id is required")
+			return zinc.BadRequest("id is required")
 		}
 
 		_, err := db.Exec("update todos set done = 1 where id = ?", id)
@@ -123,7 +123,7 @@ func main() {
 	app.Delete("/todos/{id}", func(c *zinc.Context) error {
 		id := c.Param("id")
 		if id == "" {
-			return zinc.ErrBadRequest.WithMessage("id is required")
+			return zinc.BadRequest("id is required")
 		}
 
 		_, err := db.Exec("delete from todos where id = ?", id)

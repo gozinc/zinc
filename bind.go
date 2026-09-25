@@ -45,9 +45,50 @@ type Bind struct {
 
 // BindError identifies the request source and struct field that failed.
 type BindError struct {
+	// Source is "path", "query", "header", "form", or "body".
 	Source string
-	Field  string
+	// Field is the Go struct field, for logs.
+	Field string
+	// Name is the request-facing name: the tag value, or the JSON field path.
+	Name string
+	// Reason is a client-safe description of what the value must be, such as
+	// "must be an integer". It is empty when there is nothing safe to say.
+	Reason string
 	Err    error
+}
+
+// errEmptyBody reports a missing body to a binder that requires one.
+var errEmptyBody = errors.New("request body is empty")
+
+// StatusCode implements StatusCoder: a binding failure is the client's error.
+func (*BindError) StatusCode() int {
+	return StatusBadRequest
+}
+
+var bindSourceNouns = map[string]string{
+	"path":   "path parameter",
+	"query":  "query parameter",
+	"header": "header",
+	"form":   "form field",
+}
+
+// clientMessage describes the failure without decoder text or Go names.
+func (e *BindError) clientMessage() (string, map[string]string) {
+	if errors.Is(e.Err, errEmptyBody) {
+		return "request body is empty", nil
+	}
+	message := "invalid request body"
+	if noun, ok := bindSourceNouns[e.Source]; ok {
+		message = "invalid " + noun
+	}
+	if e.Name == "" {
+		return message, nil
+	}
+	reason := e.Reason
+	if reason == "" {
+		reason = "invalid value"
+	}
+	return message, map[string]string{e.Name: reason}
 }
 
 // Error formats the binding source, field, and underlying error.
@@ -186,7 +227,7 @@ func (b defaultBinder) BindBody(c *Context, v any) error {
 			return wrapBindError("body", readErr)
 		}
 		if bodyLen == 0 {
-			return wrapBindError("body", errors.New("request body is empty"))
+			return wrapBindError("body", errEmptyBody)
 		}
 		if decodeErr != nil {
 			return classifyJSONDecodeError(decodeErr)
@@ -199,7 +240,7 @@ func (b defaultBinder) BindBody(c *Context, v any) error {
 			return wrapBindError("body", readErr)
 		}
 		if bodyLen == 0 {
-			return wrapBindError("body", errors.New("request body is empty"))
+			return wrapBindError("body", errEmptyBody)
 		}
 		if decodeErr != nil {
 			return wrapBindError("body", decodeErr)
@@ -308,7 +349,7 @@ func (b *Bind) JSON(v any) error {
 		return wrapBindError("body", readErr)
 	}
 	if bodyLen == 0 {
-		return wrapBindError("body", errors.New("request body is empty"))
+		return wrapBindError("body", errEmptyBody)
 	}
 	if decodeErr != nil {
 		return classifyJSONDecodeError(decodeErr)
@@ -349,7 +390,7 @@ func (b *Bind) XML(v any) error {
 		return wrapBindError("body", readErr)
 	}
 	if bodyLen == 0 {
-		return wrapBindError("body", errors.New("request body is empty"))
+		return wrapBindError("body", errEmptyBody)
 	}
 	if decodeErr != nil {
 		return wrapBindError("body", decodeErr)
@@ -377,12 +418,21 @@ func (b *Bind) Path(v any) error {
 	return b.c.app.config.RequestBinder.BindPath(b.c, v)
 }
 
-// Validate invokes the configured Validator, or succeeds when none is set.
+// Validate invokes the configured Validator, or succeeds when none is set. A
+// failure is returned as a *ValidationError, which the default error handler
+// answers with 422, unless the validator's error already carries a status.
 func (c *Context) Validate(v any) error {
 	if c.app == nil || c.app.config.Validator == nil {
 		return nil
 	}
-	return c.app.config.Validator.Validate(v)
+	err := c.app.config.Validator.Validate(v)
+	if err == nil {
+		return nil
+	}
+	if coder, _ := findStatusCoder(err); coder != nil {
+		return err
+	}
+	return &ValidationError{Err: err}
 }
 
 func setFieldValue(value reflect.Value, inputs []string) error {
@@ -426,7 +476,7 @@ func bindPlainTextBody(c *Context, v any, requireBody bool) error {
 	}
 	if len(body) == 0 {
 		if requireBody {
-			return wrapBindError("body", errors.New("request body is empty"))
+			return wrapBindError("body", errEmptyBody)
 		}
 		return c.Validate(v)
 	}
@@ -473,7 +523,7 @@ func readRequiredBody(c *Context, requireBody bool) ([]byte, error) {
 		return nil, readErr
 	}
 	if len(body) == 0 && requireBody {
-		return nil, errors.New("request body is empty")
+		return nil, errEmptyBody
 	}
 	return body, nil
 }
@@ -552,23 +602,43 @@ func wrapBindError(source string, err error) error {
 	if errors.As(err, &bindErr) {
 		return err
 	}
-	return &BindError{
-		Source: source,
-		Field:  bindErrorField(err),
-		Err:    err,
+	bindErr = &BindError{Source: source, Err: err}
+	var fieldErr *bindFieldError
+	var typeErr *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &fieldErr):
+		bindErr.Field, bindErr.Name, bindErr.Reason = fieldErr.Field, fieldErr.Name, fieldErr.Reason
+	case errors.As(err, &typeErr):
+		bindErr.Field, bindErr.Name, bindErr.Reason = typeErr.Field, typeErr.Field, jsonTypeReason(typeErr.Type)
 	}
+	return bindErr
 }
 
-func bindErrorField(err error) string {
-	var fieldErr *bindFieldError
-	if errors.As(err, &fieldErr) {
-		return fieldErr.Field
+// jsonTypeReason describes the JSON value a Go type expects.
+func jsonTypeReason(typ reflect.Type) string {
+	if typ == nil {
+		return ""
 	}
-	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
-		return typeErr.Field
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
 	}
-	return ""
+	switch typ.Kind() {
+	case reflect.String:
+		return "must be a string"
+	case reflect.Bool:
+		return "must be a boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "must be an integer"
+	case reflect.Float32, reflect.Float64:
+		return "must be a number"
+	case reflect.Slice, reflect.Array:
+		return "must be an array"
+	case reflect.Struct, reflect.Map:
+		return "must be an object"
+	default:
+		return ""
+	}
 }
 
 // Opaque decoder errors may be application/codec failures. Classify known
@@ -581,7 +651,7 @@ func classifyJSONDecodeError(err error) error {
 	case *json.SyntaxError:
 		return &BindError{Source: "body", Err: err}
 	case *json.UnmarshalTypeError:
-		return &BindError{Source: "body", Field: typed.Field, Err: err}
+		return &BindError{Source: "body", Field: typed.Field, Name: typed.Field, Reason: jsonTypeReason(typed.Type), Err: err}
 	}
 	var syntax *json.SyntaxError
 	var mismatch *json.UnmarshalTypeError

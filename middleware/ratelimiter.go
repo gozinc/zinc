@@ -116,7 +116,7 @@ func RateLimiter(config ...RateLimiterConfig) zinc.Middleware {
 		panic("zinc: invalid rate limiter configuration")
 	}
 	if cfg.LimitReachedHandler == nil {
-		cfg.LimitReachedHandler = func(c *zinc.Context) error { return c.Status(cfg.StatusCode).Send("Rate limit exceeded") }
+		cfg.LimitReachedHandler = func(c *zinc.Context) error { return zinc.NewError(cfg.StatusCode, "rate limit exceeded") }
 	}
 	newBucket := func(now time.Time) *TokenBucket {
 		return &TokenBucket{rate: cfg.Rate, capacity: cfg.Capacity, tokens: cfg.Capacity, lastRefill: now}

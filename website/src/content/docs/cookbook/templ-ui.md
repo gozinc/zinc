@@ -161,7 +161,7 @@ func main() {
 
 		email := c.Request().FormValue("email")
 		if email == "" {
-			return zinc.ErrBadRequest.WithMessage("email is required")
+			return zinc.BadRequest("email is required")
 		}
 
 		return render(c, views.Home("Subscribed "+email+"."))

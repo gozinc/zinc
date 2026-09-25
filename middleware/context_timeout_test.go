@@ -84,7 +84,7 @@ func TestContextTimeoutDefaultErrorHandler(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
 	}
-	if body := strings.TrimSpace(rec.Body.String()); body != http.StatusText(http.StatusServiceUnavailable) {
+	if body := rec.Body.String(); body != jsonErrorBody(http.StatusServiceUnavailable, "Service Unavailable") {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
@@ -100,7 +100,7 @@ func TestContextTimeoutCustomErrorHandler(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("error=%v", err)
 			}
-			return zinc.NewError(http.StatusGatewayTimeout).WithMessage("deadline hit")
+			return zinc.NewError(http.StatusGatewayTimeout, "deadline hit")
 		},
 	}))
 	app.Get("/slow", func(c *zinc.Context) error {
@@ -114,7 +114,7 @@ func TestContextTimeoutCustomErrorHandler(t *testing.T) {
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "deadline hit" {
+	if rec.Body.String() != jsonErrorBody(http.StatusGatewayTimeout, "deadline hit") {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }

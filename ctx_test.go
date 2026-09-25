@@ -25,7 +25,7 @@ type validatingStub struct{}
 
 func (validatingStub) Validate(v any) error {
 	if payload, ok := v.(*bindPayload); ok && payload.Name == "" {
-		return ErrBadRequest.WithMessage("name required")
+		return NewError(StatusBadRequest, "name required")
 	}
 	return nil
 }
@@ -438,16 +438,6 @@ func TestContextAcquireRelease(t *testing.T) {
 	}
 	app.ReleaseContext(acquired)
 	app.ReleaseContext(nil)
-}
-
-func TestContextFailReturnsError(t *testing.T) {
-	ctx, _ := newRecorderContext(t, httptest.NewRequest(http.MethodGet, "/", nil))
-	defer ctx.release()
-
-	err := errors.New("failed")
-	if got := ctx.Fail(err); !errors.Is(got, err) {
-		t.Fatalf("fail error=%v", got)
-	}
 }
 
 func TestContextBodyBindingAndUploads(t *testing.T) {

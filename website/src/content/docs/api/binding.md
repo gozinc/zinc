@@ -41,7 +41,7 @@ type BindError struct {
 }
 ```
 
-`BindError` unwraps to `Err`. It is not an HTTP error, so return it as `zinc.ErrBadRequest.WithCause(err)` or map it in the [error handler](/guide/errors/#map-binding-errors-to-400). A body over `Config.BodyLimit` produces a `BindError` that wraps `zinc.ErrRequestEntityTooLarge`.
+`BindError` unwraps to `Err`. It is not an HTTP error, so return it as `zinc.ErrBadRequest.Wrap(err)` or map it in the [error handler](/guide/errors/#map-binding-errors-to-400). A body over `Config.BodyLimit` produces a `BindError` that wraps `zinc.ErrRequestEntityTooLarge`.
 
 ## Validator
 

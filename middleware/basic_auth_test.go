@@ -64,7 +64,7 @@ func TestBasicAuthMissingCredentials(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec.Code)
 	}
-	if rec.Body.String() != http.StatusText(http.StatusUnauthorized) {
+	if rec.Body.String() != jsonErrorBody(http.StatusUnauthorized, "Unauthorized") {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 	if got := rec.Header().Get(zinc.HeaderWWWAuthenticate); got != `Basic realm="admin"` {
@@ -186,7 +186,7 @@ func TestBasicAuthCustomErrorHandler(t *testing.T) {
 			if !errors.Is(err, ErrBasicAuthCredentialsInvalid) {
 				t.Fatalf("error=%v", err)
 			}
-			return zinc.NewError(http.StatusTeapot).WithMessage("brew")
+			return zinc.NewError(http.StatusTeapot, "brew")
 		},
 	}))
 	app.Get("/private", func(c *zinc.Context) error {
@@ -202,7 +202,7 @@ func TestBasicAuthCustomErrorHandler(t *testing.T) {
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("status=%d", rec.Code)
 	}
-	if rec.Body.String() != "brew" {
+	if rec.Body.String() != jsonErrorBody(http.StatusTeapot, "brew") {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }

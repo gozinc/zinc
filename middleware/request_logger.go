@@ -128,7 +128,7 @@ func RequestLoggerWithConfig(config RequestLoggerConfig) zinc.Middleware {
 
 		err := c.Next()
 		if err != nil && config.HandleError {
-			c.Error(err)
+			c.HandleError(err)
 		}
 
 		logErr := c.LastError()

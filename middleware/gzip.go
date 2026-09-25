@@ -65,7 +65,7 @@ func GzipWithConfig(config GzipConfig) zinc.Middleware {
 
 		err := c.Next()
 		if err != nil {
-			c.Error(err)
+			c.HandleError(err)
 		}
 		closeErr := writer.Close()
 		c.SetWriter(baseWriter)
@@ -137,7 +137,12 @@ func (w *gzipResponseWriter) WriteHeader(code int) {
 }
 
 func (w *gzipResponseWriter) Write(p []byte) (int, error) {
-	if w.wroteHeader && w.writer == nil {
+	// Once compression starts, every later write belongs to the gzip stream.
+	// The Content-Encoding check below must not see the header startGzip set.
+	if w.writer != nil {
+		return w.writer.Write(p)
+	}
+	if w.wroteHeader {
 		return w.ResponseWriter.Write(p)
 	}
 	if w.status == 0 {

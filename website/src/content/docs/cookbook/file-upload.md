@@ -21,7 +21,7 @@ func main() {
 	app.Post("/upload", func(c *zinc.Context) error {
 		file, err := c.FormFile("document")
 		if err != nil {
-			return zinc.NewError(zinc.StatusBadRequest).WithCause(err)
+			return zinc.NewError(zinc.StatusBadRequest).Wrap(err)
 		}
 
 		name := filepath.Base(file.Filename)

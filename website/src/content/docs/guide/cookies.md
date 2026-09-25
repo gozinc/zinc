@@ -34,7 +34,7 @@ For anything that identifies a user, set `HttpOnly`, `Secure`, and a `SameSite` 
 ```go
 cookie, err := c.Cookie("session")
 if errors.Is(err, http.ErrNoCookie) {
-	return zinc.ErrUnauthorized.WithMessage("sign in required")
+	return zinc.Unauthorized("sign in required")
 }
 if err != nil {
 	return err

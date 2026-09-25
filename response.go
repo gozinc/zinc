@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -48,9 +49,11 @@ type SSEvent struct {
 
 var nullBytes = []byte("null")
 
+// The built-in 404 and 405 bodies are precomputed so the router's miss path
+// writes the default JSON error without encoding.
 var (
-	statusNotFoundBytes         = []byte(http.StatusText(http.StatusNotFound))
-	statusMethodNotAllowedBytes = []byte(http.StatusText(http.StatusMethodNotAllowed))
+	statusNotFoundBytes         = []byte("{\"error\":{\"status\":404,\"message\":\"Not Found\"}}\n")
+	statusMethodNotAllowedBytes = []byte("{\"error\":{\"status\":405,\"message\":\"Method Not Allowed\"}}\n")
 )
 
 func bodyAllowed(method string, status int) bool {
@@ -187,6 +190,15 @@ func (c *Context) JSONPretty(v any, indent string) error {
 	return c.writeJSON(v, indent)
 }
 
+// jsonCodec returns the application's codec, or the standard one for a
+// Context used without an App.
+func (c *Context) jsonCodec() JSONCodec {
+	if c.app != nil && c.app.config.JSONCodec != nil {
+		return c.app.config.JSONCodec
+	}
+	return defaultJSONCodec{}
+}
+
 func (c *Context) writeJSON(v any, indent string) error {
 	writer, writeBody, err := c.prepareResponse(jsonType)
 	if err != nil || !writeBody {
@@ -198,7 +210,7 @@ func (c *Context) writeJSON(v any, indent string) error {
 		return err
 	}
 
-	if err := c.app.config.JSONCodec.Encode(writer, v, indent); err != nil {
+	if err := c.jsonCodec().Encode(writer, v, indent); err != nil {
 		return err
 	}
 	if !c.written {
@@ -391,14 +403,14 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 			if len(header[contentType]) == 0 {
 				// Both values belong to this response. Separate capacities prevent
 				// appending to one header from modifying the other.
-				values := []string{allowHeader, plainText}
+				values := []string{allowHeader, jsonType}
 				header[HeaderAllow] = values[:1:1]
 				header[contentType] = values[1:2:2]
 			} else {
 				header[HeaderAllow] = []string{allowHeader}
 			}
 		} else if len(header[contentType]) == 0 {
-			header[contentType] = []string{plainText}
+			header[contentType] = []string{jsonType}
 		}
 		writer.WriteHeader(status)
 		if status == http.StatusNotFound {
@@ -415,7 +427,7 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 		header[HeaderAllow] = []string{allowHeader}
 	}
 	if len(header[contentType]) == 0 {
-		header[contentType] = []string{plainText}
+		header[contentType] = []string{jsonType}
 	}
 	if !bodyAllowed(c.Method(), status) {
 		writer.WriteHeader(status)
@@ -431,8 +443,7 @@ func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) erro
 		_, err := writer.Write(statusMethodNotAllowedBytes)
 		return err
 	default:
-		_, err := io.WriteString(writer, http.StatusText(status))
-		return err
+		return writeErrorEnvelope(writer, status, http.StatusText(status))
 	}
 }
 
@@ -797,6 +808,14 @@ func (c *Context) serveFile(filePath string, filesystem fs.FS, downloadName stri
 	return c.serveFileWithDisposition(filePath, filesystem, disposition, downloadName)
 }
 
+// fileError reports a missing or unreadable file as 404, keeping the cause.
+func fileError(err error) error {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) || errors.Is(err, fs.ErrPermission) {
+		return ErrNotFound.Wrap(err)
+	}
+	return err
+}
+
 func (c *Context) serveFileWithDisposition(filePath string, filesystem fs.FS, disposition, name string) error {
 	if c.written {
 		return ErrResponseAlreadySent
@@ -806,13 +825,18 @@ func (c *Context) serveFileWithDisposition(filePath string, filesystem fs.FS, di
 	}
 
 	if filesystem == nil {
+		// http.ServeFile would answer a missing file with its own plain-text
+		// 404; report it to the error handler instead.
+		if _, err := os.Stat(filePath); err != nil {
+			return fileError(err)
+		}
 		http.ServeFile(c.Writer(), c.Request(), filePath)
 		return nil
 	}
 
 	file, err := filesystem.Open(filePath)
 	if err != nil {
-		return err
+		return fileError(err)
 	}
 	defer file.Close()
 
@@ -821,7 +845,7 @@ func (c *Context) serveFileWithDisposition(filePath string, filesystem fs.FS, di
 		return err
 	}
 	if stat.IsDir() {
-		return fs.ErrInvalid
+		return ErrNotFound.Wrap(fs.ErrInvalid)
 	}
 
 	if rs, ok := file.(io.ReadSeeker); ok {

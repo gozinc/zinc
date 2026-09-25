@@ -40,7 +40,7 @@ When a handler returns an error, the error handler writes the response after you
 ```go
 err := c.Next()
 if err != nil {
-	c.Error(err) // writes the error response through rw now
+	c.HandleError(err) // writes the error response through rw now
 }
 record(rw.Status(), rw.BytesWritten())
 return err
