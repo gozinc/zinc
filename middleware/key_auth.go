@@ -56,7 +56,7 @@ type KeyAuthConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Extractor      KeyAuthExtractor
 	Validator      KeyAuthValidator
-	SuccessHandler zinc.RouteHandler
+	SuccessHandler zinc.HandlerFunc
 	ErrorHandler   KeyAuthErrorHandler
 }
 

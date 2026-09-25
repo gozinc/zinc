@@ -14,15 +14,22 @@ app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
 
 | Method | Registers |
 |---|---|
-| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` `(path, handlers...)` | A route for that method |
-| `Add(method, path, handlers...)` | A route for any method, including custom ones |
+| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` `(path, handlers...) Route` | A route for that method |
+| `Add(method, path, handlers...) Route` | A route for any method, including custom ones |
 | `Match(methods, path, handlers...)` | The same chain for several methods |
-| `All(path, handlers...)`, `Any` | The same chain for every standard method |
-| `Handle(spec RouteSpec)` | A route described by a struct, optionally named. Panics on an invalid spec. |
-| `TryHandle(spec RouteSpec) error` | The same, returning an error instead of panicking |
-| `HandleHTTP(pattern, http.Handler)` | A standard handler, with a `"METHOD /path"` pattern |
+| `All(path, handlers...)` | The same chain for every standard method |
+| `TryHandle(spec RouteSpec) error` | A route from configuration or plugins, returning every problem as an error |
+| `HandleHTTP(pattern, http.Handler) Route` | A standard handler, with a `"METHOD /path"` pattern |
 
 Every method accepts a chain: middleware first, then the handler. Invalid or conflicting patterns panic at registration. See [Routing](/guide/routing/).
+
+The returned `Route` names the route for URL building. `Name` panics on a duplicate name:
+
+```go
+app.Get("/users/{id}", showUser).Name("users.show")
+```
+
+`TryHandle` takes a `RouteSpec`:
 
 ```go
 type RouteSpec struct {
@@ -70,8 +77,6 @@ Options: `zinc.WithStaticIndex(name)` and `zinc.WithStaticBrowse(bool)`. See [St
 | Method | Returns |
 |---|---|
 | `Routes() []RouteInfo` | Every route and mount, in registration order |
-| `RoutesByMethod(method) []RouteInfo` | Routes for one method |
-| `RoutesByPrefix(prefix) []RouteInfo` | Routes below a prefix |
 | `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request |
 | `RouteByName(name) (RouteInfo, bool)` | A named route |
 | `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Segment values are escaped; a catch-all value is inserted as given. |

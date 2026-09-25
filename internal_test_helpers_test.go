@@ -11,13 +11,13 @@ func (c *Context) setParam(key, value string) {
 	c.paramCount++
 	c.paramRoute = nil
 }
-func (rc *RouteCache) get(key routeCacheKey) (routeCacheEntry, bool) {
+func (rc *routeCache) get(key routeCacheKey) (routeCacheEntry, bool) {
 	return rc.getWithMask(key, methodMaskFor(key.method))
 }
-func (rc *RouteCache) set(key routeCacheKey, entry routeCacheEntry) {
+func (rc *routeCache) set(key routeCacheKey, entry routeCacheEntry) {
 	rc.setWithMask(key, methodMaskFor(key.method), entry)
 }
-func (rc *RouteCache) setMiss(key routeCacheKey, entry routeCacheEntry) {
+func (rc *routeCache) setMiss(key routeCacheKey, entry routeCacheEntry) {
 	rc.setMissWithMask(key, methodMaskFor(key.method), entry)
 }
 func bindData(ptr any, data map[string][]string, tag string) error {

@@ -45,7 +45,7 @@ type JWTConfig struct {
 	ParseTokenFunc JWTParseTokenFunc
 	ParserOptions  []jwtgo.ParserOption
 	Validate       JWTValidateFunc
-	SuccessHandler zinc.RouteHandler
+	SuccessHandler zinc.HandlerFunc
 	ErrorHandler   JWTErrorHandler
 	Realm          string
 }

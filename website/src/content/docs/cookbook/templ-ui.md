@@ -146,9 +146,7 @@ func render(c *zinc.Context, component templ.Component) error {
 func main() {
 	app := zinc.New()
 
-	if err := app.Static("/static", "./public"); err != nil {
-		log.Fatal(err)
-	}
+	app.Static("/static", "./public")
 
 	app.Get("/", func(c *zinc.Context) error {
 		return render(c, views.Home(""))

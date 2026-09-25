@@ -19,9 +19,10 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 | `Use(middleware...) *Group` | Adds middleware for this group's routes and subgroups. Call it before registering them: `Use` panics once the group has routes, mounts, files, or child groups |
 | `Group(prefix, middleware...) *Group` | A nested group |
 | `Route(prefix, fn func(*Group), middleware...) *Group` | A nested group declared in a block |
-| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Routes below the prefix |
-| `Add`, `Match`, `All`, `Any` | Routes for custom or multiple methods |
-| `Handle(spec)`, `TryHandle(spec) error` | Routes described by a `RouteSpec` |
+| `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Routes below the prefix; each returns a `Route` to `Name` |
+| `Add`, `Match`, `All` | Routes for custom or multiple methods |
+| `TryHandle(spec) error` | A route from configuration, returning problems as errors |
+| `UseHTTP(middleware...) *Group` | Standard `func(http.Handler) http.Handler` middleware for this group, through `zinc.FromHTTP` |
 | `HandleHTTP(pattern, http.Handler)` | A standard handler below the prefix |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree below the prefix |
 | `Static`, `StaticFS`, `File`, `FileFS` | Files below the prefix |

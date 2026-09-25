@@ -41,46 +41,40 @@ func WithStaticIndex(index string) StaticOption {
 // Static serves root from the operating-system filesystem below prefix. The
 // confined directory handle is retained after its first use and released by
 // Shutdown or Close.
-func (a *App) Static(prefix, root string, opts ...StaticOption) error {
+func (a *App) Static(prefix, root string, opts ...StaticOption) {
 	filesystem := &confinedDirFS{path: root}
-	if err := a.StaticFS(prefix, filesystem, opts...); err != nil {
-		return err
-	}
+	a.StaticFS(prefix, filesystem, opts...)
 	a.staticRoots = append(a.staticRoots, filesystem)
-	return nil
 }
 
-// StaticFS serves filesystem below prefix.
-func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
-	return a.staticFS(prefix, filesystem, nil, opts...)
+// StaticFS serves filesystem below prefix. It panics if filesystem is nil.
+func (a *App) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) {
+	a.staticFS(prefix, filesystem, nil, opts...)
 }
 
-func (a *App) staticFS(prefix string, filesystem fs.FS, middleware []HandlerFunc, opts ...StaticOption) error {
+func (a *App) staticFS(prefix string, filesystem fs.FS, middleware []HandlerFunc, opts ...StaticOption) {
 	if filesystem == nil {
-		return errors.New("filesystem is nil")
+		panic("zinc: static filesystem is nil")
 	}
 	cfg := StaticConfig{Index: "index.html"}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	a.mountNative(prefix, newStaticHandler(filesystem, cfg), middleware)
-	return nil
 }
 
 // File serves one operating-system file at path.
-func (a *App) File(path, file string) error {
-	a.Get(path, func(c *Context) error {
+func (a *App) File(path, file string) Route {
+	return a.Get(path, func(c *Context) error {
 		return c.File(file)
 	})
-	return nil
 }
 
 // FileFS serves one file from filesystem at path.
-func (a *App) FileFS(path, file string, filesystem fs.FS) error {
-	a.Get(path, func(c *Context) error {
+func (a *App) FileFS(path, file string, filesystem fs.FS) Route {
+	return a.Get(path, func(c *Context) error {
 		return c.FileFS(file, filesystem)
 	})
-	return nil
 }
 
 // newStaticHandler limits methods before resolving paths so unsupported

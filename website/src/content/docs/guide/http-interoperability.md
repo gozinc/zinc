@@ -74,6 +74,22 @@ UseHTTP middleware
 
 Values that standard middleware adds to the request context, such as a trace span, are visible in Zinc handlers through `c.Context()`.
 
+## Standard middleware on a group or route
+
+To run standard middleware for part of the app only, add it to a group with `UseHTTP`, or wrap it with `zinc.FromHTTP` wherever Zinc middleware goes:
+
+```go
+admin := app.Group("/admin").UseHTTP(chimw.BasicAuth("admin", creds))
+
+app.Get("/reports", zinc.FromHTTP(otelhttp.NewMiddleware("reports")), listReports)
+```
+
+The middleware is built once, at registration. Inside it, the rest of the Zinc chain runs as its `next` handler:
+
+- A request it replaces, for example with a new context, is the request later handlers see.
+- If it wraps the response writer, later handlers write through the wrapper. When they return an error, the error handler writes the response before the middleware returns, so a logging or metrics middleware sees the final status.
+- A wrapper must expose the writer it wraps with an `Unwrap() http.ResponseWriter` method, the convention `http.ResponseController` relies on. Zinc follows it to find the request's context without allocating, and panics with a clear message if a wrapper hides it.
+
 ## Writer capabilities are preserved
 
 Handlers receive the server's own response writer, so `http.Flusher`, `http.Hijacker`, `io.ReaderFrom`, and `Unwrap` keep working. WebSocket libraries, streaming, and `http.ResponseController` behave exactly as they do without Zinc.

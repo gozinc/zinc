@@ -251,9 +251,7 @@ func TestStaticAndFileMissesUseTheErrorHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := New()
-	if err := app.Static("/assets", root); err != nil {
-		t.Fatal(err)
-	}
+	app.Static("/assets", root)
 	app.Get("/fs-missing", func(c *Context) error { return c.FileFS("nope.txt", fstest.MapFS{}) })
 	app.Get("/os-missing", func(c *Context) error { return c.File(filepath.Join(root, "nope.txt")) })
 

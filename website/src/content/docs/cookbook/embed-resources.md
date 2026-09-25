@@ -26,9 +26,7 @@ func main() {
 	}
 
 	app := zinc.New()
-	if err := app.StaticFS("/", public); err != nil {
-		log.Fatal(err)
-	}
+	app.StaticFS("/", public)
 
 	log.Fatal(app.Listen())
 }

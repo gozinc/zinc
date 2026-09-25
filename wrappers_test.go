@@ -69,7 +69,6 @@ func TestGroupWrapperCoverage(t *testing.T) {
 	group.Trace("/trace", func(c *Context) error { return c.String("trace") })
 	group.Match([]string{MethodGet, MethodPost}, "/match", func(c *Context) error { return c.String("match") })
 	group.All("/all", func(c *Context) error { return c.String(c.Method()) })
-	group.Any("/any", func(c *Context) error { return c.String(c.Method()) })
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mounted", func(w http.ResponseWriter, r *http.Request) {
@@ -78,8 +77,8 @@ func TestGroupWrapperCoverage(t *testing.T) {
 	group.Mount("/mount", mux)
 
 	fsys := fstest.MapFS{"hello.txt": &fstest.MapFile{Data: []byte("hello")}}
-	mustDo(t, group.StaticFS("/static", fsys, WithStaticBrowse(true), WithStaticIndex("index.html")))
-	mustDo(t, group.FileFS("/file", "hello.txt", fsys))
+	group.StaticFS("/static", fsys, WithStaticBrowse(true), WithStaticIndex("index.html"))
+	group.FileFS("/file", "hello.txt", fsys)
 
 	paths := map[string]string{
 		"/g/post":             "post",
@@ -201,11 +200,11 @@ func TestFileAndStaticWrapperCoverage(t *testing.T) {
 
 	app := New()
 	group := app.Group("/files")
-	mustDo(t, group.Static("/static", dir))
-	mustDo(t, group.File("/single", filepath.Join(dir, "asset.txt")))
+	group.Static("/static", dir)
+	group.File("/single", filepath.Join(dir, "asset.txt"))
 
 	fsys := fstest.MapFS{"asset.txt": &fstest.MapFile{Data: []byte("asset-fs")}}
-	mustDo(t, app.FileFS("/filefs", "asset.txt", fsys))
+	app.FileFS("/filefs", "asset.txt", fsys)
 
 	staticResp := performRequest(t, app, MethodGet, "/files/static/asset.txt", nil, nil)
 	if staticResp.Body.String() != "asset" {
@@ -225,7 +224,7 @@ func TestFileAndStaticWrapperCoverage(t *testing.T) {
 
 func TestGroupEdgeCoverage(t *testing.T) {
 	app := New()
-	root := NewGroup(app, "/")
+	root := newGroup(app, "/")
 	if root.prefix != "" {
 		t.Fatalf("root prefix=%q", root.prefix)
 	}

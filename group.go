@@ -22,8 +22,8 @@ type Group struct {
 	sealedBy string
 }
 
-// NewGroup creates a group bound to app.
-func NewGroup(app *App, prefix string, handlers ...HandlerFunc) *Group {
+// newGroup creates a group bound to app.
+func newGroup(app *App, prefix string, handlers ...HandlerFunc) *Group {
 	prefix = normalizeRegisteredPrefix(prefix)
 	if prefix == "/" {
 		prefix = ""
@@ -62,7 +62,7 @@ func (g *Group) seal(kind, target string) {
 func (g *Group) Group(prefix string, handlers ...HandlerFunc) *Group {
 	fullPrefix := joinPaths(g.prefix, prefix)
 	g.seal("child group", fullPrefix)
-	sub := NewGroup(g.app, fullPrefix)
+	sub := newGroup(g.app, fullPrefix)
 	sub.middleware = append(sub.middleware, g.middleware...)
 	sub.middleware = append(sub.middleware, handlers...)
 	return sub
@@ -84,11 +84,13 @@ func (g *Group) Mount(prefix string, h http.Handler) {
 }
 
 // Add registers handlers and panics when the route declaration is invalid.
-func (g *Group) Add(method, routePath string, handlers ...HandlerFunc) {
-	mustRegister(g.add(method, routePath, "", handlers...))
+func (g *Group) Add(method, routePath string, handlers ...HandlerFunc) Route {
+	route, err := g.add(method, routePath, "", handlers...)
+	mustRegister(err)
+	return route
 }
 
-func (g *Group) add(method, routePath, name string, handlers ...HandlerFunc) error {
+func (g *Group) add(method, routePath, name string, handlers ...HandlerFunc) (Route, error) {
 	fullPath := joinPaths(g.prefix, routePath)
 	if g.sealedBy == "" {
 		g.seal("route", method+" "+fullPath)
@@ -96,13 +98,8 @@ func (g *Group) add(method, routePath, name string, handlers ...HandlerFunc) err
 	allHandlers := make([]HandlerFunc, 0, len(g.middleware)+len(handlers))
 	allHandlers = append(allHandlers, g.middleware...)
 	allHandlers = append(allHandlers, handlers...)
-	return g.app.router.AddNamed(method, fullPath, name, allHandlers...)
-}
-
-// Handle registers a source-defined route below the group prefix and panics
-// when its declaration is invalid.
-func (g *Group) Handle(spec RouteSpec) {
-	mustRegister(g.TryHandle(spec))
+	index, err := g.app.router.register(method, fullPath, name, allHandlers...)
+	return Route{table: g.app.router, index: index}, err
 }
 
 // TryHandle registers a dynamically defined route below the group prefix.
@@ -110,11 +107,12 @@ func (g *Group) TryHandle(spec RouteSpec) error {
 	if spec.Handler == nil {
 		return errors.New("route handler is nil")
 	}
-	return g.add(spec.Method, spec.Path, spec.Name, spec.Handler)
+	_, err := g.add(spec.Method, spec.Path, spec.Name, spec.Handler)
+	return err
 }
 
 // HandleHTTP registers a standard net/http handler below the group prefix.
-func (g *Group) HandleHTTP(pattern string, handler http.Handler) {
+func (g *Group) HandleHTTP(pattern string, handler http.Handler) Route {
 	if handler == nil {
 		panic("zinc: HTTP handler is nil")
 	}
@@ -122,7 +120,7 @@ func (g *Group) HandleHTTP(pattern string, handler http.Handler) {
 	if err != nil {
 		panic(err)
 	}
-	g.Add(method, routePath, Wrap(handler))
+	return g.Add(method, routePath, Wrap(handler))
 }
 
 // RouteNotFound registers a path-specific 404 handler below the group.
@@ -136,48 +134,48 @@ func (g *Group) RouteNotFound(routePath string, handlers ...HandlerFunc) {
 }
 
 // Get registers a GET route.
-func (g *Group) Get(path string, handlers ...HandlerFunc) {
-	g.Add(MethodGet, path, handlers...)
+func (g *Group) Get(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodGet, path, handlers...)
 }
 
 // Post registers a POST route.
-func (g *Group) Post(path string, handlers ...HandlerFunc) {
-	g.Add(MethodPost, path, handlers...)
+func (g *Group) Post(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodPost, path, handlers...)
 }
 
 // Put registers a PUT route.
-func (g *Group) Put(path string, handlers ...HandlerFunc) {
-	g.Add(MethodPut, path, handlers...)
+func (g *Group) Put(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodPut, path, handlers...)
 }
 
 // Delete registers a DELETE route.
-func (g *Group) Delete(path string, handlers ...HandlerFunc) {
-	g.Add(MethodDelete, path, handlers...)
+func (g *Group) Delete(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodDelete, path, handlers...)
 }
 
 // Patch registers a PATCH route.
-func (g *Group) Patch(path string, handlers ...HandlerFunc) {
-	g.Add(MethodPatch, path, handlers...)
+func (g *Group) Patch(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodPatch, path, handlers...)
 }
 
 // Head registers a HEAD route.
-func (g *Group) Head(path string, handlers ...HandlerFunc) {
-	g.Add(MethodHead, path, handlers...)
+func (g *Group) Head(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodHead, path, handlers...)
 }
 
 // Options registers an OPTIONS route.
-func (g *Group) Options(path string, handlers ...HandlerFunc) {
-	g.Add(MethodOptions, path, handlers...)
+func (g *Group) Options(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodOptions, path, handlers...)
 }
 
 // Connect registers a CONNECT route.
-func (g *Group) Connect(path string, handlers ...HandlerFunc) {
-	g.Add(MethodConnect, path, handlers...)
+func (g *Group) Connect(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodConnect, path, handlers...)
 }
 
 // Trace registers a TRACE route.
-func (g *Group) Trace(path string, handlers ...HandlerFunc) {
-	g.Add(MethodTrace, path, handlers...)
+func (g *Group) Trace(path string, handlers ...HandlerFunc) Route {
+	return g.Add(MethodTrace, path, handlers...)
 }
 
 // Match registers the same handler chain for each method.
@@ -192,37 +190,27 @@ func (g *Group) All(path string, handlers ...HandlerFunc) {
 	g.Match(routeMethods, path, handlers...)
 }
 
-// Any is an alias for All.
-func (g *Group) Any(path string, handlers ...HandlerFunc) {
-	g.All(path, handlers...)
-}
-
 // Static serves a filesystem directory below the group.
-func (g *Group) Static(prefix, root string, opts ...StaticOption) error {
+func (g *Group) Static(prefix, root string, opts ...StaticOption) {
 	filesystem := &confinedDirFS{path: root}
-	if err := g.StaticFS(prefix, filesystem, opts...); err != nil {
-		return err
-	}
+	g.StaticFS(prefix, filesystem, opts...)
 	g.app.staticRoots = append(g.app.staticRoots, filesystem)
-	return nil
 }
 
-// StaticFS serves an fs.FS below the group.
-func (g *Group) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) error {
+// StaticFS serves an fs.FS below the group. It panics if filesystem is nil.
+func (g *Group) StaticFS(prefix string, filesystem fs.FS, opts ...StaticOption) {
 	g.seal("static files", joinPaths(g.prefix, prefix))
-	return g.app.staticFS(joinPaths(g.prefix, prefix), filesystem, g.middleware, opts...)
+	g.app.staticFS(joinPaths(g.prefix, prefix), filesystem, g.middleware, opts...)
 }
 
 // File serves one operating-system file below the group.
-func (g *Group) File(routePath, file string) error {
-	g.Get(routePath, func(c *Context) error { return c.File(file) })
-	return nil
+func (g *Group) File(routePath, file string) Route {
+	return g.Get(routePath, func(c *Context) error { return c.File(file) })
 }
 
 // FileFS serves one file from an fs.FS below the group.
-func (g *Group) FileFS(routePath, file string, filesystem fs.FS) error {
-	g.Get(routePath, func(c *Context) error { return c.FileFS(file, filesystem) })
-	return nil
+func (g *Group) FileFS(routePath, file string, filesystem fs.FS) Route {
+	return g.Get(routePath, func(c *Context) error { return c.FileFS(file, filesystem) })
 }
 
 // joinPaths joins URL route prefixes without inheriting OS path semantics.
