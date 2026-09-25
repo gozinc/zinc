@@ -1,6 +1,6 @@
-// Renders the Zinc brand assets: a galvanized-spangle texture for the element
-// tile and the favicons built on it. Output is deterministic (fixed seed), so
-// re-running the script only changes the files when this code changes.
+// Renders the legacy Zinc spangle texture for older dashboards, plus favicons
+// from the higher-definition site texture. Output is deterministic for these
+// sources, so re-running the script only changes files when a source changes.
 //
 //   node scripts/build-brand.mjs
 
@@ -56,7 +56,7 @@ function label(size) {
 await spangle(256).png().toFile(out("zn-spangle.png"));
 
 for (const [name, size] of [["favicon.png", 64], ["apple-touch-icon.png", 180]]) {
-  const base = await spangle(size).png().toBuffer();
+  const base = await sharp(out("zn-spangle-hd.webp")).resize(size, size).png().toBuffer();
   await sharp(base).composite([{ input: label(size) }]).png().toFile(out(name));
 }
 

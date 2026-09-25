@@ -4,13 +4,13 @@ import { Code } from "astro:components";
 import zincFrost from "../../themes/zinc-frost.json";
 
 const contracts = [
-  { code: "server.Handler = app", note: "Run it on a server you configure" },
-  { code: 'app.HandleHTTP("GET /metrics", promhttp.Handler())', note: "Serve a route with any standard handler" },
-  { code: "app.UseHTTP(otelhttp.NewMiddleware(\"api\"))", note: "Wrap the app in standard middleware" },
+  { part: "server", code: "server.Handler = app", note: "Run it on a server you configure" },
+  { part: "handler", code: 'app.HandleHTTP("GET /metrics", promhttp.Handler())', note: "Serve a route with any standard handler" },
+  { part: "middleware", code: "app.UseHTTP(otelhttp.NewMiddleware(\"api\"))", note: "Wrap the app in standard middleware" },
 ];
 ---
 
-<section class="coat">
+<section class="coat" data-coat>
   <div class="copy">
     <p class="kicker">How it fits</p>
     <h2>A thin coat, not a new engine.</h2>
@@ -21,7 +21,7 @@ const contracts = [
     </p>
     <ul class="contracts">
       {contracts.map((c) => (
-        <li>
+        <li data-link={c.part} tabindex="0">
           <span class="note">{c.note}</span>
           <div class="snippet"><Code code={c.code} lang="go" theme={zincFrost as any} /></div>
         </li>
@@ -30,19 +30,50 @@ const contracts = [
     <a class="more" href="/guide/http-interoperability/">Zinc and net/http →</a>
   </div>
 
-  <figure class="section-cut" aria-label="Cross-section: your application sits on a thin Zinc layer over net/http">
+  <figure class="section-cut" data-cut aria-label="Cross-section: your handlers sit on a thin Zinc coat, over standard middleware and net/http">
+    <header class="cut-head">
+      <span>Section A–A</span>
+      <span>request ↑ · response ↓</span>
+    </header>
+
     <div class="layer app">
-      <strong>Your application</strong>
-      <span>handlers · services · packages</span>
+      <div class="label">
+        <strong>Your application</strong>
+        <span>handlers · services · packages</span>
+      </div>
+      <div class="parts">
+        <span class="part">listUsers</span>
+        <span class="part">createUser</span>
+        <span class="part std" data-part="handler">promhttp.Handler()</span>
+      </div>
+      <p class="legend">
+        <span><i aria-hidden="true"></i>zinc.HandlerFunc</span>
+        <span><i class="std" aria-hidden="true"></i>http.Handler</span>
+      </p>
     </div>
+
     <div class="layer zn">
       <strong>Zinc</strong>
       <span>routing · binding · errors · middleware</span>
     </div>
-    <div class="layer steel">
-      <strong>net/http</strong>
-      <span>server · request · response writer</span>
+
+    <div class="layer mw" data-part="middleware">
+      <strong>Standard middleware</strong>
+      <span>otelhttp · func(http.Handler) http.Handler</span>
     </div>
+
+    <div class="layer steel">
+      <div class="label">
+        <strong>net/http</strong>
+        <span>the standard library, untouched</span>
+      </div>
+      <div class="parts">
+        <span class="part metal" data-part="server">http.Server&#123;Handler: app&#125;</span>
+        <span class="part metal">*http.Request</span>
+        <span class="part metal">http.ResponseWriter</span>
+      </div>
+    </div>
+
     <figcaption>
       <span>http.Handler in</span>
       <span>http.Handler out</span>
@@ -50,9 +81,24 @@ const contracts = [
   </figure>
 </section>
 
+<script>
+  // Point at a contract and the cut shows where it attaches.
+  document.querySelectorAll<HTMLElement>("[data-coat]").forEach((root) => {
+    const cut = root.querySelector<HTMLElement>("[data-cut]")!;
+    root.querySelectorAll<HTMLElement>("[data-link]").forEach((li) => {
+      const on = () => (cut.dataset.focus = li.dataset.link);
+      const off = () => delete cut.dataset.focus;
+      li.addEventListener("pointerenter", on);
+      li.addEventListener("pointerleave", off);
+      li.addEventListener("focusin", on);
+      li.addEventListener("focusout", off);
+    });
+  });
+</script>
+
 <style>
   .coat {
-    align-items: center;
+    align-items: stretch;
     display: grid;
     gap: clamp(2.5rem, 6vw, 5rem);
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -140,12 +186,55 @@ const contracts = [
     color: var(--z-zn);
   }
 
-  /* The cut: thick app, thin zinc coat, thick steel. */
+  .contracts li {
+    border-radius: 10px;
+    cursor: default;
+    margin-inline: -0.6rem;
+    outline: none;
+    padding: 0.5rem 0.6rem 0.6rem;
+    transition: background-color 160ms ease;
+  }
+
+  .contracts li:hover,
+  .contracts li:focus-visible {
+    background: var(--z-panel);
+  }
+
+  .contracts li:hover .note,
+  .contracts li:focus-visible .note {
+    color: var(--z-text);
+  }
+
+  .contracts li:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--z-muted);
+  }
+
+  /* The cut, drawn like a section drawing: each material has its own fill. */
   .section-cut {
     border: 1px solid var(--sl-color-hairline-light);
     border-radius: 10px;
+    display: flex;
+    flex-direction: column;
     margin: 0;
     overflow: hidden;
+  }
+
+  .cut-head,
+  figcaption {
+    background: var(--z-panel);
+    color: var(--z-muted);
+    display: flex;
+    font: 400 0.7rem/1 var(--sl-font-mono);
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+  }
+
+  .cut-head {
+    border-bottom: 1px solid var(--sl-color-hairline-light);
+  }
+
+  figcaption {
+    border-top: 1px solid var(--sl-color-hairline-light);
   }
 
   .layer {
@@ -154,7 +243,8 @@ const contracts = [
     flex-wrap: wrap;
     gap: 0.35rem 1rem;
     justify-content: space-between;
-    padding-inline: 1.25rem;
+    padding: 0 1.25rem;
+    transition: opacity 200ms ease;
   }
 
   .layer strong {
@@ -166,23 +256,83 @@ const contracts = [
     font: 400 0.72rem/1.3 var(--sl-font-mono);
   }
 
+  .label {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .app,
+  .steel {
+    align-content: space-between;
+    flex: 1;
+    min-height: 11rem;
+    padding-block: 1.25rem;
+  }
+
   .app {
     background:
       repeating-linear-gradient(90deg, transparent 0 23px, var(--sl-color-hairline) 23px 24px),
       var(--z-panel);
     color: var(--z-text);
-    min-height: 8.5rem;
   }
 
-  .app span {
+  .app .label span {
     color: var(--z-muted);
   }
 
+  .parts {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .layer .part {
+    background: var(--sl-color-bg);
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 6px;
+    color: var(--z-text);
+    font: 400 0.76rem/1 var(--sl-font-mono);
+    padding: 0.55rem 0.7rem;
+    transition: opacity 200ms ease, box-shadow 200ms ease;
+  }
+
+  /* A standard handler is made of the same steel as net/http. */
+  .layer .part.std,
+  .legend i.std {
+    background: linear-gradient(180deg, #3a4047, #2a2f35);
+    border-color: #4a525b;
+    color: #e2e6ea;
+  }
+
+  .legend {
+    display: flex;
+    flex-basis: 100%;
+    gap: 1.1rem;
+    margin: 0;
+  }
+
+  .legend span {
+    align-items: center;
+    color: var(--z-soft);
+    display: inline-flex;
+    gap: 0.45rem;
+  }
+
+  .legend i {
+    background: var(--sl-color-bg);
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 3px;
+    height: 0.7rem;
+    width: 0.7rem;
+  }
+
   .zn {
-    background: #c9ced3 url("/zn-spangle.png") center / 180px auto repeat;
+    background: #c9ced3 url("/zn-spangle-wide.webp") center / cover no-repeat;
     border-block: 1px solid rgba(0, 0, 0, 0.35);
     color: #16191c;
     min-height: 3rem;
+    padding-block: 0.6rem;
   }
 
   .zn strong {
@@ -195,27 +345,70 @@ const contracts = [
     color: #2d3238;
   }
 
+  /* Standard middleware: steel again, hatched as a separate part. */
+  .mw {
+    background:
+      repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 7px),
+      #30353c;
+    border-bottom: 1px solid #1a1d21;
+    color: #e2e6ea;
+    min-height: 3rem;
+    padding-block: 0.6rem;
+  }
+
+  .mw strong {
+    font-size: 0.85rem;
+  }
+
+  .mw span {
+    color: #aab3bd;
+  }
+
   /* Brushed steel: fine horizontal grain, no highlights. */
   .steel {
+    align-content: center;
+    row-gap: 1.1rem;
     background:
       repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px),
       linear-gradient(180deg, #2b3036, #1c2024);
     color: #e2e6ea;
-    min-height: 8.5rem;
   }
 
-  .steel span {
+  .steel .label span {
     color: #9aa3ad;
   }
 
-  figcaption {
-    background: var(--z-panel);
-    border-top: 1px solid var(--sl-color-hairline-light);
-    color: var(--z-muted);
-    display: flex;
-    font: 400 0.7rem/1 var(--sl-font-mono);
-    justify-content: space-between;
-    padding: 0.75rem 1.25rem;
+  .layer .part.metal {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: #3d444c;
+    color: #d5dbe1;
+  }
+
+  /* Focus: dim everything except the part the hovered contract names. */
+  .section-cut[data-focus] .layer,
+  .section-cut[data-focus] .part {
+    opacity: 0.35;
+  }
+
+  .section-cut[data-focus="handler"] .app,
+  .section-cut[data-focus="server"] .steel,
+  .section-cut[data-focus="middleware"] .mw {
+    opacity: 1;
+  }
+
+  .section-cut[data-focus="handler"] [data-part="handler"],
+  .section-cut[data-focus="server"] [data-part="server"] {
+    box-shadow: 0 0 0 2px var(--z-zn);
+    opacity: 1;
+  }
+
+  .section-cut[data-focus="middleware"] .mw {
+    box-shadow: inset 0 0 0 2px var(--z-zn);
+  }
+
+  .section-cut[data-focus="server"] .steel .label,
+  .section-cut[data-focus="handler"] .app .label {
+    opacity: 1;
   }
 
   @media (max-width: 60rem) {
