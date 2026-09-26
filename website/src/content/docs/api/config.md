@@ -32,8 +32,8 @@ app := zinc.New(zinc.Config{
 | `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text |
 | `Validator` | `Validator` | none | Runs after every bind |
 | `Renderer` | `Renderer` | none | Renders templates for `c.Render` |
-| `JSONCodec` | `JSONCodec` | `encoding/json` | Encodes and decodes JSON |
-| `RequestBinder` | `RequestBinder` | built in | Decodes requests for `c.Bind()` |
+| `Decoders` | `map[string]Decoder` | none | Request body decoders by media type; `application/json` replaces `encoding/json` |
+| `Encoders` | `map[string]Encoder` | none | Response encoders by media type, for `c.Encode` and `c.Negotiate`; `application/json` replaces `encoding/json` |
 
 For limits and timeouts, `0` selects the default and a negative value turns the limit off. Switches that are on by default are named `Disable…`, so an omitted field never turns a feature off.
 

@@ -30,7 +30,9 @@ The input is a struct. Each field comes from where its tag says:
 | `header:"X-Trace-ID"` | A request header |
 | `json:"email"` (or `xml`, `form`) | The body |
 
-Only tagged fields bind; see [Binding](/guide/binding/). The binding plan for the type is prepared when the route is registered. Use `struct{}` for a handler that takes no input.
+Only tagged fields bind; see [Binding](/guide/binding/). The body is decoded by its `Content-Type`, so a typed handler also accepts any format you [configure a decoder for](/guide/customization/#body-formats). That decoder reads its own library's tags: a struct that accepts JSON and YAML bodies needs both `json:"email"` and `yaml:"email"`.
+
+The binding plan for the type is prepared when the route is registered. Use `struct{}` for a handler that takes no input.
 
 What happens when the input is wrong:
 

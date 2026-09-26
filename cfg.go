@@ -72,14 +72,20 @@ type Config struct {
 	// Entries are copied and validated at construction.
 	TrustedProxies []string
 
-	// RequestBinder replaces the default request-data binder.
-	RequestBinder RequestBinder
+	// Decoders read request bodies in other media types, keyed by media
+	// type, such as "application/yaml": yaml.Unmarshal. Binding picks one by
+	// the request's Content-Type. An entry for "application/json" or
+	// "application/xml" replaces the built-in decoder.
+	Decoders map[string]Decoder
+	// Encoders write responses in other media types, for Context.Encode and
+	// Context.Negotiate. An entry for "application/json" or
+	// "application/xml" replaces the built-in encoder, including for
+	// Context.JSON and Context.XML.
+	Encoders map[string]Encoder
 	// Validator runs after successful default binding, or through Context.Validate.
 	Validator Validator
 	// Renderer provides named template rendering.
 	Renderer Renderer
-	// JSONCodec replaces the standard JSON encoder and decoder.
-	JSONCodec JSONCodec
 	// ErrorHandler receives errors returned by handlers and middleware.
 	// Nil means DefaultErrorHandler.
 	ErrorHandler ErrorHandler

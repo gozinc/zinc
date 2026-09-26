@@ -21,7 +21,11 @@ const rootGoFiles = fs
   .readdirSync(repoRoot)
   .filter((filename) => filename.endsWith(".go"))
   .map((filename) => path.join(repoRoot, filename));
-const middlewareGoFiles = filesBelow(path.join(repoRoot, "middleware"), (filename) => filename.endsWith(".go"));
+const middlewareRoot = path.join(repoRoot, "middleware");
+const middlewarePackages = fs
+  .readdirSync(middlewareRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name !== "internal")
+  .map((entry) => entry.name);
 
 function routeFor(filename, source) {
   const explicit = source.match(/^---[\s\S]*?^slug:\s*(\S+)[\s\S]*?^---/m)?.[1];
@@ -92,7 +96,16 @@ function methodsFor(typeName) {
 }
 
 const zincExports = topLevelExports(rootGoFiles);
-const middlewareExports = topLevelExports(middlewareGoFiles);
+const middlewareExports = new Map(
+  middlewarePackages.map((name) => {
+    const dir = path.join(middlewareRoot, name);
+    const files = fs
+      .readdirSync(dir)
+      .filter((file) => file.endsWith(".go") && !file.endsWith("_test.go"))
+      .map((file) => path.join(dir, file));
+    return [name, topLevelExports(files)];
+  }),
+);
 const methodSets = {
   app: methodsFor("App"),
   c: methodsFor("Context"),
@@ -107,8 +120,14 @@ function checkAPI(filename, source) {
   for (const match of source.matchAll(/\bzinc\.([A-Z][A-Za-z0-9_]*)/g)) {
     if (!zincExports.has(match[1])) failures.push(`${relative}: unknown API zinc.${match[1]}`);
   }
-  for (const match of source.matchAll(/\bmiddleware\.([A-Z][A-Za-z0-9_]*)/g)) {
-    if (!middlewareExports.has(match[1])) failures.push(`${relative}: unknown API middleware.${match[1]}`);
+  // Middleware is one package per middleware, so references are package-qualified.
+  for (const match of source.matchAll(/(?<![\w.])middleware\.([A-Z][A-Za-z0-9_]*)/g)) {
+    failures.push(`${relative}: unknown API middleware.${match[1]}; middleware lives in per-package imports`);
+  }
+  for (const [name, exports] of middlewareExports) {
+    for (const match of source.matchAll(new RegExp(`(?<![\\w./])${name}\\.([A-Z][A-Za-z0-9_]*)`, "g"))) {
+      if (!exports.has(match[1])) failures.push(`${relative}: unknown API ${name}.${match[1]}`);
+    }
   }
   for (const [receiver, methods] of Object.entries(methodSets)) {
     for (const match of source.matchAll(new RegExp(`\\b${receiver}\\.([A-Z][A-Za-z0-9_]*)`, "g"))) {

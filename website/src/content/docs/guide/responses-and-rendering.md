@@ -17,7 +17,8 @@ return c.
 | To send | Use |
 |---|---|
 | JSON | `c.JSON(v)`, or `c.JSONPretty(v, "  ")` |
-| XML, YAML, TOML | `c.XML(v)`, `c.YAML(v)`, `c.TOML(v)` |
+| XML | `c.XML(v)` |
+| Another format, such as YAML | `c.Encode(mediaType, v)`, with an [encoder](/guide/customization/#body-formats) |
 | Text or HTML | `c.String(s)`, `c.HTML(s)` |
 | Nothing | `c.NoContent()` (204) |
 | Pre-encoded bytes | `c.Data(contentType, b)` |
@@ -46,7 +47,7 @@ These methods return the context, so they chain into the body helper. Once a bod
 ```go
 return c.JSON(zinc.Map{"ok": true})
 return c.XML(invoice)
-return c.YAML(config)
+return c.Encode("application/yaml", config) // needs an encoder in Config.Encoders
 ```
 
 `zinc.Map` is shorthand for `map[string]any`. For bytes that are already encoded, `c.Data` writes them unchanged:

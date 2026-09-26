@@ -4,7 +4,6 @@
 package zinc
 
 import (
-	"bytes"
 	"encoding"
 	"encoding/json"
 	"encoding/xml"
@@ -13,20 +12,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-
-	toml "github.com/pelletier/go-toml/v2"
-	"gopkg.in/yaml.v3"
 )
-
-// RequestBinder controls how request data is mapped into application structs.
-type RequestBinder interface {
-	Bind(*Context, any) error
-	BindBody(*Context, any) error
-	BindQuery(*Context, any) error
-	BindForm(*Context, any) error
-	BindHeader(*Context, any) error
-	BindPath(*Context, any) error
-}
 
 // Validator validates a value after binding.
 type Validator interface {
@@ -110,21 +96,8 @@ func (e *BindError) Unwrap() error {
 	return e.Err
 }
 
-// JSONCodec allows applications to replace Zinc's JSON encoder and decoder.
-type JSONCodec interface {
-	Encode(w io.Writer, v any, indent string) error
-	Decode(r io.Reader, v any) error
-}
-
-type defaultBinder struct {
-	codec JSONCodec
-}
-
-type jsonBytesDecoder interface {
-	DecodeBytes(body []byte, v any) error
-}
-
-func (b defaultBinder) Bind(c *Context, v any) error {
+// bindAll binds path, query, and body data, then validates v.
+func bindAll(c *Context, v any) error {
 	// General binding is intentionally deterministic: path values are applied
 	// first, then query values, then the body. Later sources may overwrite
 	// earlier fields before validation runs once at the end.
@@ -132,16 +105,13 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
 	}
-	// Scalar/map YAML and TOML remain body-only. Struct targets consistently
-	// merge path, query, then body just like JSON/XML.
-	typ := reflect.TypeOf(v)
-	structTarget := typ != nil && typ.Kind() == reflect.Pointer && typ.Elem().Kind() == reflect.Struct
-	if !structTarget {
-		if isYAMLMediaType(mediaType) {
-			return bindYAMLBody(c, v, false)
-		}
-		if isTOMLMediaType(mediaType) {
-			return bindTOMLBody(c, v, false)
+	// A configured decoder fills a non-struct target, such as a map, from the
+	// body alone. Struct targets merge path, query, then body like JSON.
+	decode := c.decoderFor(mediaType)
+	if decode != nil {
+		typ := reflect.TypeOf(v)
+		if typ == nil || typ.Kind() != reflect.Pointer || typ.Elem().Kind() != reflect.Struct {
+			return decodeBody(c, decode, v, false)
 		}
 	}
 
@@ -161,16 +131,13 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	if req == nil || req.Body == nil {
 		return c.Validate(v)
 	}
-	if isYAMLMediaType(mediaType) {
-		return bindYAMLBody(c, v, false)
-	}
-	if isTOMLMediaType(mediaType) {
-		return bindTOMLBody(c, v, false)
+	if decode != nil {
+		return decodeBody(c, decode, v, false)
 	}
 
 	switch mediaType {
 	case "", "application/json":
-		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(b.codec, v)
+		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(v)
 		if readErr != nil {
 			return wrapBindError("body", readErr)
 		}
@@ -218,11 +185,15 @@ func (b defaultBinder) Bind(c *Context, v any) error {
 	return c.Validate(v)
 }
 
-func (b defaultBinder) BindBody(c *Context, v any) error {
+// bindBody binds the request body according to its Content-Type.
+func bindBody(c *Context, v any) error {
 	mediaType := requestMediaType(c.Header(HeaderContentType))
+	if decode := c.decoderFor(mediaType); decode != nil {
+		return decodeBody(c, decode, v, true)
+	}
 	switch mediaType {
 	case "", "application/json":
-		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(b.codec, v)
+		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(v)
 		if readErr != nil {
 			return wrapBindError("body", readErr)
 		}
@@ -246,22 +217,17 @@ func (b defaultBinder) BindBody(c *Context, v any) error {
 			return wrapBindError("body", decodeErr)
 		}
 	case "application/x-www-form-urlencoded", "multipart/form-data":
-		return b.BindForm(c, v)
+		return bindForm(c, v)
 	case "text/plain":
 		return bindPlainTextBody(c, v, true)
 	default:
-		if isYAMLMediaType(mediaType) {
-			return bindYAMLBody(c, v, true)
-		}
-		if isTOMLMediaType(mediaType) {
-			return bindTOMLBody(c, v, true)
-		}
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 	}
 	return c.Validate(v)
 }
 
-func (b defaultBinder) BindQuery(c *Context, v any) error {
+// bindQuery binds query values, then validates v.
+func bindQuery(c *Context, v any) error {
 	val, plan, err := bindTargetPlan(v)
 	if err != nil {
 		return err
@@ -272,7 +238,8 @@ func (b defaultBinder) BindQuery(c *Context, v any) error {
 	return c.Validate(v)
 }
 
-func (b defaultBinder) BindForm(c *Context, v any) error {
+// bindForm binds URL-encoded or multipart form values, then validates v.
+func bindForm(c *Context, v any) error {
 	val, plan, err := bindTargetPlan(v)
 	if err != nil {
 		return err
@@ -301,7 +268,8 @@ func (b defaultBinder) BindForm(c *Context, v any) error {
 	return c.Validate(v)
 }
 
-func (b defaultBinder) BindHeader(c *Context, v any) error {
+// bindHeader binds request headers, then validates v.
+func bindHeader(c *Context, v any) error {
 	val, plan, err := bindTargetPlan(v)
 	if err != nil {
 		return err
@@ -312,7 +280,8 @@ func (b defaultBinder) BindHeader(c *Context, v any) error {
 	return c.Validate(v)
 }
 
-func (b defaultBinder) BindPath(c *Context, v any) error {
+// bindPath binds route parameters, then validates v.
+func bindPath(c *Context, v any) error {
 	val, plan, err := bindTargetPlan(v)
 	if err != nil {
 		return err
@@ -330,12 +299,12 @@ func (c *Context) Bind() *Bind {
 
 // All binds path, query, and body data, then validates v.
 func (b *Bind) All(v any) error {
-	return b.c.app.config.RequestBinder.Bind(b.c, v)
+	return bindAll(b.c, v)
 }
 
 // Body binds the request body according to its Content-Type.
 func (b *Bind) Body(v any) error {
-	return b.c.app.config.RequestBinder.BindBody(b.c, v)
+	return bindBody(b.c, v)
 }
 
 // JSON decodes and validates a non-empty JSON request body.
@@ -343,8 +312,7 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
-	codec := b.c.app.config.JSONCodec
-	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(codec, v)
+	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}
@@ -365,24 +333,11 @@ func (b *Bind) Text(v any) error {
 	return bindPlainTextBody(b.c, v, true)
 }
 
-// YAML decodes and validates a non-empty YAML request body.
-func (b *Bind) YAML(v any) error {
-	if b == nil || b.c == nil {
-		return errors.New("context is nil")
-	}
-	return bindYAMLBody(b.c, v, true)
-}
-
-// TOML decodes and validates a non-empty TOML request body.
-func (b *Bind) TOML(v any) error {
-	if b == nil || b.c == nil {
-		return errors.New("context is nil")
-	}
-	return bindTOMLBody(b.c, v, true)
-}
-
 // XML decodes and validates a non-empty XML request body.
 func (b *Bind) XML(v any) error {
+	if decode := b.c.decoderFor("application/xml"); decode != nil {
+		return decodeBody(b.c, decode, v, true)
+	}
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
@@ -400,22 +355,22 @@ func (b *Bind) XML(v any) error {
 
 // Form binds URL-encoded or multipart form values, then validates v.
 func (b *Bind) Form(v any) error {
-	return b.c.app.config.RequestBinder.BindForm(b.c, v)
+	return bindForm(b.c, v)
 }
 
 // Query binds query values, then validates v.
 func (b *Bind) Query(v any) error {
-	return b.c.app.config.RequestBinder.BindQuery(b.c, v)
+	return bindQuery(b.c, v)
 }
 
 // Header binds request headers, then validates v.
 func (b *Bind) Header(v any) error {
-	return b.c.app.config.RequestBinder.BindHeader(b.c, v)
+	return bindHeader(b.c, v)
 }
 
 // Path binds route parameters, then validates v.
 func (b *Bind) Path(v any) error {
-	return b.c.app.config.RequestBinder.BindPath(b.c, v)
+	return bindPath(b.c, v)
 }
 
 // Validate invokes the configured Validator, or succeeds when none is set. A
@@ -439,32 +394,6 @@ func setFieldValue(value reflect.Value, inputs []string) error {
 	return compileFieldSetter(value.Type()).set(value, inputs)
 }
 
-type defaultJSONCodec struct{}
-
-func (defaultJSONCodec) Encode(w io.Writer, v any, indent string) error {
-	enc := json.NewEncoder(w)
-	if indent != "" {
-		enc.SetIndent("", indent)
-	}
-	return enc.Encode(v)
-}
-
-func (defaultJSONCodec) Decode(r io.Reader, v any) error {
-	dec := json.NewDecoder(r)
-	return dec.Decode(v)
-}
-
-func (defaultJSONCodec) DecodeBytes(body []byte, v any) error {
-	return json.Unmarshal(body, v)
-}
-
-func decodeJSONBody(codec JSONCodec, body []byte, v any) error {
-	if decoder, ok := codec.(jsonBytesDecoder); ok {
-		return decoder.DecodeBytes(body, v)
-	}
-	return codec.Decode(bytes.NewReader(body), v)
-}
-
 func bindPlainTextBody(c *Context, v any, requireBody bool) error {
 	if c == nil {
 		return errors.New("context is nil")
@@ -481,34 +410,6 @@ func bindPlainTextBody(c *Context, v any, requireBody bool) error {
 		return c.Validate(v)
 	}
 	if err := decodeTextBody(v, body); err != nil {
-		return wrapBindError("body", err)
-	}
-	return c.Validate(v)
-}
-
-func bindYAMLBody(c *Context, v any, requireBody bool) error {
-	body, readErr := readRequiredBody(c, requireBody)
-	if readErr != nil {
-		return wrapBindError("body", readErr)
-	}
-	if len(body) == 0 {
-		return c.Validate(v)
-	}
-	if err := yaml.Unmarshal(body, v); err != nil {
-		return wrapBindError("body", err)
-	}
-	return c.Validate(v)
-}
-
-func bindTOMLBody(c *Context, v any, requireBody bool) error {
-	body, readErr := readRequiredBody(c, requireBody)
-	if readErr != nil {
-		return wrapBindError("body", readErr)
-	}
-	if len(body) == 0 {
-		return c.Validate(v)
-	}
-	if err := toml.Unmarshal(body, v); err != nil {
 		return wrapBindError("body", err)
 	}
 	return c.Validate(v)
@@ -553,24 +454,6 @@ func decodeTextBody(v any, body []byte) error {
 	}
 
 	return setFieldValue(elem, []string{string(body)})
-}
-
-func isYAMLMediaType(mediaType string) bool {
-	switch mediaType {
-	case "application/x-yaml", "application/yaml", "text/yaml":
-		return true
-	default:
-		return false
-	}
-}
-
-func isTOMLMediaType(mediaType string) bool {
-	switch mediaType {
-	case "application/toml", "text/toml":
-		return true
-	default:
-		return false
-	}
 }
 
 func bindMultipartForm(val reflect.Value, plan *bindingPlan, req *http.Request) error {
@@ -641,8 +524,9 @@ func jsonTypeReason(typ reflect.Type) string {
 	}
 }
 
-// Opaque decoder errors may be application/codec failures. Classify known
-// malformed JSON and type errors without exposing decoder details to clients.
+// classifyJSONDecodeError turns a JSON decoding failure into a *BindError
+// without exposing decoder details to clients. An error that carries its own
+// status, such as one from a custom UnmarshalJSON method, keeps it.
 func classifyJSONDecodeError(err error) error {
 	// The default codec returns these concrete errors directly. Avoid walking
 	// the error chain three times on the common malformed-request path while
@@ -658,5 +542,8 @@ func classifyJSONDecodeError(err error) error {
 	if errors.As(err, &syntax) || errors.As(err, &mismatch) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return wrapBindError("body", err)
 	}
-	return err
+	if coder, _ := findStatusCoder(err); coder != nil {
+		return err
+	}
+	return wrapBindError("body", err)
 }

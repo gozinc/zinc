@@ -1,8 +1,8 @@
 package zinc_test
 
 import (
+	"encoding/json"
 	"errors"
-	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -14,22 +14,35 @@ type hardeningValidator struct{ calls *int }
 
 func (v hardeningValidator) Validate(any) error { *v.calls++; return nil }
 
-type failingDecodeCodec struct{}
-
-func (failingDecodeCodec) Encode(io.Writer, any, string) error { return nil }
-func (failingDecodeCodec) Decode(io.Reader, any) error         { return errors.New("internal codec failure") }
+// decodeKV decodes "key=value" lines through JSON, so struct fields bind by
+// their json tags. It stands in for a third-party format such as YAML.
+func decodeKV(data []byte, v any) error {
+	fields := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return errors.New("kv: line without =")
+		}
+		fields[key] = value
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(encoded, v)
+}
 
 func TestBindingAllSourceOrderAcrossStructuredFormats(t *testing.T) {
-	for _, tt := range []struct{ kind, body string }{{"application/json", `{"name":"body"}`}, {"application/xml", `<input><name>body</name></input>`}, {"application/yaml", "name: body\n"}, {"application/toml", "name = 'body'\n"}} {
+	for _, tt := range []struct{ kind, body string }{{"application/json", `{"name":"body"}`}, {"application/xml", `<input><name>body</name></input>`}, {"application/x-kv", "name=body\n"}} {
 		t.Run(tt.kind, func(t *testing.T) {
 			calls := 0
-			cfg := zinc.Config{}
+			cfg := zinc.Config{Decoders: map[string]zinc.Decoder{"application/x-kv": decodeKV}}
 			cfg.Validator = hardeningValidator{&calls}
 			app := zinc.New(cfg)
 			app.Post("/items/{id}", func(c *zinc.Context) error {
 				var v struct {
 					ID   string `path:"id"`
-					Name string `query:"name" json:"name" xml:"name" yaml:"name" toml:"name"`
+					Name string `query:"name" json:"name" xml:"name"`
 				}
 				if err := c.Bind().All(&v); err != nil {
 					return err
@@ -57,7 +70,7 @@ func TestBindingErrorHTTPPolicy(t *testing.T) {
 		{"malformed-json", `{"name":`, 400, false, func(c *zinc.Context) error { var v map[string]any; return c.Bind().JSON(&v) }},
 		{"json-type", `{"age":"bad"}`, 400, false, func(c *zinc.Context) error { var v struct{ Age int }; return c.Bind().JSON(&v) }},
 		{"invalid-json-destination", `{}`, 500, false, func(c *zinc.Context) error { return c.Bind().JSON(42) }},
-		{"internal-codec", `{}`, 500, true, func(c *zinc.Context) error { var v map[string]any; return c.Bind().JSON(&v) }},
+		{"custom-decoder-error", `{}`, 400, true, func(c *zinc.Context) error { var v map[string]any; return c.Bind().JSON(&v) }},
 		{"malformed-xml", `<broken`, 400, false, func(c *zinc.Context) error {
 			var v struct{ Name string }
 			err := c.Bind().XML(&v)
@@ -72,7 +85,7 @@ func TestBindingErrorHTTPPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := zinc.Config{}
 			if tt.codec {
-				cfg.JSONCodec = failingDecodeCodec{}
+				cfg.Decoders = map[string]zinc.Decoder{"application/json": func([]byte, any) error { return errors.New("internal codec failure") }}
 			}
 			app := zinc.New(cfg)
 			app.Post("/", tt.bind)

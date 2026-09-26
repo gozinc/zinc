@@ -81,8 +81,6 @@ func TestResponseHelpers(t *testing.T) {
 		app.Get("/html-blob", func(c *Context) error { return c.Status(http.StatusAccepted).Data(MIMEHTML, []byte(`<p>ok</p>`)) })
 		app.Get("/json", func(c *Context) error { return c.JSONPretty(Map{"ok": true}, "  ") })
 		app.Get("/xml", func(c *Context) error { return c.XML(xmlPayload{Value: "x"}) })
-		app.Get("/yaml", func(c *Context) error { return c.YAML(Map{"ok": true}) })
-		app.Get("/toml", func(c *Context) error { return c.TOML(Map{"ok": true}) })
 		app.Get("/html", func(c *Context) error { return c.HTML("<p>x</p>") })
 		app.Get("/stream", func(c *Context) error { return c.Stream("text/plain", strings.NewReader("stream")) })
 		app.Get("/send-nil", func(c *Context) error { return c.Send(nil) })
@@ -95,8 +93,6 @@ func TestResponseHelpers(t *testing.T) {
 			"/xml-blob":   `<ok>true</ok>`,
 			"/html-blob":  `<p>ok</p>`,
 			"/xml":        "<value>x</value>",
-			"/yaml":       "ok: true",
-			"/toml":       "ok = true",
 			"/html":       "<p>x</p>",
 			"/stream":     "stream",
 			"/send-bytes": "bytes",
@@ -382,34 +378,6 @@ func TestWriteNegotiatedContentTypes(t *testing.T) {
 			value:       xmlPayload{Value: "x"},
 			wantType:    xmlType,
 			wantBody:    "<response><value>x</value></response>",
-		},
-		{
-			name:        "yaml bytes",
-			contentType: "application/x-yaml",
-			value:       []byte("ok: true\n"),
-			wantType:    yamlType,
-			wantBody:    "ok: true\n",
-		},
-		{
-			name:        "yaml value",
-			contentType: "text/yaml",
-			value:       Map{"ok": true},
-			wantType:    yamlType,
-			wantBody:    "ok: true\n",
-		},
-		{
-			name:        "toml bytes",
-			contentType: "application/toml",
-			value:       []byte("ok = true\n"),
-			wantType:    tomlType,
-			wantBody:    "ok = true\n",
-		},
-		{
-			name:        "toml value",
-			contentType: "application/toml",
-			value:       Map{"ok": true},
-			wantType:    tomlType,
-			wantBody:    "ok = true\n",
 		},
 		{
 			name:        "html bytes",

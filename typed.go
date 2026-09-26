@@ -75,17 +75,14 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 }
 
 // bindTyped binds header fields, which Bind().All leaves out, and then
-// everything else through the configured binder, which validates last.
+// everything else as Bind().All does, which validates last.
 func (c *Context) bindTyped(v any, plan *bindingPlan) error {
 	if len(plan.headerFields) > 0 && c.request != nil {
 		if err := bindFieldsFromHeader(reflect.ValueOf(v).Elem(), plan.headerFields, c.request.Header); err != nil {
 			return wrapBindError("header", err)
 		}
 	}
-	if c.app == nil {
-		return defaultBinder{codec: defaultJSONCodec{}}.Bind(c, v)
-	}
-	return c.app.config.RequestBinder.Bind(c, v)
+	return bindAll(c, v)
 }
 
 // declaredStatus returns the success status set with Route.Status for the
