@@ -82,7 +82,7 @@ These return the context, so they chain into a body method.
 | `Attachment(path, name...)`, `Download(path, name...)` | A file as a download |
 | `Inline(path, name...)` | A file for display in the browser |
 | `Stream(contentType, reader)` | Data copied from a reader |
-| `SSE(event)` | One server-sent event |
+| `SSE(event)` | Writes and flushes one server-sent event; `WriteTimeout` applies per event |
 | `Redirect(code, url)` | A redirect |
 | `Accepts(types...)` | The best match for the `Accept` header |
 | `Negotiate(status, offers)` | The offer that best matches `Accept` |

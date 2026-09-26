@@ -33,6 +33,8 @@ app.Get("/customers/{customer}/orders", func(c *zinc.Context) error {
 | `form:"name"` | URL-encoded or multipart form | `Form` |
 | `json`, `xml`, `yaml`, `toml` | Request body | `JSON`, `XML`, `YAML`, `TOML` |
 
+Path, query, header, and form values bind only to fields that carry the matching tag. A field without a `query` tag can't be set from the query string, even by `All`, so a field hidden from JSON with `json:"-"` stays out of reach. A tag with options but no name, such as `query:",omitempty"`, opts in under the lower-cased field name.
+
 ## Bind everything at once
 
 `c.Bind().All(&in)` is the usual choice for API handlers. It binds, in order:
@@ -146,4 +148,4 @@ Binding reads at most `Config.BodyLimit` bytes, 4 MB by default. Larger bodies r
 
 Struct targets passed to `All` consistently merge path, query, then body for JSON, XML, YAML, and TOML. Scalar/map YAML and TOML targets and plain text remain body-only. Validation runs once after the combined bind. Source-specific operations each validate immediately; use `All` for the supported combined phase or a custom `RequestBinder` when composing other sources.
 
-Path, query, header, and form scalar fields support `encoding.TextUnmarshaler`, including `time.Time` and custom IDs. Optional scalar pointers stay nil when absent and are allocated when present; explicit zero values remain distinguishable from absence. Conversion errors retain their source and field. Use request DTOs: exported untagged fields still participate, and later `All` sources can overwrite earlier values.
+Path, query, header, and form scalar fields support `encoding.TextUnmarshaler`, including `time.Time` and custom IDs. Optional scalar pointers stay nil when absent and are allocated when present; explicit zero values remain distinguishable from absence. Conversion errors retain their source and field. Only tagged fields bind from path, query, header, and form. Later `All` sources can overwrite earlier values when a field is tagged for more than one source.

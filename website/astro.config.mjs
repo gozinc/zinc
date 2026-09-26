@@ -108,6 +108,7 @@ export default defineConfig({
             page("Customization", "/guide/customization/"),
             page("Benchmarks", "/extra/benchmarks/"),
             page("FAQ", "/extra/faq/"),
+            page("Migrating to 0.4", "/extra/migration-0.4/"),
             page("Migrating to 0.3", "/extra/migration-0.3/"),
             page("Migrating to 0.2", "/extra/migration-0.2/"),
           ],

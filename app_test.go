@@ -992,3 +992,34 @@ func TestShutdownReleasesConfinedStaticRoots(t *testing.T) {
 		t.Fatal("Shutdown did not release the confined root")
 	}
 }
+
+func TestHTTPErrorIsMatchesByStatus(t *testing.T) {
+	derived := ErrNotFound.WithMessage("user not found").WithHeader("X-Test", "ok")
+	wrapped := fmt.Errorf("lookup: %w", derived)
+	cases := []struct {
+		name   string
+		err    error
+		target error
+		want   bool
+	}{
+		{"derived copy matches its sentinel", derived, ErrNotFound, true},
+		{"wrapped copy matches its sentinel", wrapped, ErrNotFound, true},
+		{"NewError matches the sentinel for its code", NewError(StatusNotFound), ErrNotFound, true},
+		{"different status does not match", derived, ErrGone, false},
+		{"target with a message requires that message", derived, ErrNotFound.WithMessage("other"), false},
+		{"target with the same message matches", derived, ErrNotFound.WithMessage("user not found"), true},
+		{"sentinel does not match a more specific target", ErrNotFound, ErrNotFound.WithMessage("user not found"), false},
+		{"non-HTTP target does not match", derived, errors.New("not found"), false},
+	}
+	for _, tc := range cases {
+		if got := errors.Is(tc.err, tc.target); got != tc.want {
+			t.Errorf("%s: errors.Is = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	// Is must not hide the cause chain.
+	cause := errors.New("db down")
+	if !errors.Is(ErrServiceUnavailable.WithCause(cause), cause) {
+		t.Fatal("cause no longer reachable through errors.Is")
+	}
+}

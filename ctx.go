@@ -51,6 +51,9 @@ type Context struct {
 	paramCount   int
 	paramRanges  paramRanges
 	paramRoute   *radixRoute
+	// originalURI is captured on the first rewrite so OriginalURL can report
+	// the request as received. It stays empty for requests never rewritten.
+	originalURI string
 }
 
 type param struct {
@@ -134,6 +137,7 @@ func (c *Context) release() {
 	c.app = nil
 	c.lastErr = nil
 	c.routeInfo = routeMeta{}
+	c.originalURI = ""
 	contextPool.Put(c)
 }
 
@@ -163,6 +167,9 @@ func (c *Context) Request() *http.Request {
 
 // SetRequest replaces the request and invalidates request-derived caches.
 func (c *Context) SetRequest(r *http.Request) {
+	if r != nil && c.request != nil && r.URL != c.request.URL {
+		c.captureOriginalURI()
+	}
 	c.request = r
 	c.queryParams = nil
 	c.body = nil
@@ -206,17 +213,28 @@ func (c *Context) SetPath(path string) {
 	if c.request == nil || c.request.URL == nil {
 		return
 	}
+	c.captureOriginalURI()
 	c.request.URL.Path = path
 	c.request.URL.RawPath = path
 	c.request.RequestURI = cloneRequestURI(c.request.URL)
 }
 
-// OriginalURL returns the request URI represented by the current URL.
+// OriginalURL returns the request URI as received, before any SetPath or
+// rewrite middleware changed it. Use c.Request().URL for the current target.
 func (c *Context) OriginalURL() string {
+	if c.originalURI != "" {
+		return c.originalURI
+	}
 	if c.request == nil || c.request.URL == nil {
 		return ""
 	}
 	return c.request.URL.RequestURI()
+}
+
+func (c *Context) captureOriginalURI() {
+	if c.originalURI == "" && c.request != nil && c.request.URL != nil {
+		c.originalURI = c.request.URL.RequestURI()
+	}
 }
 
 // Next advances the middleware chain by one handler. Middleware may perform

@@ -196,8 +196,12 @@ func compileBindingField(index int, field reflect.StructField, setter fieldSette
 }
 
 func bindingFieldName(field reflect.StructField, tag string) (string, bool) {
-	name := field.Tag.Get(tag)
-	if name == "-" {
+	// Request sources bind only fields that opt in with their tag. Binding
+	// untagged fields would let any query parameter or header set a field the
+	// struct's author never exposed, such as one hidden from JSON with
+	// `json:"-"`.
+	name, ok := field.Tag.Lookup(tag)
+	if !ok || name == "-" {
 		return "", false
 	}
 	// Ignore comma options for compatibility with conventional Go struct tags;
@@ -205,8 +209,8 @@ func bindingFieldName(field reflect.StructField, tag string) (string, bool) {
 	if idx := strings.IndexByte(name, ','); idx >= 0 {
 		name = name[:idx]
 	}
-	// Untagged exported fields bind by their lower-cased Go name. A per-source
-	// "-" tag is the explicit opt-out.
+	// A tag with options but no name, such as `query:",omitempty"`, opts in
+	// under the lower-cased Go name.
 	if name == "" {
 		name = strings.ToLower(field.Name)
 	}

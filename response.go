@@ -284,13 +284,27 @@ func (c *Context) Stream(contentType string, r io.Reader) error {
 	})
 }
 
-// SSE writes one event and keeps the event-stream response open for more calls.
+// SSE writes and flushes one event, keeping the event-stream response open for
+// more calls. Config.WriteTimeout bounds each event rather than the whole
+// stream, so a stream may run for as long as the handler keeps sending.
 func (c *Context) SSE(event SSEvent) error {
 	writer, writeBody, err := c.prepareSSE()
 	if err != nil || !writeBody {
 		return err
 	}
-	return c.writeSSEEvent(writer, event)
+	rc := http.NewResponseController(writer)
+	if c.app != nil && c.app.config.WriteTimeout > 0 {
+		// Writers that cannot move their deadline, such as recorders, have
+		// no deadline to outlive.
+		_ = rc.SetWriteDeadline(time.Now().Add(c.app.config.WriteTimeout))
+	}
+	if err := c.writeSSEEvent(writer, event); err != nil {
+		return err
+	}
+	if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
 }
 
 // Accepts returns the best offered type allowed by the request Accept header.

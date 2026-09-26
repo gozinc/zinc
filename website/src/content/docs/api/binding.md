@@ -27,6 +27,8 @@ description: Reference for c.Bind(), struct tags, BindError, Validator, and Requ
 | `form` | `` Avatar *multipart.FileHeader `form:"avatar"` `` |
 | `json`, `xml`, `yaml`, `toml` | Standard encoding tags for the body |
 
+A field binds from path, query, header, or form only when it has that source's tag. `query:",omitempty"` opts in under the lower-cased field name, and `query:"-"` is the same as no tag.
+
 Values convert to strings, booleans, signed and unsigned integers, floats, pointers to those, and slices. Multipart fields accept `multipart.FileHeader`, `*multipart.FileHeader`, and slices of either.
 
 ## BindError
