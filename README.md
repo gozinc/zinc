@@ -76,6 +76,23 @@ curl localhost:8080/api/users/7
 
 Handlers return errors, and one error handler turns them into responses. Invalid or conflicting routes fail at startup rather than at request time.
 
+### Typed handlers
+
+A handler's signature can be its request contract. Zinc binds and validates the input, calls the function, and writes the output:
+
+```go
+type CreateUser struct {
+	OrgID string `path:"org"`
+	Email string `json:"email"`
+}
+
+api.Post("/orgs/{org}/users", zinc.Typed(func(c *zinc.Context, in CreateUser) (User, error) {
+	return users.Create(c.Context(), in)
+})).Status(http.StatusCreated)
+```
+
+A value that doesn't parse is a `400` naming the field, a validation failure is a `422`, and a typed handler allocates no more than the same code written by hand.
+
 ## What you get
 
 - **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.

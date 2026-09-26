@@ -304,3 +304,15 @@ app.Get("/users/{id}", showUser).Name("users.show")
 Standard middleware can now run on a group or a single route, not only the whole app: `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)`. See [Zinc and net/http](/guide/http-interoperability/).
 
 The router's internal types are no longer exported: `Router`, `Route` (the old static-route entry), `RouteMap`, `RouteHandlerMap`, and `RouteCache`. `zinc.Route` is now the handle registration returns.
+
+## New: typed handlers
+
+Zinc 0.4 adds `zinc.Typed`, which turns a function whose signature is the request contract into a handler. It is optional, and existing handlers are unaffected:
+
+```go
+api.Post("/users", zinc.Typed(func(c *zinc.Context, in CreateUser) (User, error) {
+	return users.Create(c.Context(), in)
+})).Status(zinc.StatusCreated)
+```
+
+`RouteInfo` gains a `Status` field, which reports a status declared with `Route.Status`. See [Typed Handlers](/guide/typed-handlers/).
