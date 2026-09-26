@@ -12,11 +12,7 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
 const source = `app := zinc.New()
 
 app.Get("/users/{id}", func(c *zinc.Context) error {
-	id, err := zinc.Param[int](c, "id")
-	if err != nil {
-		return err // 400, naming the field
-	}
-	user, ok := users[id]
+	user, ok := users[c.Param("id")]
 	if !ok {
 		return zinc.NotFound("user not found")
 	}
@@ -27,14 +23,8 @@ app.Listen(":8080")`;
 
 // Each request names the source line that answers it (0-based).
 const exchanges = [
-  { path: "/users/42", status: "200 OK", line: 11, body: `{"id":42,"name":"Ada Lovelace"}` },
-  { path: "/users/7", status: "404 Not Found", line: 9, body: `{"error":{"status":404,"message":"user not found"}}` },
-  {
-    path: "/users/ada",
-    status: "400 Bad Request",
-    line: 5,
-    body: `{"error":{"status":400,"message":"invalid path parameter","fields":{"id":"must be an integer"}}}`,
-  },
+  { path: "/users/42", status: "200 OK", line: 7, body: `{"id":"42","name":"Ada Lovelace"}` },
+  { path: "/users/7", status: "404 Not Found", line: 5, body: `{"error":{"status":404,"message":"user not found"}}` },
 ];
 
 // A small Go highlighter, run at build time.
