@@ -4,6 +4,7 @@
 package benchmarks
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,7 @@ func BenchmarkZincRouterParam(b *testing.B) {
 
 func BenchmarkZincRouterNotFound(b *testing.B) {
 	handler := buildZincDiagnosticRouterApp(Config{})
-	proveResponse(b, handler, MethodGet, "/missing/path", http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	proveResponse(b, handler, MethodGet, "/missing/path", http.StatusNotFound, zincErrorBody(http.StatusNotFound))
 	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, "/missing/path", nil))
 }
 
@@ -150,7 +151,7 @@ func BenchmarkZincRouterMethodMismatch(b *testing.B) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		b.Fatalf("status=%d want=%d", rec.Code, http.StatusMethodNotAllowed)
 	}
-	if rec.Body.String() != http.StatusText(http.StatusMethodNotAllowed) {
+	if rec.Body.String() != zincErrorBody(http.StatusMethodNotAllowed) {
 		b.Fatalf("body=%q", rec.Body.String())
 	}
 	if allow := rec.Header().Get(HeaderAllow); !strings.Contains(allow, MethodGet) {
@@ -228,7 +229,7 @@ func BenchmarkZincRouterCaseInsensitiveStatic(b *testing.B) {
 func BenchmarkZincRouterStrictRoutingSlash(b *testing.B) {
 	handler := buildZincStrictRoutingBenchmarkApp()
 	target := "/teams/42/"
-	proveResponse(b, handler, MethodGet, target, http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	proveResponse(b, handler, MethodGet, target, http.StatusNotFound, zincErrorBody(http.StatusNotFound))
 	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, target, nil))
 }
 
@@ -241,7 +242,7 @@ func BenchmarkZincRouterMethodNotAllowed(b *testing.B) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		b.Fatalf("status=%d want=%d", rec.Code, http.StatusMethodNotAllowed)
 	}
-	if rec.Body.String() != http.StatusText(http.StatusMethodNotAllowed) {
+	if rec.Body.String() != zincErrorBody(http.StatusMethodNotAllowed) {
 		b.Fatalf("body=%q", rec.Body.String())
 	}
 	if allow := rec.Header().Get(HeaderAllow); !strings.Contains(allow, MethodGet) {
@@ -284,4 +285,10 @@ Notes:
 - The bind slice measures request-level binding through handlers, including the cached-body path by binding twice on the same request.
 - They are regression guards, not public framework-comparison numbers.
 `)
+}
+
+// zincErrorBody is the JSON body Zinc's default error handler writes for an
+// error with no message of its own.
+func zincErrorBody(code int) string {
+	return fmt.Sprintf(`{"error":{"status":%d,"message":%q}}`+"\n", code, http.StatusText(code))
 }
