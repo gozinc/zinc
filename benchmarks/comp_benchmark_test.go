@@ -16,12 +16,18 @@ import (
 
 	. "github.com/0mjs/zinc"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/go-chi/chi/v5"
 	"github.com/labstack/echo/v5"
 )
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.ReleaseMode)
+	// Gin's binding runs the go-playground validator on every ShouldBind
+	// call; Zinc and Echo validate only when asked. Turning it off gives all
+	// three the same bind-only work. APIBindValidationFailure measures
+	// validation with one shared check for every framework.
+	binding.Validator = nil
 	os.Exit(m.Run())
 }
 
@@ -147,6 +153,13 @@ func mustNoErr(err error) {
 	}
 }
 
+// writeText writes s as text/plain, the Content-Type that Zinc's, Echo's
+// and Gin's String helpers set, the way a Chi or BunRouter handler would.
+func writeText(w http.ResponseWriter, s string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, s)
+}
+
 func newGinBenchmarkRouter() *gin.Engine {
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
@@ -184,6 +197,7 @@ func (r *preparedBenchmarkRequest) reset() *http.Request {
 }
 
 func runServeHTTPBenchmarks(b *testing.B, method, target string, cases []benchmarkCase) {
+	proveCases(b, cases, 1, func(int) *http.Request { return httptest.NewRequest(method, target, nil) })
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -202,6 +216,7 @@ func runServeHTTPBenchmarks(b *testing.B, method, target string, cases []benchma
 }
 
 func runServeHTTPRequestSetBenchmarks(b *testing.B, cases []benchmarkCase, requests []*http.Request) {
+	proveCases(b, cases, len(requests), func(i int) *http.Request { return requests[i] })
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -219,6 +234,7 @@ func runServeHTTPRequestSetBenchmarks(b *testing.B, cases []benchmarkCase, reque
 }
 
 func runPreparedRequestBenchmarks(b *testing.B, cases []benchmarkCase, request preparedBenchmarkRequest) {
+	proveCases(b, cases, 1, func(int) *http.Request { return request.reset() })
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -236,6 +252,7 @@ func runPreparedRequestBenchmarks(b *testing.B, cases []benchmarkCase, request p
 }
 
 func runPreparedRequestSetBenchmarks(b *testing.B, cases []benchmarkCase, requests []preparedBenchmarkRequest) {
+	proveCases(b, cases, len(requests), func(i int) *http.Request { return requests[i].reset() })
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -270,13 +287,6 @@ func buildRequests(method string, targets []string) []*http.Request {
 		requests[i] = httptest.NewRequest(method, target, nil)
 	}
 	return requests
-}
-
-func stdMiddleware(next http.Handler, key middlewareContextKey) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), key, true)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
 
 func chiMiddleware(key middlewareContextKey) func(http.Handler) http.Handler {
@@ -315,36 +325,12 @@ func largeStaticPath(i int) string {
 	return "/static/" + strconv.Itoa(i)
 }
 
-func largeParamPath(i int) string {
-	return "/teams/" + strconv.Itoa(i) + "/users/123"
-}
-
 func largeParamPatternColon(i int) string {
 	return "/teams/" + strconv.Itoa(i) + "/users/:id"
 }
 
 func largeParamPatternBrace(i int) string {
 	return "/teams/" + strconv.Itoa(i) + "/users/{id}"
-}
-
-func coldParamTargets(count int) []string {
-	targets := make([]string, count)
-	for i := 0; i < count; i++ {
-		targets[i] = "/hello/name" + strconv.Itoa(i)
-	}
-	return targets
-}
-
-func staticColdPath(i int) string {
-	return "/static-cold/" + strconv.Itoa(i)
-}
-
-func staticColdTargets(count int) []string {
-	targets := make([]string, count)
-	for i := 0; i < count; i++ {
-		targets[i] = staticColdPath(i % staticColdRouteCount)
-	}
-	return targets
 }
 
 func mixedLargeStaticTargets(count int) []string {
@@ -355,19 +341,7 @@ func mixedLargeStaticTargets(count int) []string {
 	return targets
 }
 
-func mixedLargeParamTargets(count int) []string {
-	targets := make([]string, count)
-	for i := 0; i < count; i++ {
-		targets[i] = "/teams/" + strconv.Itoa(i%largeParamRouteCount) + "/users/" + strconv.Itoa(1000+i)
-	}
-	return targets
-}
-
 func benchmarkAPIQueryTarget() string {
-	return "/teams/42/users/7?verbose=true&limit=25"
-}
-
-func benchmarkAPIBindTarget() string {
 	return "/teams/42/users/7?verbose=true&limit=25"
 }
 
@@ -419,7 +393,7 @@ func buildZincHelloHandler() http.Handler {
 func buildChiHelloHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, benchmarkHelloResponse)
+		writeText(w, benchmarkHelloResponse)
 	})
 	return r
 }
@@ -451,7 +425,7 @@ func buildZincStaticHandler() http.Handler {
 func buildChiStaticHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/hello", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, benchmarkHelloResponse)
+		writeText(w, benchmarkHelloResponse)
 	})
 	return r
 }
@@ -469,50 +443,6 @@ func buildGinStaticHandler() http.Handler {
 	r.GET("/hello", func(c *gin.Context) {
 		c.String(http.StatusOK, benchmarkHelloResponse)
 	})
-	return r
-}
-
-func buildZincStaticColdHandler() http.Handler {
-	app := New()
-	for i := 0; i < staticColdRouteCount; i++ {
-		path := staticColdPath(i)
-		app.Get(path, func(c *Context) error {
-			return c.String(benchmarkOKResponse)
-		})
-	}
-	return app
-}
-
-func buildChiStaticColdHandler() http.Handler {
-	r := chi.NewRouter()
-	for i := 0; i < staticColdRouteCount; i++ {
-		path := staticColdPath(i)
-		r.Get(path, func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.WriteString(w, benchmarkOKResponse)
-		})
-	}
-	return r
-}
-
-func buildEchoStaticColdHandler() http.Handler {
-	e := echo.New()
-	for i := 0; i < staticColdRouteCount; i++ {
-		path := staticColdPath(i)
-		e.GET(path, func(c *echo.Context) error {
-			return c.String(http.StatusOK, benchmarkOKResponse)
-		})
-	}
-	return e
-}
-
-func buildGinStaticColdHandler() http.Handler {
-	r := newGinBenchmarkRouter()
-	for i := 0; i < staticColdRouteCount; i++ {
-		path := staticColdPath(i)
-		r.GET(path, func(c *gin.Context) {
-			c.String(http.StatusOK, benchmarkOKResponse)
-		})
-	}
 	return r
 }
 
@@ -564,7 +494,7 @@ func buildChiParamHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/hello/{name}", func(w http.ResponseWriter, r *http.Request) {
 		benchmarkSinkString = chi.URLParam(r, "name")
-		_, _ = io.WriteString(w, benchmarkHelloResponse)
+		writeText(w, benchmarkHelloResponse)
 	})
 	return r
 }
@@ -634,7 +564,7 @@ func buildChiQueryHandler() http.Handler {
 	r.Get("/query", func(w http.ResponseWriter, r *http.Request) {
 		values := r.URL.Query()
 		benchmarkSinkBool = values.Get("name") != "" && values.Get("age") != "" && values.Get("city") != ""
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -692,7 +622,7 @@ func buildChiMiddlewareHandler() http.Handler {
 			ctx.Value(middlewareKey3) != nil &&
 			ctx.Value(middlewareKey4) != nil &&
 			ctx.Value(middlewareKey5) != nil
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -749,7 +679,7 @@ func buildZincNotFoundHandler() http.Handler {
 func buildChiNotFoundHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/found", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -771,7 +701,7 @@ func buildGinNotFoundHandler() http.Handler {
 }
 
 func buildZincLargeStaticHandler() http.Handler {
-	app := New()
+	app := newZincErrorBenchmarkApp()
 	for i := 0; i < largeStaticRouteCount; i++ {
 		path := largeStaticPath(i)
 		app.Get(path, func(c *Context) error {
@@ -782,18 +712,18 @@ func buildZincLargeStaticHandler() http.Handler {
 }
 
 func buildChiLargeStaticHandler() http.Handler {
-	r := chi.NewRouter()
+	r := newChiErrorBenchmarkRouter()
 	for i := 0; i < largeStaticRouteCount; i++ {
 		path := largeStaticPath(i)
 		r.Get(path, func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.WriteString(w, benchmarkOKResponse)
+			writeText(w, benchmarkOKResponse)
 		})
 	}
 	return r
 }
 
 func buildEchoLargeStaticHandler() http.Handler {
-	e := echo.New()
+	e := newEchoErrorBenchmarkApp()
 	for i := 0; i < largeStaticRouteCount; i++ {
 		path := largeStaticPath(i)
 		e.GET(path, func(c *echo.Context) error {
@@ -804,7 +734,7 @@ func buildEchoLargeStaticHandler() http.Handler {
 }
 
 func buildGinLargeStaticHandler() http.Handler {
-	r := newGinBenchmarkRouter()
+	r := newGinErrorBenchmarkRouter()
 	for i := 0; i < largeStaticRouteCount; i++ {
 		path := largeStaticPath(i)
 		r.GET(path, func(c *gin.Context) {
@@ -815,7 +745,7 @@ func buildGinLargeStaticHandler() http.Handler {
 }
 
 func buildZincLargeParamHandler() http.Handler {
-	app := New()
+	app := newZincErrorBenchmarkApp()
 	for i := 0; i < largeParamRouteCount; i++ {
 		path := largeParamPatternBrace(i)
 		app.Get(path, func(c *Context) error {
@@ -827,19 +757,19 @@ func buildZincLargeParamHandler() http.Handler {
 }
 
 func buildChiLargeParamHandler() http.Handler {
-	r := chi.NewRouter()
+	r := newChiErrorBenchmarkRouter()
 	for i := 0; i < largeParamRouteCount; i++ {
 		path := largeParamPatternBrace(i)
 		r.Get(path, func(w http.ResponseWriter, r *http.Request) {
 			benchmarkSinkString = chi.URLParam(r, "id")
-			_, _ = io.WriteString(w, benchmarkOKResponse)
+			writeText(w, benchmarkOKResponse)
 		})
 	}
 	return r
 }
 
 func buildEchoLargeParamHandler() http.Handler {
-	e := echo.New()
+	e := newEchoErrorBenchmarkApp()
 	for i := 0; i < largeParamRouteCount; i++ {
 		path := largeParamPatternColon(i)
 		e.GET(path, func(c *echo.Context) error {
@@ -851,7 +781,7 @@ func buildEchoLargeParamHandler() http.Handler {
 }
 
 func buildGinLargeParamHandler() http.Handler {
-	r := newGinBenchmarkRouter()
+	r := newGinErrorBenchmarkRouter()
 	for i := 0; i < largeParamRouteCount; i++ {
 		path := largeParamPatternColon(i)
 		r.GET(path, func(c *gin.Context) {
@@ -1102,6 +1032,10 @@ func buildEchoAPIBindJSONHappyPathHandler() http.Handler {
 	)
 	e.POST("/teams/:teamID/users/:userID", func(c *echo.Context) error {
 		var input benchmarkAPIBindInput
+		// Echo's Bind reads the query only for GET, DELETE and HEAD.
+		if err := echo.BindQueryParams(c, &input); err != nil {
+			return err
+		}
 		if err := c.Bind(&input); err != nil {
 			return err
 		}
@@ -1148,6 +1082,7 @@ func helloWorldCases() []benchmarkCase {
 		{name: "Chi", build: buildChiHelloHandler},
 		{name: "Echo", build: buildEchoHelloHandler},
 		{name: "Gin", build: buildGinHelloHandler},
+		{name: "BunRouter", build: buildBunRouterHelloHandler},
 	}
 }
 
@@ -1157,15 +1092,7 @@ func staticRouteCases() []benchmarkCase {
 		{name: "Chi", build: buildChiStaticHandler},
 		{name: "Echo", build: buildEchoStaticHandler},
 		{name: "Gin", build: buildGinStaticHandler},
-	}
-}
-
-func staticColdCases() []benchmarkCase {
-	return []benchmarkCase{
-		{name: "Zinc", build: buildZincStaticColdHandler},
-		{name: "Chi", build: buildChiStaticColdHandler},
-		{name: "Echo", build: buildEchoStaticColdHandler},
-		{name: "Gin", build: buildGinStaticColdHandler},
+		{name: "BunRouter", build: buildBunRouterStaticHandler},
 	}
 }
 
@@ -1175,6 +1102,7 @@ func paramCases() []benchmarkCase {
 		{name: "Chi", build: buildChiParamHandler},
 		{name: "Echo", build: buildEchoParamHandler},
 		{name: "Gin", build: buildGinParamHandler},
+		{name: "BunRouter", build: buildBunRouterParamHandler},
 	}
 }
 
@@ -1220,6 +1148,7 @@ func largeStaticCases() []benchmarkCase {
 		{name: "Chi", build: buildChiLargeStaticHandler},
 		{name: "Echo", build: buildEchoLargeStaticHandler},
 		{name: "Gin", build: buildGinLargeStaticHandler},
+		{name: "BunRouter", build: buildBunRouterLargeStaticHandler},
 	}
 }
 
@@ -1229,6 +1158,7 @@ func largeParamCases() []benchmarkCase {
 		{name: "Chi", build: buildChiLargeParamHandler},
 		{name: "Echo", build: buildEchoLargeParamHandler},
 		{name: "Gin", build: buildGinLargeParamHandler},
+		{name: "BunRouter", build: buildBunRouterLargeParamHandler},
 	}
 }
 
@@ -1267,16 +1197,26 @@ func BenchmarkStaticRoute(b *testing.B) {
 	runServeHTTPBenchmarks(b, http.MethodGet, "/hello", staticRouteCases())
 }
 
-func BenchmarkStaticRouteCold(b *testing.B) {
-	runServeHTTPRequestSetBenchmarks(b, staticColdCases(), buildRequests(http.MethodGet, staticColdTargets(coldPathRequestCount)))
+// BenchmarkCacheBestCase keeps three one-URL requests from the 0.4 suite.
+// Repeating one path is the best case for any per-path cache, which only Zinc
+// has, so these are labelled as such and read next to their pooled versions.
+func BenchmarkCacheBestCase(b *testing.B) {
+	b.Run("RouterParam", func(b *testing.B) {
+		runServeHTTPBenchmarks(b, http.MethodGet, "/hello/world", paramCases())
+	})
+	github := scenarioNamed("GitHubAPI203")
+	b.Run("GitHubAPI203Param", func(b *testing.B) {
+		runServeHTTPRequestSetBenchmarks(b, scenarioCases(github), []*http.Request{github.paramRequest})
+	})
+	b.Run("LargeRouteSetNotFound", func(b *testing.B) {
+		runServeHTTPBenchmarks(b, http.MethodGet, "/static/missing", largeStaticCases())
+	})
 }
 
 func BenchmarkRouterParam(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, "/hello/world", paramCases())
-}
-
-func BenchmarkRouterParamCold(b *testing.B) {
-	runServeHTTPRequestSetBenchmarks(b, paramCases(), buildRequests(http.MethodGet, coldParamTargets(coldPathRequestCount)))
+	runServeHTTPRequestSetBenchmarks(b, paramCases(), poolRequests(http.MethodGet, poolSize, 1, func(i int) string {
+		return "/hello/" + poolValue("name", i)
+	}))
 }
 
 func BenchmarkHTTPHandlerRoute(b *testing.B) {
@@ -1305,8 +1245,10 @@ func BenchmarkMiddlewareChain(b *testing.B) {
 	runServeHTTPBenchmarks(b, http.MethodGet, "/middleware", middlewareCases())
 }
 
+// BenchmarkNotFound keeps each framework's default 404 response; the routing
+// scenarios' misses use one normalised response instead.
 func BenchmarkNotFound(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, "/missing", notFoundCases())
+	runServeHTTPRequestSetBenchmarks(b, notFoundCases(), poolRequests(http.MethodGet, poolSize, 2, poolMissingPaths("", poolSize)))
 }
 
 func BenchmarkLargeRouteSetStatic(b *testing.B) {
@@ -1318,7 +1260,7 @@ func BenchmarkLargeRouteSetStaticMixed(b *testing.B) {
 }
 
 func BenchmarkLargeRouteSetNotFound(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, "/static/missing", largeStaticCases())
+	runServeHTTPRequestSetBenchmarks(b, largeStaticCases(), poolRequests(http.MethodGet, poolSize, 3, poolMissingPaths("/static", poolSize)))
 }
 
 func BenchmarkLargeRouteSetMethodMismatch(b *testing.B) {
@@ -1326,11 +1268,16 @@ func BenchmarkLargeRouteSetMethodMismatch(b *testing.B) {
 }
 
 func BenchmarkLargeRouteSetParam(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, largeParamPath(largeParamRouteCount-1), largeParamCases())
+	last := strconv.Itoa(largeParamRouteCount - 1)
+	runServeHTTPRequestSetBenchmarks(b, largeParamCases(), poolRequests(http.MethodGet, poolSize, 4, func(i int) string {
+		return "/teams/" + last + "/users/" + poolID(i)
+	}))
 }
 
 func BenchmarkLargeRouteSetParamMixed(b *testing.B) {
-	runServeHTTPRequestSetBenchmarks(b, largeParamCases(), buildRequests(http.MethodGet, mixedLargeParamTargets(coldPathRequestCount)))
+	runServeHTTPRequestSetBenchmarks(b, largeParamCases(), poolRequests(http.MethodGet, poolSize, 5, func(i int) string {
+		return "/teams/" + strconv.Itoa(i%largeParamRouteCount) + "/users/" + poolID(i)
+	}))
 }
 
 func BenchmarkRouteRegistrationStatic(b *testing.B) {
@@ -1342,51 +1289,46 @@ func BenchmarkRouteRegistrationParam(b *testing.B) {
 }
 
 func BenchmarkAPIParamQueryJSON(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, benchmarkAPIQueryTarget(), apiParamQueryJSONCases())
+	runServeHTTPRequestSetBenchmarks(b, apiParamQueryJSONCases(), poolRequests(http.MethodGet, poolSize, 6, func(i int) string {
+		return poolTeamUser(i) + "?verbose=true&limit=25"
+	}))
 }
 
 func BenchmarkAPIHappyPath(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, benchmarkAPIQueryTarget(), apiHappyPathCases())
+	runServeHTTPRequestSetBenchmarks(b, apiHappyPathCases(), poolRequests(http.MethodGet, poolSize, 7, func(i int) string {
+		return poolTeamUser(i) + "?verbose=true&limit=25"
+	}))
 }
 
 func BenchmarkAPIBindJSONHappyPath(b *testing.B) {
-	runPreparedRequestBenchmarks(
-		b,
-		apiBindJSONHappyPathCases(),
-		newPreparedBenchmarkRequest(http.MethodPost, benchmarkAPIBindTarget(), benchmarkAPIBindBody, benchmarkAPIBodyHeaders()),
-	)
+	runPreparedRequestSetBenchmarks(b, apiBindJSONHappyPathCases(), poolPrepared(http.MethodPost, poolSize, 8, func(i int) string {
+		return poolTeamUser(i) + "?verbose=true&limit=25"
+	}, benchmarkAPIBindBody, benchmarkAPIBodyHeaders()))
 }
 
 func TestRunBenchmarks(t *testing.T) {
 	t.Skip(`
-From benchmarks/:
-    go test -run=^$ -bench 'BenchmarkHelloWorld|BenchmarkStaticRoute|BenchmarkStaticRouteCold|BenchmarkRouterParam|BenchmarkRouterParamCold|BenchmarkParam5|BenchmarkParam10|BenchmarkNestedGroupStatic|BenchmarkNestedGroupParam|BenchmarkNestedGroupNotFound|BenchmarkNestedGroupMethodMismatch|BenchmarkWildcardTail|BenchmarkWildcardTailNotFound|BenchmarkJSONResponse|BenchmarkQueryParams|BenchmarkMiddlewareChain|BenchmarkNotFound|BenchmarkLargeRouteSetStatic|BenchmarkLargeRouteSetStaticMixed|BenchmarkLargeRouteSetNotFound|BenchmarkLargeRouteSetMethodMismatch|BenchmarkLargeRouteSetParam|BenchmarkLargeRouteSetParamMixed|BenchmarkAPIParamQueryJSON|BenchmarkAPIHappyPath|BenchmarkAPIBindJSONHappyPath|BenchmarkParallelStaticRoute|BenchmarkParallelRouterParam|BenchmarkParallelMiddlewareChain|BenchmarkParallelAPIHappyPath|BenchmarkRouteRegistrationStatic|BenchmarkRouteRegistrationParam' -benchmem
-
-To run the comparison suite from the repo root:
-    cd benchmarks && go test -run=^$ -bench 'BenchmarkHelloWorld|BenchmarkStaticRoute|BenchmarkStaticRouteCold|BenchmarkRouterParam|BenchmarkRouterParamCold|BenchmarkParam5|BenchmarkParam10|BenchmarkNestedGroupStatic|BenchmarkNestedGroupParam|BenchmarkNestedGroupNotFound|BenchmarkNestedGroupMethodMismatch|BenchmarkWildcardTail|BenchmarkWildcardTailNotFound|BenchmarkJSONResponse|BenchmarkQueryParams|BenchmarkMiddlewareChain|BenchmarkNotFound|BenchmarkLargeRouteSetStatic|BenchmarkLargeRouteSetStaticMixed|BenchmarkLargeRouteSetNotFound|BenchmarkLargeRouteSetMethodMismatch|BenchmarkLargeRouteSetParam|BenchmarkLargeRouteSetParamMixed|BenchmarkAPIParamQueryJSON|BenchmarkAPIHappyPath|BenchmarkAPIBindJSONHappyPath|BenchmarkParallelStaticRoute|BenchmarkParallelRouterParam|BenchmarkParallelMiddlewareChain|BenchmarkParallelAPIHappyPath|BenchmarkRouteRegistrationStatic|BenchmarkRouteRegistrationParam' -benchmem
-
-Routing realism slice:
-    go test -run=^$ -bench 'BenchmarkParam5|BenchmarkParam10|BenchmarkNestedGroupStatic|BenchmarkNestedGroupParam|BenchmarkNestedGroupNotFound|BenchmarkNestedGroupMethodMismatch|BenchmarkWildcardTail|BenchmarkWildcardTailNotFound' -benchmem
-
-Parallel in-process slice:
-    go test -run=^$ -bench '^BenchmarkParallel' -benchmem
-
-Dispatch-only slice:
-    go test -run=^$ -bench 'BenchmarkHelloWorld|BenchmarkStaticRoute|BenchmarkStaticRouteCold|BenchmarkRouterParam|BenchmarkRouterParamCold|BenchmarkNotFound|BenchmarkLargeRouteSetStatic|BenchmarkLargeRouteSetStaticMixed|BenchmarkLargeRouteSetNotFound|BenchmarkLargeRouteSetMethodMismatch|BenchmarkLargeRouteSetParam|BenchmarkLargeRouteSetParamMixed' -benchmem
-
-Idiomatic framework-path slice:
-    go test -run=^$ -bench 'BenchmarkJSONResponse|BenchmarkQueryParams|BenchmarkMiddlewareChain|BenchmarkAPIParamQueryJSON|BenchmarkAPIHappyPath|BenchmarkAPIBindJSONHappyPath' -benchmem
-
-Optional end-to-end RPS benchmark from benchmarks/:
+Suite v2, from benchmarks/:
+    go test -run=^$ -bench . -benchmem             every scenario
+    go test -run=^$ -bench '^BenchmarkParallel'    the parallel slice
     go test -tags rps -run=^$ -bench '^BenchmarkRequestsPerSecond$' -count=3
 
-Notes:
-- The request/response harness now reuses requests and a discard response writer to reduce benchmark noise.
-- Body-consuming endpoint benches reset request bodies between iterations instead of charging full request construction cost to the handler path.
-- The suite focuses on Zinc versus Gin, Echo, and Chi.
-- BenchmarkHelloWorld exercises Zinc's special-case root fast path, while BenchmarkStaticRoute measures a normal non-root static route.
-- The cold route benchmarks rotate request paths to avoid flattering Zinc's route cache.
-- The RPS benchmark is excluded from the main suite unless the rps build tag is supplied.
-- It uses a real loopback listener with a concurrency sweep; compare reqs/s, not ns/op.
+Record runs with zincbench (see README.md) rather than reading raw output.
+
+How the suite stays honest:
+- Every framework in a scenario receives the same requests, built before
+  timing. Parameter, miss and wildcard scenarios cycle through a pool of
+  10,000 distinct paths (pools_test.go): ten times Zinc's route cache, the
+  only per-path cache in the suite. CacheBestCase keeps three one-URL
+  requests, labelled as the cache's best case.
+- Before timing, every scenario proves its frameworks agree on status, body,
+  media type, Allow and the parameters read (proof_test.go).
+- Frameworks are scored against Gin and Echo on every scenario, and against
+  BunRouter and Chi on the routing scenarios BunRouter runs. Routing
+  scenarios use one normalised 404/405 response per framework; NotFound and
+  StaticFileNotFound keep each framework's default.
+- Gin's binding validator is off, so every framework does bind-only work.
+- The RPS benchmark needs the rps build tag and a real loopback listener;
+  compare reqs/s, not ns/op.
 `)
 }

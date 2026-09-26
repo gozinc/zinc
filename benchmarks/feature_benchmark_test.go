@@ -32,8 +32,8 @@ type benchmarkHeaderQueryJSONInput struct {
 	Limit   int      `query:"limit" form:"limit"`
 	Name    string   `json:"name"`
 	Roles   []string `json:"roles"`
-	TraceID string   `header:"X-Trace-ID"`
-	Tenant  string   `header:"X-Tenant-ID"`
+	TraceID string   `header:"X-Trace-Id"`
+	Tenant  string   `header:"X-Tenant-Id"`
 }
 
 type benchmarkMultipartResult struct {
@@ -121,10 +121,6 @@ func buildBenchmarkMultipartBody() ([]byte, string) {
 	mustNoErr(writer.Close())
 
 	return buf.Bytes(), writer.FormDataContentType()
-}
-
-func benchmarkHeaderQueryTarget() string {
-	return "/teams/42/users/7?verbose=true&limit=25"
 }
 
 func benchmarkHeaderQueryHeaders() http.Header {
@@ -228,11 +224,12 @@ func buildZincAPIBindHeaderQueryJSONHandler() http.Handler {
 func buildChiAPIBindHeaderQueryJSONHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Post("/teams/{teamID}/users/{userID}", func(w http.ResponseWriter, req *http.Request) {
+		query := req.URL.Query()
 		input := benchmarkHeaderQueryJSONInput{
 			TeamID:  parseBenchmarkInt(chi.URLParam(req, "teamID")),
 			UserID:  parseBenchmarkInt(chi.URLParam(req, "userID")),
-			Verbose: req.URL.Query().Get("verbose") == "true",
-			Limit:   parseBenchmarkInt(req.URL.Query().Get("limit")),
+			Verbose: query.Get("verbose") == "true",
+			Limit:   parseBenchmarkInt(query.Get("limit")),
 			TraceID: req.Header.Get("X-Trace-ID"),
 			Tenant:  req.Header.Get("X-Tenant-ID"),
 		}
@@ -259,6 +256,10 @@ func buildEchoAPIBindHeaderQueryJSONHandler() http.Handler {
 	e.POST("/teams/:teamID/users/:userID", func(c *echo.Context) error {
 		var input benchmarkHeaderQueryJSONInput
 		if err := echo.BindHeaders(c, &input); err != nil {
+			return err
+		}
+		// Echo's Bind reads the query only for GET, DELETE and HEAD.
+		if err := echo.BindQueryParams(c, &input); err != nil {
 			return err
 		}
 		if err := c.Bind(&input); err != nil {
@@ -829,11 +830,9 @@ func unauthorizedRejectCases() []benchmarkCase {
 }
 
 func BenchmarkAPIBindHeaderQueryJSON(b *testing.B) {
-	runPreparedRequestBenchmarks(
-		b,
-		apiBindHeaderQueryJSONCases(),
-		newPreparedBenchmarkRequest(http.MethodPost, benchmarkHeaderQueryTarget(), benchmarkHeaderQueryJSONBody, benchmarkHeaderQueryHeaders()),
-	)
+	runPreparedRequestSetBenchmarks(b, apiBindHeaderQueryJSONCases(), poolPrepared(http.MethodPost, poolSize, 9, func(i int) string {
+		return poolTeamUser(i) + "?verbose=true&limit=25"
+	}, benchmarkHeaderQueryJSONBody, benchmarkHeaderQueryHeaders()))
 }
 
 func BenchmarkAPIBindInvalidJSON(b *testing.B) {
@@ -881,7 +880,9 @@ func BenchmarkStaticFileNotFound(b *testing.B) {
 }
 
 func BenchmarkNestedGroupMiddlewareAPI(b *testing.B) {
-	runServeHTTPBenchmarks(b, http.MethodGet, "/api/v1/admin/teams/42/users/7?verbose=true&limit=25", nestedGroupMiddlewareAPICases())
+	runServeHTTPRequestSetBenchmarks(b, nestedGroupMiddlewareAPICases(), poolRequests(http.MethodGet, poolSize, 10, func(i int) string {
+		return "/api/v1/admin" + poolTeamUser(i) + "?verbose=true&limit=25"
+	}))
 }
 
 func BenchmarkAPIUnauthorizedReject(b *testing.B) {

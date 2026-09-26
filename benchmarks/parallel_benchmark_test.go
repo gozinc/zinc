@@ -4,9 +4,9 @@
 package benchmarks
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -16,13 +16,25 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// runServeHTTPParallelBenchmarksWithProof serves requests from every
+// goroutine. Each goroutine gets its own copy of the pool, built before the
+// timer starts, so no request is shared between goroutines, and starts at a
+// different offset.
 func runServeHTTPParallelBenchmarksWithProof(
 	b *testing.B,
-	method,
-	target string,
+	requests []*http.Request,
 	cases []benchmarkCase,
 	prove func(*testing.B, string, http.Handler),
 ) {
+	proveCases(b, cases, len(requests), func(i int) *http.Request { return requests[i] })
+	workers := runtime.GOMAXPROCS(0)
+	copies := make([][]*http.Request, workers)
+	for w := range copies {
+		copies[w] = make([]*http.Request, len(requests))
+		for i, req := range requests {
+			copies[w][i] = req.Clone(req.Context())
+		}
+	}
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -32,13 +44,14 @@ func runServeHTTPParallelBenchmarksWithProof(
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			var total atomic.Int64
+			var total, next atomic.Int64
 			b.RunParallel(func(pb *testing.PB) {
-				req := httptest.NewRequest(method, target, nil)
+				w := int(next.Add(1)-1) % workers
+				reqs := copies[w]
 				rw := newDiscardResponseWriter()
-				for pb.Next() {
+				for i := w * len(reqs) / workers; pb.Next(); i++ {
 					rw.reset()
-					handler.ServeHTTP(rw, req)
+					handler.ServeHTTP(rw, reqs[i%len(reqs)])
 				}
 				total.Add(int64(rw.status + rw.bytes))
 			})
@@ -63,10 +76,10 @@ func buildChiParallelParamHandler() http.Handler {
 	r.Get("/hello/{name}", func(w http.ResponseWriter, req *http.Request) {
 		if chi.URLParam(req, "name") == "" {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, "BAD")
+			writeText(w, "BAD")
 			return
 		}
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -122,10 +135,10 @@ func buildChiParallelMiddlewareHandler() http.Handler {
 	r.Get("/middleware", func(w http.ResponseWriter, req *http.Request) {
 		if !requestContextMiddlewareSatisfied(req) {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, "BAD")
+			writeText(w, "BAD")
 			return
 		}
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -204,10 +217,10 @@ func buildChiParallelAPIHappyPathHandler() http.Handler {
 		fillBenchmarkAPIQuery(&input, req)
 		if !requestContextMiddlewareSatisfied(req) || input.TeamID != 42 || input.UserID != 7 || !input.Verbose || input.Limit != 25 {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, "BAD")
+			writeText(w, "BAD")
 			return
 		}
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -263,21 +276,21 @@ func buildGinParallelAPIHappyPathHandler() http.Handler {
 }
 
 func parallelStaticCases() []benchmarkCase {
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		buildZincStaticHandler,
 		buildChiStaticHandler,
 		buildEchoStaticHandler,
 		buildGinStaticHandler,
-	)
+	), buildBunRouterStaticHandler)
 }
 
 func parallelParamCases() []benchmarkCase {
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		buildZincParallelParamHandler,
 		buildChiParallelParamHandler,
 		buildEchoParallelParamHandler,
 		buildGinParallelParamHandler,
-	)
+	), buildBunRouterParallelParamHandler)
 }
 
 func parallelMiddlewareCases() []benchmarkCase {
@@ -299,26 +312,41 @@ func parallelAPIHappyPathCases() []benchmarkCase {
 }
 
 func BenchmarkParallelStaticRoute(b *testing.B) {
-	runServeHTTPParallelBenchmarksWithProof(b, http.MethodGet, "/hello", parallelStaticCases(), func(b *testing.B, _ string, handler http.Handler) {
+	runServeHTTPParallelBenchmarksWithProof(b, []*http.Request{httptest.NewRequest(http.MethodGet, "/hello", nil)}, parallelStaticCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, "/hello", http.StatusOK, benchmarkHelloResponse)
 	})
 }
 
 func BenchmarkParallelRouterParam(b *testing.B) {
-	runServeHTTPParallelBenchmarksWithProof(b, http.MethodGet, "/hello/world", parallelParamCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 30, func(i int) string { return "/hello/" + poolValue("name", i) })
+	runServeHTTPParallelBenchmarksWithProof(b, pool, parallelParamCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, "/hello/world", http.StatusOK, benchmarkOKResponse)
 	})
 }
 
+// BenchmarkParallelRouteSetTraffic is ScenarioRouteSetTraffic on the GitHub
+// API from every core at once.
+func BenchmarkParallelRouteSetTraffic(b *testing.B) {
+	github := scenarioNamed("GitHubAPI203")
+	routes := github.routes
+	picks := zipfIndexes(len(routes), poolSize, 46)
+	pool := poolRequestsFor(poolSize, 47, func(i int) (string, string) {
+		route := routes[picks[i]]
+		return route.method, poolPath(route.pattern, i)
+	})
+	runServeHTTPParallelBenchmarksWithProof(b, pool, scenarioCases(github), nil)
+}
+
 func BenchmarkParallelMiddlewareChain(b *testing.B) {
-	runServeHTTPParallelBenchmarksWithProof(b, http.MethodGet, "/middleware", parallelMiddlewareCases(), func(b *testing.B, _ string, handler http.Handler) {
+	runServeHTTPParallelBenchmarksWithProof(b, []*http.Request{httptest.NewRequest(http.MethodGet, "/middleware", nil)}, parallelMiddlewareCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, "/middleware", http.StatusOK, benchmarkOKResponse)
 	})
 }
 
 func BenchmarkParallelAPIHappyPath(b *testing.B) {
 	target := benchmarkAPIQueryTarget()
-	runServeHTTPParallelBenchmarksWithProof(b, http.MethodGet, target, parallelAPIHappyPathCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 31, func(i int) string { return poolTeamUser(i) + "?verbose=true&limit=25" })
+	runServeHTTPParallelBenchmarksWithProof(b, pool, parallelAPIHappyPathCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse)
 	})
 }

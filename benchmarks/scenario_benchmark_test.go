@@ -5,7 +5,6 @@ package benchmarks
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -43,6 +42,8 @@ type benchmarkScenario struct {
 	paramRequest          *http.Request
 	notFoundRequest       *http.Request
 	methodMismatchRequest *http.Request
+	mismatchRoute         *scenarioRoute
+	mismatchMethod        string
 }
 
 var scenarioBenchmarks = []benchmarkScenario{
@@ -52,6 +53,28 @@ var scenarioBenchmarks = []benchmarkScenario{
 	newBenchmarkScenario("ParseAPI26", parseRouteScenarioSpecs(), 26),
 	newBenchmarkScenario("NestedAPI36", nestedAPIRouteScenarioSpecs(), 36),
 	newBenchmarkScenario("ParamsAny24", paramsAnyRouteScenarioSpecs(), 24),
+	newBenchmarkScenario("Services1024", servicesRouteScenarioSpecs(128), 1024),
+}
+
+// servicesRouteScenarioSpecs is a large API: services of eight routes each,
+// mixing static, one- and two-parameter routes and several methods, like a
+// platform that grew one service at a time.
+func servicesRouteScenarioSpecs(services int) []scenarioRouteSpec {
+	routes := make([]scenarioRouteSpec, 0, services*8)
+	for k := 0; k < services; k++ {
+		base := "/api/svc" + strconv.Itoa(k)
+		routes = append(routes,
+			scenarioRouteSpec{http.MethodGet, base + "/health"},
+			scenarioRouteSpec{http.MethodGet, base + "/items"},
+			scenarioRouteSpec{http.MethodPost, base + "/items"},
+			scenarioRouteSpec{http.MethodGet, base + "/items/:id"},
+			scenarioRouteSpec{http.MethodPut, base + "/items/:id"},
+			scenarioRouteSpec{http.MethodDelete, base + "/items/:id"},
+			scenarioRouteSpec{http.MethodGet, base + "/items/:id/events"},
+			scenarioRouteSpec{http.MethodGet, base + "/items/:id/events/:eventId"},
+		)
+	}
+	return routes
 }
 
 func newBenchmarkScenario(name string, specs []scenarioRouteSpec, expected int) benchmarkScenario {
@@ -121,6 +144,7 @@ func newBenchmarkScenario(name string, specs []scenarioRouteSpec, expected int) 
 	}
 	if methodMismatchRoute, method := scenarioMethodMismatchRoute(routes, staticRoute, paramRoute, methodsByPath); methodMismatchRoute != nil {
 		scenario.methodMismatchRequest = httptest.NewRequest(method, methodMismatchRoute.requestPath, nil)
+		scenario.mismatchRoute, scenario.mismatchMethod = methodMismatchRoute, method
 	}
 	return scenario
 }
@@ -130,12 +154,14 @@ func scenarioMissingPath(name string) string {
 }
 
 func scenarioMethodMismatchRoute(routes []scenarioRoute, staticRoute, paramRoute *scenarioRoute, methodsByPath map[string]map[string]struct{}) (*scenarioRoute, string) {
+	// Prefer a parameter route, so the 405 pool varies by path like real
+	// traffic; a static route's 405 is the same path every time.
 	candidates := make([]*scenarioRoute, 0, len(routes))
+	if paramRoute != nil {
+		candidates = append(candidates, paramRoute)
+	}
 	if staticRoute != nil {
 		candidates = append(candidates, staticRoute)
-	}
-	if paramRoute != nil && paramRoute != staticRoute {
-		candidates = append(candidates, paramRoute)
 	}
 	for i := range routes {
 		route := &routes[i]
@@ -384,7 +410,7 @@ func scenarioParamScoreGin(names []string, c *gin.Context) int {
 }
 
 func buildZincScenarioHandler(routes []scenarioRoute) http.Handler {
-	app := New()
+	app := newZincErrorBenchmarkApp()
 	for _, route := range routes {
 		paramNames := route.paramNames
 		app.Add(route.method, route.zincPattern, func(c *Context) error {
@@ -396,19 +422,19 @@ func buildZincScenarioHandler(routes []scenarioRoute) http.Handler {
 }
 
 func buildChiScenarioHandler(routes []scenarioRoute) http.Handler {
-	r := chi.NewRouter()
+	r := newChiErrorBenchmarkRouter()
 	for _, route := range routes {
 		paramNames := route.paramNames
 		r.MethodFunc(route.method, route.chiPattern, func(w http.ResponseWriter, req *http.Request) {
 			scenarioParamScoreChi(paramNames, req)
-			_, _ = io.WriteString(w, benchmarkOKResponse)
+			writeText(w, benchmarkOKResponse)
 		})
 	}
 	return r
 }
 
 func buildEchoScenarioHandler(routes []scenarioRoute) http.Handler {
-	e := echo.New()
+	e := newEchoErrorBenchmarkApp()
 	for _, route := range routes {
 		paramNames := route.paramNames
 		e.Add(route.method, route.pattern, func(c *echo.Context) error {
@@ -420,7 +446,7 @@ func buildEchoScenarioHandler(routes []scenarioRoute) http.Handler {
 }
 
 func buildGinScenarioHandler(routes []scenarioRoute) http.Handler {
-	r := newGinBenchmarkRouter()
+	r := newGinErrorBenchmarkRouter()
 	for _, route := range routes {
 		paramNames := route.paramNames
 		r.Handle(route.method, route.ginPattern, func(c *gin.Context) {
@@ -437,6 +463,7 @@ func scenarioCases(scenario benchmarkScenario) []benchmarkCase {
 		{name: "Chi", build: func() http.Handler { return buildChiScenarioHandler(scenario.routes) }},
 		{name: "Echo", build: func() http.Handler { return buildEchoScenarioHandler(scenario.routes) }},
 		{name: "Gin", build: func() http.Handler { return buildGinScenarioHandler(scenario.routes) }},
+		{name: "BunRouter", build: func() http.Handler { return buildBunRouterScenarioHandler(scenario.routes) }},
 	}
 	return cases
 }
@@ -472,8 +499,10 @@ func BenchmarkScenarioRouteSetParam(b *testing.B) {
 			continue
 		}
 		scenario := scenario
+		route := scenario.paramRoutePattern()
 		b.Run(scenario.name, func(b *testing.B) {
-			runScenarioSingleRequestBenchmark(b, scenario.paramRequest, scenarioCases(scenario))
+			pool := poolRequests(route.method, poolSize, 40, func(i int) string { return poolPath(route.pattern, i) })
+			runServeHTTPRequestSetBenchmarks(b, scenarioCases(scenario), pool)
 		})
 	}
 }
@@ -485,7 +514,8 @@ func BenchmarkScenarioRouteSetNotFound(b *testing.B) {
 		}
 		scenario := scenario
 		b.Run(scenario.name, func(b *testing.B) {
-			runScenarioSingleRequestBenchmark(b, scenario.notFoundRequest, scenarioCases(scenario))
+			pool := poolRequests(http.MethodGet, poolSize, 41, poolMissingPaths(scenarioMissingPath(scenario.name), poolSize))
+			runServeHTTPRequestSetBenchmarks(b, scenarioCases(scenario), pool)
 		})
 	}
 }
@@ -496,19 +526,61 @@ func BenchmarkScenarioRouteSetMethodMismatch(b *testing.B) {
 			continue
 		}
 		scenario := scenario
+		route, method := scenario.mismatchRoute, scenario.mismatchMethod
 		b.Run(scenario.name, func(b *testing.B) {
-			runScenarioSingleRequestBenchmark(b, scenario.methodMismatchRequest, scenarioCases(scenario))
+			pool := poolRequests(method, poolSize, 42, func(i int) string { return poolPath(route.pattern, i) })
+			cases := scenarioCases(scenario)
+			if len(route.paramNames) > 0 {
+				cases = withoutBunRouter(cases)
+			}
+			runServeHTTPRequestSetBenchmarks(b, cases, pool)
 		})
 	}
 }
 
+// BenchmarkScenarioRouteSetAll sends every route in turn, each parameter
+// route with distinct values: an even spread across the whole API.
 func BenchmarkScenarioRouteSetAll(b *testing.B) {
 	for _, scenario := range scenarioBenchmarks {
 		scenario := scenario
 		b.Run(scenario.name, func(b *testing.B) {
-			runServeHTTPRequestSetBenchmarks(b, scenarioCases(scenario), scenario.allRequests)
+			routes := scenario.routes
+			n := max(poolSize, len(routes))
+			pool := poolRequestsFor(n, 43, func(i int) (string, string) {
+				route := routes[i%len(routes)]
+				return route.method, poolPath(route.pattern, i/len(routes))
+			})
+			runServeHTTPRequestSetBenchmarks(b, scenarioCases(scenario), pool)
 		})
 	}
+}
+
+// BenchmarkScenarioRouteSetTraffic sends a Zipf-weighted mix of routes with
+// distinct parameter values: a few routes take most requests, as in a real
+// API, and the long tail still hits the rest.
+func BenchmarkScenarioRouteSetTraffic(b *testing.B) {
+	for _, scenario := range scenarioBenchmarks {
+		scenario := scenario
+		b.Run(scenario.name, func(b *testing.B) {
+			routes := scenario.routes
+			picks := zipfIndexes(len(routes), poolSize, 44)
+			pool := poolRequestsFor(poolSize, 45, func(i int) (string, string) {
+				route := routes[picks[i]]
+				return route.method, poolPath(route.pattern, i)
+			})
+			runServeHTTPRequestSetBenchmarks(b, scenarioCases(scenario), pool)
+		})
+	}
+}
+
+// paramRoutePattern is the route behind paramRequest.
+func (s benchmarkScenario) paramRoutePattern() scenarioRoute {
+	for _, route := range s.routes {
+		if route.requestPath == s.paramRequest.URL.Path && route.method == s.paramRequest.Method {
+			return route
+		}
+	}
+	panic("benchmark scenario " + s.name + " has no route for its parameter request")
 }
 
 func staticRouteScenarioSpecs() []scenarioRouteSpec {
@@ -937,14 +1009,22 @@ To run from the repo root:
     cd benchmarks && go test -run=^$ -bench '^BenchmarkScenarioRouteSet' -benchmem
 
 Scenario corpora slice:
-    go test -run=^$ -bench 'BenchmarkScenarioRouteSet(Build|Static|Param|NotFound|MethodMismatch|All)/(NestedAPI36|ParamsAny24)' -benchmem
-
-To keep local runs fast while iterating from benchmarks/:
-    go test -run=^$ -bench '^BenchmarkScenarioRouteSet(All|Param|Static|NotFound|MethodMismatch)$' -benchmem -benchtime=200ms
+    go test -run=^$ -bench 'BenchmarkScenarioRouteSet(Build|Static|Param|NotFound|MethodMismatch|All|Traffic)/(NestedAPI36|ParamsAny24)' -benchmem
 
 Notes:
 - These route corpora are benchmark-oriented recreations inspired by the classic Go HTTP router benchmark shapes.
 - The scenario suite is intentionally separate from comp_benchmark_test.go so micro and scenario results stay comparable over time.
-- NestedAPI36 adds three-level grouped routing with real miss and 405 paths; ParamsAny24 adds wildcard and param-plus-static-suffix coverage.
+- NestedAPI36 adds three-level grouped routing with real miss and 405 paths; ParamsAny24 adds wildcard and param-plus-static-suffix coverage; Services1024 is a 1,024-route API.
+- Param, NotFound, MethodMismatch, All and Traffic draw from 10,000-request pools; Traffic weights routes by a Zipf distribution.
 `)
+}
+
+// scenarioNamed returns the route-set scenario called name.
+func scenarioNamed(name string) benchmarkScenario {
+	for _, s := range scenarioBenchmarks {
+		if s.name == name {
+			return s
+		}
+	}
+	panic("no benchmark scenario " + name)
 }
