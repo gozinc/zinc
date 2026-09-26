@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -166,4 +167,9 @@ func TestSecureSetsDefaultHeaders(t *testing.T) {
 	if got := rec.Header().Get(zinc.HeaderContentSecurityPolicy); got != "default-src 'self'" {
 		t.Fatalf("csp=%q", got)
 	}
+}
+
+// jsonErrorBody is the default error handler's body for status and message.
+func jsonErrorBody(status int, message string) string {
+	return fmt.Sprintf(`{"error":{"status":%d,"message":%q}}`+"\n", status, message)
 }

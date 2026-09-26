@@ -59,7 +59,7 @@ var api04Workloads = []struct {
 		build: func() http.Handler {
 			app := New()
 			app.Get("/users/{id}", func(c *Context) error {
-				return ErrBadRequest.WithMessage("id must be an integer")
+				return BadRequest("id must be an integer")
 			})
 			return app
 		},
@@ -88,7 +88,7 @@ var api04Workloads = []struct {
 		status: http.StatusBadRequest,
 	},
 	{
-		// 0.3 answers a validator failure with 500; 0.4 answers 422.
+		// 0.3 answered a validator failure with 500; 0.4 answers 422.
 		name: "ErrorValidation",
 		build: func() http.Handler {
 			cfg := DefaultConfig
@@ -107,7 +107,7 @@ var api04Workloads = []struct {
 			return newPreparedBenchmarkRequest(http.MethodPost, "/validate", benchmarkValidationFailureBody,
 				http.Header{"Content-Type": {"application/json"}})
 		},
-		status: http.StatusInternalServerError,
+		status: http.StatusUnprocessableEntity,
 	},
 	{
 		name: "ParamInt",

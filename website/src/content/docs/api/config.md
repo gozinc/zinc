@@ -28,7 +28,7 @@ app := zinc.NewWithConfig(cfg)
 | `ServerHeader` | `string` | `""` | `Server` response header, when set |
 | `ProxyHeader` | `string` | `"X-Forwarded-For"` | Header read by `c.IP()` |
 | `TrustedProxies` | `[]string` | `nil` | IPs and CIDR ranges allowed to set `ProxyHeader` |
-| `ErrorHandler` | `ErrorHandler` | plain text | Turns returned errors into responses |
+| `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text |
 | `Validator` | `Validator` | `nil` | Runs after every bind |
 | `Renderer` | `Renderer` | `nil` | Renders templates for `c.Render` |
 | `JSONCodec` | `JSONCodec` | `encoding/json` | Encodes and decodes JSON |

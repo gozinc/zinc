@@ -87,7 +87,7 @@ func PrometheusWithConfig(config PrometheusConfig) zinc.Middleware {
 		start := now()
 		err := c.Next()
 		if err != nil {
-			c.Error(err)
+			c.HandleError(err)
 		}
 		c.SetWriter(baseWriter)
 

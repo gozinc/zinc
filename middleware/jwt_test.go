@@ -114,7 +114,7 @@ func TestJWTMiddlewareMissingToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec.Code)
 	}
-	if rec.Body.String() != http.StatusText(http.StatusUnauthorized) {
+	if rec.Body.String() != jsonErrorBody(http.StatusUnauthorized, "Unauthorized") {
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 	if got := rec.Header().Get(zinc.HeaderWWWAuthenticate); got != `Bearer realm="api"` {

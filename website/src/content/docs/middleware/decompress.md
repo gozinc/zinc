@@ -15,7 +15,7 @@ Handlers can then read the body normally.
 app.Post("/ingest", func(c *zinc.Context) error {
 	var input Event
 	if err := c.Bind().JSON(&input); err != nil {
-		return zinc.ErrBadRequest.WithMessage("invalid JSON body").WithCause(err)
+		return err // 400 with the failing field
 	}
 	return c.NoContent()
 })

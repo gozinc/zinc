@@ -25,7 +25,7 @@ func timing(c *zinc.Context) error {
 
 	err := c.Next()
 	if err != nil {
-		c.Error(err)
+		c.HandleError(err)
 	}
 	log.Printf(
 		"%s %s status=%d bytes=%d duration=%s",
@@ -50,7 +50,7 @@ func main() {
 }
 ```
 
-Calling `c.Error(err)` before measuring lets Zinc's configured error handler
+Calling `c.HandleError(err)` before measuring lets Zinc's configured error handler
 write through the wrapper, so failed requests get the correct status and byte
 count. Returning the same error remains safe because Zinc tracks whether the
 response has already been written.

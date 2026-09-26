@@ -160,7 +160,7 @@ func TestGzipHandlesErrorResponse(t *testing.T) {
 	if got := rec.Header().Get(zinc.HeaderContentEncoding); got != "gzip" {
 		t.Fatalf("content-encoding=%q", got)
 	}
-	if body := gunzipResponse(t, rec.Body.Bytes()); body != "Forbidden" {
+	if body := gunzipResponse(t, rec.Body.Bytes()); body != jsonErrorBody(http.StatusForbidden, "Forbidden") {
 		t.Fatalf("body=%q", body)
 	}
 }
@@ -259,5 +259,32 @@ func mustNoErrGzip(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// A body written in several calls must stay one gzip stream. Before 0.4, the
+// second write saw the Content-Encoding header set by the first and was
+// written uncompressed into the middle of the stream.
+func TestGzipMultipleWritesStayCompressed(t *testing.T) {
+	app := zinc.New()
+	app.Use(Gzip())
+	app.Get("/", func(c *zinc.Context) error {
+		w := c.Writer()
+		for _, part := range []string{"hello ", "zinc ", "stream"} {
+			if _, err := io.WriteString(w, part); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(zinc.HeaderAcceptEncoding, "gzip")
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if got := rec.Header().Get(zinc.HeaderContentEncoding); got != "gzip" {
+		t.Fatalf("content-encoding=%q", got)
+	}
+	if body := gunzipResponse(t, rec.Body.Bytes()); body != "hello zinc stream" {
+		t.Fatalf("body=%q", body)
 	}
 }

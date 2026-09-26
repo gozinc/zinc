@@ -144,8 +144,11 @@ type mountedHandler struct {
 	prefix     string
 	prefixPath string
 	handler    http.Handler
-	chain      []HandlerFunc
-	info       routeMeta
+	// native serves the mount as a Zinc handler, so its failures reach the
+	// application's error handler. Static directories use it.
+	native func(*Context, *http.Request) error
+	chain  []HandlerFunc
+	info   routeMeta
 }
 
 // App is Zinc's application, router, middleware registry, and http.Handler.
@@ -228,7 +231,7 @@ func normalizeConfig(cfg Config) Config {
 		cfg.RequestBinder = defaultBinder{codec: cfg.JSONCodec}
 	}
 	if cfg.ErrorHandler == nil {
-		cfg.ErrorHandler = defaultErrorHandler
+		cfg.ErrorHandler = DefaultErrorHandler
 	}
 	return cfg
 }
@@ -425,17 +428,22 @@ func (a *App) mount(prefix string, h http.Handler, middleware []HandlerFunc) {
 	if h == nil {
 		panic("zinc: HTTP handler is nil")
 	}
+	a.addMount(mountedHandler{handler: h}, prefix, Wrap(h), middleware)
+}
+
+// mountNative mounts a Zinc handler that receives the prefix-stripped request.
+func (a *App) mountNative(prefix string, serve func(*Context, *http.Request) error, middleware []HandlerFunc) {
+	a.addMount(mountedHandler{native: serve}, prefix, func(c *Context) error { return nil }, middleware)
+}
+
+func (a *App) addMount(entry mountedHandler, prefix string, info HandlerFunc, middleware []HandlerFunc) {
 	prefix = normalizeRegisteredPrefix(prefix)
-	entry := mountedHandler{
-		prefix:     storedPrefix(prefix, a.config.CaseSensitive),
-		prefixPath: prefix,
-		handler:    h,
-		info:       newRouteMeta(methodUse, prefix, "", Wrap(h), nil, true),
-	}
+	entry.prefix = storedPrefix(prefix, a.config.CaseSensitive)
+	entry.prefixPath = prefix
+	entry.info = newRouteMeta(methodUse, prefix, "", info, nil, true)
 	if len(middleware) > 0 {
 		entry.chain = append(append([]HandlerFunc(nil), middleware...), func(c *Context) error {
-			entry.serve(c)
-			return nil
+			return entry.serve(c)
 		})
 	}
 	a.mounts = append(a.mounts, entry)

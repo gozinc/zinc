@@ -45,7 +45,7 @@ The default error handler returns `503 Service Unavailable` joined with the time
 app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
 	Timeout: 2 * time.Second,
 	ErrorHandler: func(c *zinc.Context, err *middleware.ContextTimeoutError) error {
-		return zinc.ErrServiceUnavailable.WithMessage("request timed out")
+		return zinc.ServiceUnavailable("request timed out")
 	},
 }))
 ```

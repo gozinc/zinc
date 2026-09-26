@@ -65,8 +65,7 @@ func (a *App) dispatch(ctx *Context) error {
 			ctx.setHandlers(mount.chain)
 			return ctx.Next()
 		}
-		mount.serve(ctx)
-		return nil
+		return mount.serve(ctx)
 	}
 
 	if handled, err := a.handleRouteNotFound(ctx); handled {
@@ -94,9 +93,6 @@ func (a *App) dispatch(ctx *Context) error {
 			}
 			return nil
 		}
-		if a.defaultErrors {
-			return ctx.String(http.StatusText(StatusMethodNotAllowed))
-		}
 		return ErrMethodNotAllowed
 	}
 
@@ -110,12 +106,9 @@ func (a *App) dispatch(ctx *Context) error {
 			return err
 		}
 		if !ctx.written {
-			return ctx.String(http.StatusText(StatusNotFound))
+			return ErrNotFound
 		}
 		return nil
-	}
-	if a.defaultErrors {
-		return ctx.String(http.StatusText(StatusNotFound))
 	}
 	return ErrNotFound
 }
@@ -135,7 +128,7 @@ func (a *App) handleRouteNotFound(ctx *Context) (bool, error) {
 		return true, err
 	}
 	if !ctx.written {
-		return true, ctx.String(http.StatusText(StatusNotFound))
+		return true, ErrNotFound
 	}
 	return true, nil
 }
@@ -185,11 +178,20 @@ func (a *App) matchMount(path string) *mountedHandler {
 
 // serve rewrites the request path for the mounted handler and restores it
 // afterwards so outer middleware continues to observe the original request.
-func (m *mountedHandler) serve(c *Context) {
-	if m == nil || m.handler == nil {
-		return
+func (m *mountedHandler) serve(c *Context) error {
+	if m == nil || (m.handler == nil && m.native == nil) {
+		return nil
 	}
-	request := c.Request()
+	mountedRequest := m.strippedRequest(c.Request())
+	if m.native != nil {
+		return m.native(c, mountedRequest)
+	}
+	m.handler.ServeHTTP(c.Writer(), mountedRequest)
+	return nil
+}
+
+// strippedRequest copies request with the mount prefix removed from its path.
+func (m *mountedHandler) strippedRequest(request *http.Request) *http.Request {
 	mountedRequest := new(http.Request)
 	*mountedRequest = *request
 	mountedRequest.URL = cloneURL(request.URL)
@@ -224,5 +226,5 @@ func (m *mountedHandler) serve(c *Context) {
 		mountedRequest.URL.RawPath = "/"
 	}
 	mountedRequest.RequestURI = cloneRequestURI(mountedRequest.URL)
-	m.handler.ServeHTTP(c.Writer(), mountedRequest)
+	return mountedRequest
 }

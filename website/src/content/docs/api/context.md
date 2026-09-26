@@ -92,11 +92,8 @@ These return the context, so they chain into a body method.
 | Method | Purpose |
 |---|---|
 | `Next()` | Runs the rest of the chain |
-| `AbortWithStatus(code)` | Returns an HTTP error with that status |
-| `AbortWithJSON(code, v)` | Writes JSON with that status |
-| `Error(err)` | Sends an error to the error handler immediately |
-| `LastError()` | The most recent error passed to the error handler |
-| `Fail(err)` | Returns `err` unchanged |
+| `HandleError(err)` | Sends an error to the error handler immediately, for middleware that observes the final response |
+| `LastError()` | The most recent error passed to `HandleError` |
 
 ## Request-local values
 

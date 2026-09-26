@@ -22,8 +22,10 @@ func TestFailedJSONDoesNotCommitSelectedStatus(t *testing.T) {
 		app := zinc.New()
 		app.Get("/", func(c *zinc.Context) error { return c.Status(status).JSON(make(chan int)) })
 		w := hardeningRequest(app, "GET", "/")
-		if w.Code != 500 || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
-			t.Fatalf("selected=%d got=%d headers=%v", status, w.Code, w.Header())
+		// The failed helper must not commit its status or partial output; the
+		// error handler replaces the whole representation.
+		if w.Code != 500 || w.Body.String() != `{"error":{"status":500,"message":"Internal Server Error"}}`+"\n" {
+			t.Fatalf("selected=%d got=%d body=%q headers=%v", status, w.Code, w.Body.String(), w.Header())
 		}
 	}
 }

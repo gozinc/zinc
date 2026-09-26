@@ -47,10 +47,10 @@ type CreateMember struct {
 app.Post("/teams/{team}/members", func(c *zinc.Context) error {
 	var in CreateMember
 	if err := c.Bind().All(&in); err != nil {
-		return zinc.ErrBadRequest.WithMessage("invalid request").WithCause(err)
+		return err // 400 with the failing field
 	}
 	if in.Name == "" {
-		return zinc.ErrUnprocessableEntity.WithMessage("name is required")
+		return zinc.UnprocessableEntity("name is required")
 	}
 	return c.Status(zinc.StatusCreated).JSON(in)
 })
@@ -59,7 +59,7 @@ app.Post("/teams/{team}/members", func(c *zinc.Context) error {
 `Bind().All` fills `Team` from the path and `Name` and `Email` from the JSON body. When the body is malformed it returns an error, which the handler turns into a `400 Bad Request`.
 
 :::caution[Wrap binding errors]
-Return binding errors as `zinc.ErrBadRequest.WithCause(err)`, as above. A raw binding error is not an HTTP error, so Zinc's default handler answers `500 Internal Server Error` for what is really a client mistake. You can also map binding errors once in a [custom error handler](/guide/errors/#map-binding-errors-to-400).
+Return binding errors as `zinc.ErrBadRequest.Wrap(err)`, as above. A raw binding error is not an HTTP error, so Zinc's default handler answers `500 Internal Server Error` for what is really a client mistake. You can also map binding errors once in a [custom error handler](/guide/errors/#map-binding-errors-to-400).
 :::
 
 ## Return errors
@@ -70,7 +70,7 @@ Handlers fail by returning an error. Zinc's predefined errors carry a status cod
 app.Get("/members/{id}", func(c *zinc.Context) error {
 	member, err := store.Find(c.Param("id"))
 	if errors.Is(err, ErrNoMember) {
-		return zinc.ErrNotFound.WithMessage("member not found")
+		return zinc.NotFound("member not found")
 	}
 	if err != nil {
 		return err // becomes 500 Internal Server Error, details stay private
@@ -82,10 +82,12 @@ app.Get("/members/{id}", func(c *zinc.Context) error {
 ```bash
 curl -i http://localhost:8080/members/nope
 # HTTP/1.1 404 Not Found
-# member not found
+# Content-Type: application/json; charset=utf-8
+#
+# {"error":{"status":404,"message":"member not found"}}
 ```
 
-Any error that is not a Zinc HTTP error becomes a plain `500 Internal Server Error`, so internal details never leak to clients. [Errors](/guide/errors/) shows how to replace the plain-text body with a JSON envelope.
+Any error that is not a Zinc HTTP error becomes a `500 Internal Server Error`, and its text is never sent, so internal details don't leak to clients. [Errors](/guide/errors/) shows how domain errors can choose their own status, and how to log server errors.
 
 ## Registration is checked at startup
 

@@ -15,7 +15,7 @@ type ListOrders struct {
 app.Get("/customers/{customer}/orders", func(c *zinc.Context) error {
 	var in ListOrders
 	if err := c.Bind().All(&in); err != nil {
-		return zinc.ErrBadRequest.WithMessage("invalid request").WithCause(err)
+		return err // 400 with the failing field
 	}
 	return c.JSON(in)
 })
@@ -65,10 +65,10 @@ When a handler should accept input from exactly one place, name it:
 ```go
 var in CreateOrder
 if err := c.Bind().Path(&in); err != nil {
-	return zinc.ErrBadRequest.WithCause(err)
+	return err
 }
 if err := c.Bind().JSON(&in); err != nil {
-	return zinc.ErrBadRequest.WithCause(err)
+	return err
 }
 ```
 
@@ -81,13 +81,19 @@ A failed bind returns a `*zinc.BindError` that names the source and field:
 ```go
 var be *zinc.BindError
 if errors.As(err, &be) {
-	// be.Source is "path", "query", "header", "form", or "body"; be.Field is the struct field.
+	// be.Source is "path", "query", "header", "form", or "body".
+	// be.Name is the request name ("page"); be.Field is the Go field, for logs.
+	// be.Reason is client-safe, such as "must be an integer".
 }
 ```
 
-:::note[Binding error responses]
-The default handler returns a generic 400 for `BindError`, preserving HTTP causes such as a 413 body limit. Known JSON syntax/type errors are classified as binding errors. Invalid JSON destinations and opaque codec failures remain 500 errors. Validation errors follow your validator's error policy; wrap them in an HTTP error or handle their type centrally.
-:::
+Return binding errors unchanged. The default handler answers 400 and names the field, without decoder details:
+
+```json
+{"error":{"status":400,"message":"invalid query parameter","fields":{"page":"must be an integer"}}}
+```
+
+Wrapping the error in `zinc.BadRequest(...)` replaces that body with your message and drops the field. An HTTP cause, such as a body over the limit, keeps its status (413). Known JSON syntax and type errors are binding errors; invalid JSON destinations and opaque codec failures remain 500 errors.
 
 ## Validation
 
@@ -120,7 +126,35 @@ type SignUp struct {
 }
 ```
 
-Every bind method runs the validator after decoding, so handlers stay short. Validation errors come back from the bind call; wrap or map them the same way as binding errors, often as `422 Unprocessable Entity`.
+Every bind method runs the validator after decoding, so handlers stay short. A validation failure comes back from the bind call as a `*zinc.ValidationError`; return it, and the default handler answers `422 Unprocessable Entity`.
+
+To list the failing fields in the response, return an error with a `Fields() map[string]string` method. For go-playground/validator:
+
+```go
+type fieldErrors map[string]string
+
+func (f fieldErrors) Error() string              { return "validation failed" }
+func (f fieldErrors) Fields() map[string]string { return f }
+
+func (s structValidator) Validate(target any) error {
+	err := s.v.Struct(target)
+	var invalid validator.ValidationErrors
+	if !errors.As(err, &invalid) {
+		return err
+	}
+	fields := fieldErrors{}
+	for _, fe := range invalid {
+		fields[fe.Field()] = "failed " + fe.Tag()
+	}
+	return fields
+}
+```
+
+```json
+{"error":{"status":422,"message":"validation failed","fields":{"Email":"failed required"}}}
+```
+
+A validator that returns a Zinc HTTP error, or any `StatusCoder`, keeps that status instead.
 
 ## File uploads
 

@@ -59,16 +59,16 @@ func main() {
 		func(c *zinc.Context) error {
 			body, err := c.BodyBytes()
 			if err != nil {
-				return zinc.ErrBadRequest.WithMessage("could not read webhook body")
+				return zinc.BadRequest("could not read webhook body")
 			}
 
 			if !verify(body, c.GetHeader("X-Hub-Signature-256"), secret) {
-				return zinc.ErrUnauthorized.WithMessage("invalid webhook signature")
+				return zinc.Unauthorized("invalid webhook signature")
 			}
 
 			var incoming event
 			if err := json.Unmarshal(body, &incoming); err != nil {
-				return zinc.ErrBadRequest.WithMessage("invalid webhook payload")
+				return zinc.BadRequest("invalid webhook payload")
 			}
 
 			log.Printf("accepted webhook %s (%s)", incoming.ID, incoming.Type)
