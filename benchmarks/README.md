@@ -9,7 +9,30 @@ make bench-record RELEASE=0.4.0 NOTE="baseline"
 make bench-dash
 ```
 
-When only Zinc was rerun, import its logs against a saved four-framework run. The new record keeps the rival source ID and the dashboard labels it as a mixed-date comparison:
+## Checking a change
+
+Rivals don't change between Zinc commits, so a change only needs Zinc remeasured. `bench-zinc` runs the Zinc case of all 77 scenarios, plus the Zinc-only `BenchmarkAPI04*` benchmarks, in about three minutes, and reuses the rival samples from the pinned baseline. The record keeps the source run's ID and is labelled as a mixed-date comparison.
+
+```sh
+make bench-zinc RELEASE=0.4.0 NOTE="router: cache promotion at 8"
+make bench-compare
+```
+
+`bench-compare` compares the latest run with the baseline. It lists changes in allocations, bytes, time and wins, and exits non-zero if any benchmark allocates more. A scenario is flagged as slower when it loses more than 5% and more than 15 ns. Parallel, registration and route-set build benchmarks, which vary by up to 12% between runs of identical code, get a 12% margin. Use `ARGS='-all'` to list every scenario.
+
+Pin a Zinc-only run as the baseline when checking Zinc-only runs. Identical code measures faster in Zinc-only mode than in a four-framework run, so mixing the two modes shows differences that aren't real.
+
+Confirm a flagged scenario before acting on it:
+
+```sh
+make bench-ab SCENARIOS=LargeRouteSetParam,API04ParamInt
+```
+
+`bench-ab` checks out the baseline commit in the user cache directory (`zincbench/ab/` under `os.UserCacheDir`, outside the repository), then measures that tree and the working tree in alternating rounds. It reports "slower" or "faster" only when the interquartile ranges of the two sample sets don't overlap. The baseline commit must contain any Zinc-only benchmark you name.
+
+## Importing Zinc-only logs
+
+When only Zinc was rerun by hand, import its logs against a saved four-framework run. The new record keeps the rival source ID and the dashboard labels it as a mixed-date comparison:
 
 ```sh
 cd benchmarks
