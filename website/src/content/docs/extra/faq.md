@@ -33,7 +33,11 @@ Yes. Standard handlers can serve routes through `HandleHTTP` or own subtrees thr
 
 ## How fast is it?
 
-In the latest comparison, Zinc had the lowest median latency in 60 of 77 scenarios against Gin, Echo, and Chi. Zinc was measured on 25 September 2026; the rival samples are from the previous day. Common string-response routes use 16 B and one allocation per request after response-header hardening. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
+In the 0.4.0 release run, Zinc had the lowest median latency in 58 of 77 scenarios against Gin, Echo, and Chi, all measured together on 26 September 2026. Common string-response routes use 16 B and one allocation per request. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
+
+## Does Zinc have dependencies?
+
+No. Zinc's `go.mod` requires no module, and its middleware packages use only Zinc and the standard library. Middleware that wraps a third-party library, such as JWT, lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib), one module per package, so you download only what you import. Body formats beyond JSON and XML, such as YAML or TOML, plug in with the library you choose through [decoders and encoders](/guide/customization/#body-formats).
 
 ## Does Zinc validate input?
 

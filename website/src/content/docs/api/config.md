@@ -35,6 +35,8 @@ app := zinc.New(zinc.Config{
 | `Decoders` | `map[string]Decoder` | none | Request body decoders by media type; `application/json` replaces `encoding/json` |
 | `Encoders` | `map[string]Encoder` | none | Response encoders by media type, for `c.Encode` and `c.Negotiate`; `application/json` replaces `encoding/json` |
 
+`Renderer` is usually one of Zinc's template renderers, which wrap an already parsed template set and return a `*TemplateRenderer`: `zinc.NewHTMLTemplateRenderer(tmpl)` for an `html/template` set, `zinc.NewTextTemplateRenderer(tmpl)` for `text/template`, or `zinc.NewTemplateRenderer(engine)` for anything with an `ExecuteTemplate` method (a `TemplateExecutor`). Each takes `TemplateRendererOption` values; `zinc.WithTemplateSuffixes(".html")` lets `c.Render("home", data)` find `home.html` when no template is named exactly `home`. See [Templates](/guide/templates/).
+
 For limits and timeouts, `0` selects the default and a negative value turns the limit off. Switches that are on by default are named `Disable…`, so an omitted field never turns a feature off.
 
 ## Constants

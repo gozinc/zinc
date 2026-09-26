@@ -65,6 +65,10 @@ There is one `Err` value for each standard 4xx and 5xx status, named after it:
 | `ErrInternalServerError` | 500 |
 | `ErrServiceUnavailable` | 503 |
 
+The others follow the same naming: `ErrPaymentRequired` (402), `ErrNotAcceptable` (406), `ErrProxyAuthRequired` (407), `ErrRequestTimeout` (408), `ErrGone` (410), `ErrLengthRequired` (411), `ErrPreconditionFailed` (412), `ErrRequestURITooLong` (414), `ErrRequestedRangeNotSatisfiable` (416), `ErrExpectationFailed` (417), `ErrTeapot` (418), `ErrMisdirectedRequest` (421), `ErrLocked` (423), `ErrFailedDependency` (424), `ErrTooEarly` (425), `ErrUpgradeRequired` (426), `ErrPreconditionRequired` (428), `ErrRequestHeaderFieldsTooLarge` (431), `ErrUnavailableForLegalReasons` (451), `ErrNotImplemented` (501), `ErrBadGateway` (502), `ErrGatewayTimeout` (504), `ErrHTTPVersionNotSupported` (505), `ErrVariantAlsoNegotiates` (506), `ErrInsufficientStorage` (507), `ErrLoopDetected` (508), `ErrNotExtended` (510), and `ErrNetworkAuthenticationRequired` (511).
+
+Three errors are not statuses: `ErrResponseAlreadySent` reports a second write after the response was committed, and `ErrTemplateEngineNotConfigured`, `ErrTemplateNameRequired`, and `ErrTemplateNotFound` come from `c.Render`.
+
 ## StatusCoder
 
 ```go
