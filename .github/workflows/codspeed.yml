@@ -1,9 +1,8 @@
 name: CodSpeed
+# Manual only for now: a run takes about 20 minutes on a shared runner, whose
+# walltime numbers are too noisy to gate PRs. To turn it back on, add
+# pull_request and push (branches: [dev]) triggers.
 on:
-  pull_request:
-  push:
-    branches: [dev, main]
-  # Allows running the workflow manually from the Actions tab.
   workflow_dispatch:
 permissions:
   contents: read
