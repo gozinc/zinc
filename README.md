@@ -4,6 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/0mjs/zinc.svg)](https://pkg.go.dev/github.com/0mjs/zinc)
 [![Go Report Card](https://goreportcard.com/badge/github.com/0mjs/zinc?style=flat-square)](https://goreportcard.com/report/github.com/0mjs/zinc)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/0mjs/zinc?utm_source=badge)
 
 **Galvanize `net/http`.**
 
