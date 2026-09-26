@@ -5,7 +5,19 @@ description: Choose and compose Zinc's first-party middleware.
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Zinc ships 29 middleware in one package, `github.com/0mjs/zinc/middleware`. Each is an ordinary `func(*zinc.Context) error`, so you can attach it to the whole app, a group, or a single route. Standard `net/http` middleware works too, through [`app.UseHTTP`](/guide/http-interoperability/).
+Zinc's middleware lives under `github.com/0mjs/zinc/middleware`, one small package each. Every package has a `New` function that takes an optional `Config`, and its zero value means the defaults:
+
+```go
+import (
+	"github.com/0mjs/zinc/middleware/cors"
+	"github.com/0mjs/zinc/middleware/logger"
+)
+
+app.Use(logger.New())
+app.Use(cors.New(cors.Config{AllowOrigins: []string{"https://app.example.com"}}))
+```
+
+Each middleware is an ordinary `func(*zinc.Context) error`, so you can attach it to the whole app, a group, or a single route. Standard `net/http` middleware works too, through [`UseHTTP`](/guide/http-interoperability/).
 
 ## A good default stack
 
@@ -13,86 +25,100 @@ Most JSON APIs start here. Order matters: each entry wraps everything after it.
 
 ```go
 app.Use(
-	middleware.RequestID(),     // 1. tag the request first, so everything can log the ID
-	middleware.RequestLogger(), // 2. log every request, including failures below
-	middleware.Recover(),       // 3. turn panics into 500s that the logger records
-	middleware.Secure(),        // 4. browser security headers
+	requestid.New(), // 1. tag the request first, so everything can log the ID
+	logger.New(),    // 2. log every request, including failures below
+	recover.New(),   // 3. turn panics into 500s that the logger records
+	secure.New(),    // 4. browser security headers
 )
 ```
 
-Add [CORS](/middleware/cors/) when browsers on other origins call the API, [Context Timeout](/middleware/context-timeout/) to bound slow requests, and an auth middleware on the groups that need it.
+Add [CORS](/middleware/cors/) when browsers on other origins call the API, [Context Timeout](/middleware/timeout/) to bound slow requests, and an auth middleware on the groups that need it.
 
 ## Start with the request path
 
-These are the pieces most services add first.
-
 <CardGrid>
-  <LinkCard title="Request ID" description="Generate or propagate an X-Request-ID value." href="/middleware/request-id/" />
-  <LinkCard title="Request Logger" description="Record status, latency, route, headers, and returned errors." href="/middleware/request-logger/" />
-  <LinkCard title="Recover" description="Return panics through Zinc's normal error path." href="/middleware/recover/" />
-  <LinkCard title="Secure Headers" description="Set practical browser security response headers." href="/middleware/secure/" />
-  <LinkCard title="CORS" description="Control browser origins and preflight requests." href="/middleware/cors/" />
-  <LinkCard title="Body Limit" description="Reject request bodies above a configured size." href="/middleware/body-limit/" />
-  <LinkCard title="Context Timeout" description="Attach a deadline to the remaining handler chain." href="/middleware/context-timeout/" />
-  <LinkCard title="Rate Limiter" description="Apply token-bucket limits by app, IP, or custom key." href="/middleware/rate-limiter/" />
+  <LinkCard title="Request ID" description="requestid: generate or propagate an X-Request-ID value." href="/middleware/requestid/" />
+  <LinkCard title="Request Logger" description="logger: one slog line per request, with status, latency, and route." href="/middleware/logger/" />
+  <LinkCard title="Recover" description="recover: return panics through Zinc's normal error path." href="/middleware/recover/" />
+  <LinkCard title="Secure Headers" description="secure: practical browser security response headers." href="/middleware/secure/" />
+  <LinkCard title="CORS" description="cors: control browser origins and preflight requests." href="/middleware/cors/" />
+  <LinkCard title="Body Limit" description="bodylimit: reject request bodies above a configured size." href="/middleware/bodylimit/" />
+  <LinkCard title="Context Timeout" description="timeout: attach a deadline to the remaining handler chain." href="/middleware/timeout/" />
+  <LinkCard title="Rate Limiter" description="limiter: token-bucket limits by app, IP, or custom key, and concurrency caps." href="/middleware/limiter/" />
+  <LinkCard title="Health Check" description="healthcheck: answer load balancer probes before routing." href="/middleware/healthcheck/" />
 </CardGrid>
 
 ## Identity and access
 
 <CardGrid>
-  <LinkCard title="Basic Auth" description="Protect a small internal or administrative surface." href="/middleware/basic-auth/" />
-  <LinkCard title="Key Auth" description="Read opaque API keys from headers, queries, or cookies." href="/middleware/key-auth/" />
-  <LinkCard title="JWT" description="Validate bearer tokens and expose typed claims." href="/middleware/jwt/" />
-  <LinkCard title="Session" description="Store small signed session values in cookies." href="/middleware/session/" />
-  <LinkCard title="CSRF" description="Protect cookie-authenticated browser requests." href="/middleware/csrf/" />
-  <LinkCard title="Casbin Auth" description="Delegate authorization to a Casbin-compatible enforcer." href="/middleware/casbin-auth/" />
-  <LinkCard title="Header Guards" description="Require content types or match custom request headers." href="/middleware/header-guards/" />
+  <LinkCard title="Basic Auth" description="basicauth: protect a small internal or administrative surface." href="/middleware/basicauth/" />
+  <LinkCard title="Key Auth" description="keyauth: read opaque API keys from headers, queries, or cookies." href="/middleware/keyauth/" />
+  <LinkCard title="JWT" description="contrib/jwtauth: validate bearer tokens and expose typed claims." href="/middleware/jwtauth/" />
+  <LinkCard title="Session" description="session: store small signed values in a cookie." href="/middleware/session/" />
+  <LinkCard title="CSRF" description="csrf: protect cookie-authenticated browser requests." href="/middleware/csrf/" />
+  <LinkCard title="Casbin Auth" description="casbin: delegate authorization to a Casbin-compatible enforcer." href="/middleware/casbin/" />
+  <LinkCard title="Content Type" description="contenttype: accept only the media types and codings you expect." href="/middleware/contenttype/" />
 </CardGrid>
 
 ## Delivery and observability
 
 <CardGrid>
-  <LinkCard title="Gzip" description="Compress responses when the client accepts gzip." href="/middleware/gzip/" />
-  <LinkCard title="Decompress" description="Decode gzip request bodies before handlers read them." href="/middleware/decompress/" />
-  <LinkCard title="Static" description="Serve static files from middleware." href="/middleware/static/" />
-  <LinkCard title="Proxy" description="Reverse proxy requests with net/http/httputil." href="/middleware/proxy/" />
-  <LinkCard title="Prometheus" description="Expose request counters and duration metrics." href="/middleware/prometheus/" />
+  <LinkCard title="Compress" description="compress: gzip responses when the client accepts it." href="/middleware/compress/" />
+  <LinkCard title="Decompress" description="decompress: decode gzip request bodies before handlers read them." href="/middleware/decompress/" />
+  <LinkCard title="Headers" description="headers: set static response headers and route by request header." href="/middleware/headers/" />
+  <LinkCard title="No Cache" description="nocache: stop browsers and proxies from caching responses." href="/middleware/nocache/" />
+  <LinkCard title="Proxy" description="proxy: reverse proxy requests with net/http/httputil." href="/middleware/proxy/" />
+  <LinkCard title="Prometheus" description="prometheus: expose request counters and duration metrics." href="/middleware/prometheus/" />
   <LinkCard title="OpenTelemetry" description="Trace Zinc requests with standard OTel tooling." href="/middleware/open-telemetry/" />
-  <LinkCard title="Jaeger" description="Propagate Uber-Trace-Id and observe spans." href="/middleware/jaeger/" />
-  <LinkCard title="pprof" description="Mount standard-library profiling routes." href="/middleware/pprof/" />
-  <LinkCard title="Body Dump" description="Capture request and response bodies for deliberate debugging." href="/middleware/body-dump/" />
+  <LinkCard title="pprof" description="pprof: mount standard-library profiling routes." href="/middleware/pprof/" />
+  <LinkCard title="Body Dump" description="bodydump: capture request and response bodies for deliberate debugging." href="/middleware/bodydump/" />
 </CardGrid>
 
 ## Request shaping
 
 <CardGrid>
-  <LinkCard title="Rewrite" description="Change a request path before route dispatch." href="/middleware/rewrite/" />
-  <LinkCard title="Redirect" description="Redirect exact and wildcard paths." href="/middleware/redirect/" />
-  <LinkCard title="Method Override" description="Tunnel PUT, PATCH, or DELETE through POST." href="/middleware/method-override/" />
-  <LinkCard title="Trailing Slash" description="Add, remove, or redirect slash variants." href="/middleware/trailing-slash/" />
-  <LinkCard title="Utility" description="Throttle, heartbeat, no-cache, conditional, real-IP, and header helpers." href="/middleware/utility/" />
+  <LinkCard title="Rewrite" description="rewrite: change a request path before route dispatch." href="/middleware/rewrite/" />
+  <LinkCard title="Redirect" description="redirect: redirect exact and wildcard paths." href="/middleware/redirect/" />
+  <LinkCard title="Method Override" description="methodoverride: tunnel PUT, PATCH, or DELETE through POST." href="/middleware/methodoverride/" />
+  <LinkCard title="Trailing Slash" description="trailingslash: add, remove, or redirect slash variants." href="/middleware/trailingslash/" />
 </CardGrid>
+
+Static files are served by the app itself; see [Static Files](/guide/static-files/).
 
 ## Put middleware where it belongs
 
 Use app middleware for every request:
 
 ```go
-app.Use(middleware.RequestID(), middleware.RequestLogger())
+app.Use(requestid.New(), logger.New())
 ```
 
 Use group middleware for a route family:
 
 ```go
-api := app.Group("/api")
-api.Use(middleware.JWT(keyFunc))
+api := app.Group("/api", keyauth.New(keyauth.Config{Validator: validateKey}))
 ```
 
 Use route middleware for one endpoint:
 
 ```go
-app.Post("/exports", middleware.RateLimiter(), startExport)
+app.Post("/exports", limiter.Concurrency(2), startExport)
 ```
 
-Read [Groups and Middleware](/guide/groups-and-middleware/) for execution order
-and `c.Next()`, or [Errors](/guide/errors/) for returned middleware errors.
+Leave some requests out with `zinc.Skip`, which runs the middleware unless the predicate reports true:
+
+```go
+app.Use(zinc.Skip(func(c *zinc.Context) bool {
+	return c.Path() == "/healthz"
+}, logger.New()))
+```
+
+Read [Groups and Middleware](/guide/groups-and-middleware/) for execution order and `c.Next()`, or [Errors](/guide/errors/) for returned middleware errors.
+
+## Contrib
+
+Middleware with third-party dependencies lives in its own repository, [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib), so Zinc's module needs nothing beyond the standard library. Each contrib package is a separate Go module, versioned on its own:
+
+| Package | Depends on |
+|---|---|
+| [`github.com/0mjs/contrib/jwtauth`](/middleware/jwtauth/) | `github.com/golang-jwt/jwt/v5` |

@@ -5,7 +5,7 @@ description: Answers to common questions about Zinc, including how it compares, 
 
 ## What is Zinc?
 
-A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 29 first-party middleware. It does not replace the standard HTTP server, request, or response writer.
+A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 27 first-party middleware packages. It does not replace the standard HTTP server, request, or response writer.
 
 ## How does it compare with Gin, Echo, and Chi?
 

@@ -123,7 +123,7 @@ app.Get("/report", func(c *zinc.Context) error {
 })
 ```
 
-Middleware can attach values or a tighter deadline with `c.SetContext(ctx)`. [Context Timeout](/middleware/context-timeout/) does exactly that.
+Middleware can attach values or a tighter deadline with `c.SetContext(ctx)`. [Context Timeout](/middleware/timeout/) does exactly that.
 
 ## The underlying request
 

@@ -76,6 +76,26 @@ npm run build
 
 Do not commit generated site output, local benchmark binaries, coverage files, or editor settings.
 
+## Middleware
+
+First-party middleware lives in `middleware/<name>`, one package per middleware, named with one lowercase word. Each package:
+
+- has a `New` function that takes an optional `Config`, whose zero value means the defaults
+- names things without repeating the package: `cors.Config`, not `cors.CORSConfig`
+- exposes request state through `Get` and, where useful, `MustGet`
+- depends only on Zinc and the standard library
+
+Middleware that needs a third-party library goes to [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib) instead, so Zinc's own module stays free of dependencies. Each contrib package is its own Go module with its own `go.mod`, tagged with a path prefix (`jwtauth/v0.4.0`), and versioned independently of Zinc. A contrib release states the Zinc versions it supports in its `go.mod` requirement. Name a contrib package so it does not clash with the library it wraps: `jwtauth`, not `jwt`.
+
+Until Zinc 0.4.0 is tagged, contrib modules build against a sibling checkout of Zinc through a `replace` directive, so clone both repositories into the same directory:
+
+```sh
+git clone https://github.com/0mjs/zinc.git
+git clone https://github.com/0mjs/contrib.git
+cd contrib/jwtauth
+go test ./...
+```
+
 ## Performance changes
 
 The comparison suite is a separate Go module under `benchmarks/`.

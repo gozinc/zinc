@@ -30,7 +30,7 @@ import (
 	"strings"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/bodylimit"
 )
 
 type event struct {
@@ -55,7 +55,7 @@ func main() {
 
 	app := zinc.New()
 	app.Post("/webhooks/billing",
-		middleware.BodyLimit(1<<20),
+		bodylimit.New(bodylimit.Config{Limit: bodylimit.MB}),
 		func(c *zinc.Context) error {
 			body, err := c.BodyBytes()
 			if err != nil {

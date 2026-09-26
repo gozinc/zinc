@@ -60,4 +60,4 @@ To give every cookie a default `SameSite` mode, set `Config.CookieSameSite`. It 
 
 - [Session](/middleware/session/) stores small signed values in a cookie.
 - [CSRF](/middleware/csrf/) protects cookie-authenticated forms and requests.
-- [JWT](/middleware/jwt/) and [Key Auth](/middleware/key-auth/) can read tokens from cookies.
+- [JWT](/middleware/jwtauth/) and [Key Auth](/middleware/keyauth/) can read tokens from cookies.

@@ -24,6 +24,10 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | A `Validator` | Failures answer 422 instead of 500 | [Validation errors](#validation-errors) |
 | `c.Fail`, `c.AbortWithStatus`, `c.AbortWithJSON`, `c.Error` | Removed or renamed | [Context error helpers](#context-error-helpers) |
 | `middleware.RateLimiter` with the default handler | It returns a 429 error instead of writing text | [JSON error bodies](#json-error-bodies) |
+| Anything from `github.com/0mjs/zinc/middleware` | Each middleware is its own package with `New(config ...Config)` | [Middleware packages](#middleware-packages) |
+| `Skipper` fields, `middleware.Maybe` | `zinc.Skip` wraps any middleware | [Middleware packages](#middleware-packages) |
+| `middleware.JWT` | Moved to `github.com/0mjs/contrib/jwtauth` | [Middleware packages](#middleware-packages) |
+| `middleware.Static`, `middleware.Jaeger`, `middleware.RealIP` | Removed | [Middleware packages](#middleware-packages) |
 | `zinc.DefaultConfig`, `zinc.NewWithConfig` | Removed: pass a `Config` literal to `zinc.New` | [Configuration](#configuration) |
 | `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed` | Renamed and inverted: `DisableAutoHead` and friends | [Configuration](#configuration) |
 | `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1` | [Configuration](#configuration) |
@@ -252,7 +256,7 @@ user := zinc.MustValue[*User](c, userKey)  // replaces c.MustGet(userKey).(*User
 | `c.PostFormOr(name, fallback)` | `zinc.FormOr(c, name, fallback)` |
 | `c.PostFormArray`, `c.PostFormMap` | Bind the form into a struct with `c.Bind().Form(&v)` |
 | `c.GetHeader(name)` | `c.Header(name)` |
-| `c.RequestID()` | `middleware.RequestIDValue(c)`, or `c.Header(zinc.HeaderXRequestID)` |
+| `c.RequestID()` | `requestid.Get(c)`, or `c.Header(zinc.HeaderXRequestID)` |
 
 `c.FormValue` and `zinc.Form` follow `http.Request.FormValue`: a body value wins, and the query string is a fallback. `c.PostForm` read only the body.
 
@@ -304,6 +308,87 @@ app.Get("/users/{id}", showUser).Name("users.show")
 Standard middleware can now run on a group or a single route, not only the whole app: `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)`. See [Zinc and net/http](/guide/http-interoperability/).
 
 The router's internal types are no longer exported: `Router`, `Route` (the old static-route entry), `RouteMap`, `RouteHandlerMap`, and `RouteCache`. `zinc.Route` is now the handle registration returns.
+
+## Middleware packages
+
+The single `middleware` package is now one package per middleware, in the style of Fiber: `github.com/0mjs/zinc/middleware/cors`, `.../logger`, and so on. Each has a `New` function that takes an optional `Config`, whose zero value means the defaults. The `XWithConfig` constructors, the `DefaultXConfig` functions, and the shorthand constructors are gone, and names lose their prefix inside their package: `middleware.CORSConfig` is `cors.Config`, `middleware.ErrBasicAuthCredentialsMissing` is `basicauth.ErrCredentialsMissing`.
+
+```go
+// 0.3
+app.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover())
+app.Use(middleware.CORS("https://app.example.com"))
+
+// 0.4
+app.Use(requestid.New(), logger.New(), recover.New())
+app.Use(cors.New(cors.Config{AllowOrigins: []string{"https://app.example.com"}}))
+```
+
+| 0.3 | 0.4 |
+|---|---|
+| `BasicAuth(v)`, `BasicAuthWithConfig(cfg)` | `basicauth.New(basicauth.Config{Validator: v})` |
+| `BasicAuthCurrent(c)`, `BasicAuthUsername(c)` | `basicauth.Get(c)`, then `.Username` |
+| `BodyDump(observe)` | `bodydump.New(bodydump.Config{Observe: observe})` |
+| `BodyLimit(n)` | `bodylimit.New(bodylimit.Config{Limit: n})` |
+| `CasbinAuth(e, subject)` | `casbin.New(casbin.Config{Enforcer: e, Subject: subject})` |
+| `ContextTimeout(d)` | `timeout.New(timeout.Config{Timeout: d})` |
+| `ContextTimeoutCurrent(c)`, `ErrContextTimeout` | `timeout.Get(c)`, `timeout.ErrExceeded` |
+| `CORS(origins...)`, `CORSWithOptions(...)` | `cors.New(cors.Config{AllowOrigins: origins})` |
+| `CSRF()`, `CSRFToken(c)` | `csrf.New()`, `csrf.Token(c)` |
+| `Decompress()` | `decompress.New()` |
+| `Gzip()`, `GzipWithConfig(cfg)` | `compress.New()`, `compress.New(compress.Config{...})` |
+| `KeyAuth(v)`, `KeyAuthCurrent(c)` | `keyauth.New(keyauth.Config{Validator: v})`, `keyauth.Get(c)` |
+| `MethodOverride()` | `methodoverride.New()` |
+| `Pprof()`, `PprofWithPrefix(p)` | `pprof.New()`, `pprof.New(pprof.Config{Prefix: p})` |
+| `Prometheus(m)`, `PrometheusHandler(m)`, `NewPrometheusMetrics()` | `prometheus.New(prometheus.Config{Metrics: m})`, `prometheus.Handler(m)`, `prometheus.NewMetrics(0)` |
+| `Proxy(url)` | `proxy.New(proxy.Config{Target: url})` |
+| `ProxyConfig.Modify` | `proxy.Config.ModifyResponse` |
+| `RateLimiter(cfg)`, `IPRateLimiter(rate, burst)` | `limiter.New(limiter.Config{Rate: rate, Capacity: burst, Key: (*zinc.Context).IP})` |
+| `RateLimiterConfig.KeyGenerator`, `IPLookup` | `limiter.Config.Key` |
+| `RateLimiterConfig.LimitReachedHandler`, `StatusCode` | `limiter.Config.LimitReached` |
+| `Throttle(n)` | `limiter.Concurrency(n)` |
+| `Recover()` | `recover.New()` |
+| `Redirect(from, to)`, `RedirectWithRules(rules)` | `redirect.New(redirect.Config{Rules: rules})` |
+| `RequestID()`, `RequestIDValue(c)` | `requestid.New()`, `requestid.Get(c)` |
+| `RequestIDConfig.Generator`, `StaticRequestID(id)` | `requestid.Config.Generate`, `requestid.Static(id)` |
+| `RequestLogger()`, `Logger()` | `logger.New()` |
+| `Rewrite(from, to)`, `RewriteWithRules(rules)` | `rewrite.New(rewrite.Config{Rules: rules})` |
+| `Secure()` | `secure.New()` |
+| `SessionCookie(name, secret)`, `MustSession(c)` | `session.New(session.Config{Name: name, Secret: secret})`, `session.MustGet(c)` |
+| `SessionConfig.HTTPOnly` | Always on unless `session.Config.DisableHTTPOnly` |
+| `TrailingSlash()`, `AddTrailingSlash()` | `trailingslash.New()`, `trailingslash.New(trailingslash.Config{Add: true})` |
+| `NoCache()` | `nocache.New()` |
+| `Heartbeat(path)` | `healthcheck.New(healthcheck.Config{Path: path})`, which also takes a `Check` |
+| `AllowContentType(types...)`, `AllowContentEncoding(encs...)` | `contenttype.New(contenttype.Config{Types: types, Encodings: encs})` |
+| `SetHeader(k, v)`, `RouteHeaders(routes...)` | `headers.New(headers.Config{Set: map[string]string{k: v}, Routes: routes})` |
+| `Maybe(pred, mw)` | `zinc.Skip(func(c *zinc.Context) bool { return !pred(c) }, mw)` |
+
+Accessors are `Get` and `MustGet` in every package that publishes request state. The named `ErrorHandler` types are plain `func` fields now, which you set the same way.
+
+### The request logger
+
+`logger.Config` has four fields: `Logger`, `Log` (formerly `LogValuesFunc`), `Headers`, and `QueryParams` (formerly `LogHeaders` and `LogQueryParams`). The twelve `LogX` switches are gone: every field of `logger.Values` is always filled, and the default line includes the route pattern. `HandleError` is gone too, because returned errors always go through the error handler before the line is written. `BeforeNextFunc` is gone; put that code in a middleware registered before the logger.
+
+### Skipping middleware
+
+Every `Skipper` field is removed. Wrap the middleware with `zinc.Skip`, which works with any middleware, including your own:
+
+```go
+// 0.3
+app.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+	Skipper: func(c *zinc.Context) bool { return c.Path() == "/healthz" },
+}))
+
+// 0.4
+app.Use(zinc.Skip(func(c *zinc.Context) bool { return c.Path() == "/healthz" }, logger.New()))
+```
+
+### Moved and removed
+
+- **JWT** depends on golang-jwt, so it moved to its own module, `github.com/0mjs/contrib/jwtauth`, and Zinc's `go.mod` no longer requires it. The package is named `jwtauth` so it does not clash with golang-jwt, which you import for the token type. The API follows the same shape: `jwtauth.New(jwtauth.Config{KeyFunc: ...})`, `jwtauth.Claims[T](c)`, and `jwtauth.Get(c)` for the token, whose `Raw` field replaces `JWTTokenString`.
+- **Gzip** is now the `compress` package, so it does not clash with the standard library's `compress/gzip`.
+- **Static middleware** is removed; `app.Static` and `app.StaticFS` serve files. To serve files on the same paths as routes, see [Static Files](/guide/static-files/#files-and-routes-on-the-same-paths).
+- **Jaeger** is removed. Use [OpenTelemetry](/middleware/open-telemetry/), which exports to Jaeger.
+- **RealIP** is removed. It rewrote `RemoteAddr` from `c.IP()`, which Zinc already computes from `TrustedProxies`; read `c.IP()` instead.
 
 ## New: typed handlers
 

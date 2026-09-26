@@ -1,8 +1,6 @@
 package zinc_test
 
 import (
-	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/middleware/rewrite"
 )
 
 func TestNestedGroupFileHelpersPreserveMiddleware(t *testing.T) {
@@ -71,7 +72,7 @@ func TestNestedGroupFileHelpersPreserveMiddleware(t *testing.T) {
 func TestPrefixRewriteRechecksEarlierScopes(t *testing.T) {
 	app := zinc.New()
 	app.UsePrefix("/private", func(c *zinc.Context) error { return zinc.ErrUnauthorized })
-	app.UsePrefix("/public", middleware.Rewrite("/public", "/private"))
+	app.UsePrefix("/public", rewrite.New(rewrite.Config{Rules: map[string]string{"/public": "/private"}}))
 	app.Get("/private", func(c *zinc.Context) error { return c.String("secret") })
 	if w := hardeningRequest(app, "GET", "/public"); w.Code != 401 {
 		t.Fatalf("status %d", w.Code)
@@ -144,7 +145,7 @@ func TestStaticUsesSamePathAsPrefixAuthentication(t *testing.T) {
 
 func TestPrefixAuthenticationUsesRewrittenPath(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.Rewrite("/public-alias", "/private/secret"))
+	app.Use(rewrite.New(rewrite.Config{Rules: map[string]string{"/public-alias": "/private/secret"}}))
 	app.UsePrefix("/private", func(c *zinc.Context) error { return zinc.ErrUnauthorized })
 	app.Get("/private/secret", func(c *zinc.Context) error { return c.String("secret") })
 	w := hardeningRequest(app, "GET", "/public-alias")

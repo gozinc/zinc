@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/proxy"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	app := zinc.New()
 	app.UsePrefix(
 		"/api",
-		middleware.ProxyWithConfig(middleware.ProxyConfig{
+		proxy.New(proxy.Config{
 			Target: "http://127.0.0.1:9000",
 			Rewrite: map[string]string{
 				"/api/*": "/*",

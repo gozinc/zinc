@@ -14,17 +14,14 @@ import (
 	"time"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/timeout"
 )
 
 func main() {
 	app := zinc.New()
-	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
-		Timeout: 3 * time.Second,
-		Skipper: func(c *zinc.Context) bool {
-			return c.Path() == "/events"
-		},
-	}))
+	app.Use(zinc.Skip(func(c *zinc.Context) bool {
+		return c.Path() == "/events"
+	}, timeout.New(timeout.Config{Timeout: 3 * time.Second})))
 
 	app.Get("/report", func(c *zinc.Context) error {
 		select {

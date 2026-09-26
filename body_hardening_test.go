@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
-	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/middleware/bodylimit"
+	"github.com/0mjs/zinc/middleware/decompress"
 )
 
 func TestBindingBodyBudgetAcrossFormSources(t *testing.T) {
@@ -103,7 +105,7 @@ func TestDefaultDecompressionBudgetAppliesToRawReaders(t *testing.T) {
 	cfg := zinc.Config{}
 	cfg.BodyLimit = 64
 	app := zinc.New(cfg)
-	app.Use(middleware.Decompress())
+	app.Use(decompress.New())
 	app.Post("/", func(c *zinc.Context) error { _, err := io.ReadAll(c.Request().Body); return err })
 	r := httptest.NewRequest("POST", "/", bytes.NewReader(compressed.Bytes()))
 	r.Header.Set("Content-Encoding", "gzip")
@@ -166,7 +168,7 @@ func TestFormBindingHonorsBodyLimit(t *testing.T) {
 
 func TestBodyLimitAcceptsExactBoundary(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.BodyLimit(4))
+	app.Use(bodylimit.New(bodylimit.Config{Limit: 4}))
 	app.Post("/", func(c *zinc.Context) error {
 		_, err := c.BodyBytes()
 		if err != nil {

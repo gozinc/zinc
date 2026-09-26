@@ -3,24 +3,24 @@ title: Redirect
 description: Redirect exact or wildcard paths before route dispatch.
 ---
 
-`Redirect` sends clients from an old path to a new one, before routing. Use it for moved pages and renamed API prefixes.
+`redirect` sends clients from an old path to a new one, before routing. Use it for moved pages and renamed API prefixes.
 
 ```go
-app.Use(middleware.Redirect("/old", "/new"))
-```
+import "github.com/0mjs/zinc/middleware/redirect"
 
-Pass a status code when the default `301 Moved Permanently` is not right.
-
-```go
-app.Use(middleware.Redirect("/login", "/signin", zinc.StatusTemporaryRedirect))
-```
-
-Wildcard redirects are supported through `RedirectWithRules`.
-
-```go
-app.Use(middleware.RedirectWithRules(map[string]string{
+app.Use(redirect.New(redirect.Config{Rules: map[string]string{
+	"/old":  "/new",
 	"/v1/*": "/api/v1/*",
+}}))
+```
+
+A rule ending in `*` matches a prefix, and a `*` in the target is replaced by the rest of the path. Query strings are preserved.
+
+Set `StatusCode` when the default `301 Moved Permanently` is not right:
+
+```go
+app.Use(redirect.New(redirect.Config{
+	Rules:      map[string]string{"/login": "/signin"},
+	StatusCode: zinc.StatusTemporaryRedirect,
 }))
 ```
-
-Query strings are preserved.

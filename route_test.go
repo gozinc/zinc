@@ -182,3 +182,20 @@ type discardWriter struct{ header http.Header }
 func (w *discardWriter) Header() http.Header         { return w.header }
 func (w *discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 func (w *discardWriter) WriteHeader(int)             {}
+
+func TestSkip(t *testing.T) {
+	app := New()
+	app.Use(Skip(func(c *Context) bool { return c.Path() == "/health" }, func(c *Context) error {
+		c.SetHeader("X-Ran", "yes")
+		return c.Next()
+	}))
+	app.Get("/health", func(c *Context) error { return c.NoContent() })
+	app.Get("/api", func(c *Context) error { return c.NoContent() })
+	for path, want := range map[string]string{"/health": "", "/api": "yes"} {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest(MethodGet, path, nil))
+		if got := rec.Header().Get("X-Ran"); got != want {
+			t.Errorf("%s: X-Ran=%q, want %q", path, got, want)
+		}
+	}
+}

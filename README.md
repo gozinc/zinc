@@ -29,7 +29,8 @@ import (
 	"net/http"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/recover"
+	"github.com/0mjs/zinc/middleware/requestid"
 )
 
 type User struct {
@@ -41,7 +42,7 @@ var users = map[string]User{"42": {ID: "42", Name: "Ada"}}
 
 func main() {
 	app := zinc.New()
-	app.Use(middleware.Recover(), middleware.RequestID())
+	app.Use(recover.New(), requestid.New())
 
 	api := app.Group("/api")
 
@@ -125,15 +126,15 @@ Inside a handler, `c.Request()` and `c.Writer()` give you the underlying request
 
 ## Middleware
 
-Import from `github.com/0mjs/zinc/middleware`.
+Each middleware is its own package under `github.com/0mjs/zinc/middleware`, with a `New` function that takes an optional `Config`, and none adds a dependency. Middleware that needs a third-party library lives in [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib).
 
-| Family | Middleware, in chain order |
+| Family | Packages, in chain order |
 | --- | --- |
-| Observe | OpenTelemetry, Request ID, Request Logger, Prometheus, Jaeger, Body Dump |
-| Contain | Recover, Context Timeout, Body Limit, Rate Limiter, Utility |
-| Shape | Redirect, Trailing Slash, Rewrite, Method Override |
-| Guard | Secure Headers, CORS, Header Guards, Session, CSRF, Basic Auth, Key Auth, JWT, Casbin |
-| Carry | Decompress, Gzip, Static, Proxy, pprof |
+| Observe | OpenTelemetry, `requestid`, `logger`, `prometheus`, `healthcheck`, `bodydump` |
+| Contain | `recover`, `timeout`, `bodylimit`, `limiter` |
+| Shape | `redirect`, `trailingslash`, `rewrite`, `methodoverride` |
+| Guard | `secure`, `cors`, `contenttype`, `session`, `csrf`, `basicauth`, `keyauth`, `casbin`, contrib `jwtauth` |
+| Carry | `decompress`, `compress`, `nocache`, `headers`, `proxy`, `pprof` |
 
 OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middleware docs](https://zinc.carbonsoft.sh/middleware/overview/) cover configuration for each.
 

@@ -3,10 +3,12 @@ title: Secure Headers
 description: Set common security response headers.
 ---
 
-`Secure` adds response headers that switch on browser protections against content sniffing, clickjacking, and referrer leaks. It is cheap and belongs in almost every app.
+`secure` adds response headers that switch on browser protections against content sniffing, clickjacking, and referrer leaks. It is cheap and belongs in almost every app.
 
 ```go
-app.Use(middleware.Secure())
+import "github.com/0mjs/zinc/middleware/secure"
+
+app.Use(secure.New())
 ```
 
 Defaults include:
@@ -17,10 +19,10 @@ Defaults include:
 - `Referrer-Policy: no-referrer`
 - `Cross-Origin-Resource-Policy: same-origin`
 
-Use `SecureWithConfig` to add CSP or HSTS.
+Set a field in `secure.Config` to add a header or change a default; fields you leave empty keep their defaults.
 
 ```go
-app.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+app.Use(secure.New(secure.Config{
 	ContentSecurityPolicy: "default-src 'self'",
 	HSTSMaxAge:            31536000,
 }))

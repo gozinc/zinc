@@ -64,9 +64,19 @@ app.Mount("/files", http.FileServer(http.Dir("./shared"))) // Mount strips "/fil
 
 Prefer `Static` and `StaticFS` in new code. They reject methods other than `GET` and `HEAD`, never list directories unless asked, and serve an index file by default.
 
-## Static middleware
+## Files and routes on the same paths
 
-The [Static middleware](/middleware/static/) serves files from `app.Use` and falls through to your routes when a file does not exist. It suits apps where files and routes share the same paths.
+When files and routes share paths, let routes match first and serve files for everything else from the not-found handler:
+
+```go
+files := http.FileServerFS(os.DirFS("./public"))
+app.NotFound(func(c *zinc.Context) error {
+	files.ServeHTTP(c.Writer(), c.Request())
+	return nil
+})
+```
+
+`http.FileServer` answers 404 for missing files, but unlike `Static` it lists directories without an index file, so keep such directories out of `./public`.
 
 ## Next steps
 

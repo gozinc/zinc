@@ -33,7 +33,7 @@ The module path names your project. Use your repository path, such as `github.co
 go get github.com/0mjs/zinc
 ```
 
-This records Zinc in `go.mod` and `go.sum`. The first-party middleware package ships in the same module, so there is nothing else to install.
+This records Zinc in `go.mod` and `go.sum`. The first-party middleware packages ship in the same module, so there is nothing else to install.
 
 ## 3. Write the server
 
@@ -46,15 +46,16 @@ import (
 	"log"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/logger"
+	"github.com/0mjs/zinc/middleware/recover"
 )
 
 func main() {
 	app := zinc.New()
 
 	app.Use(
-		middleware.RequestLogger(),
-		middleware.Recover(),
+		logger.New(),
+		recover.New(),
 	)
 
 	app.Get("/", func(c *zinc.Context) error {

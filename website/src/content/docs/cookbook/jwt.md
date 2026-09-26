@@ -5,6 +5,12 @@ description: Protect Zinc routes with signed bearer tokens and read typed claims
 
 Protect a group of routes with signed JSON Web Tokens, and read the token's claims in handlers. Requests without a valid `Authorization: Bearer <token>` header get `401`.
 
+The JWT middleware depends on [golang-jwt](https://github.com/golang-jwt/jwt), so it lives in Zinc's contrib repository:
+
+```bash
+go get github.com/0mjs/contrib/jwtauth
+```
+
 ```go
 package main
 
@@ -13,9 +19,9 @@ import (
 	"log"
 	"os"
 
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/0mjs/contrib/jwtauth"
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func main() {
@@ -25,18 +31,18 @@ func main() {
 		log.Fatal("JWT_SECRET must be at least 32 bytes")
 	}
 
-	api := app.Group("/api", middleware.JWT(
-		func(_ *zinc.Context, token *jwt.Token) (any, error) {
+	api := app.Group("/api", jwtauth.New(jwtauth.Config{
+		KeyFunc: func(_ *zinc.Context, token *jwt.Token) (any, error) {
 			// Accept only the algorithm you sign with.
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method %v", token.Header["alg"])
 			}
 			return secret, nil
 		},
-	))
+	}))
 
 	api.Get("/me", func(c *zinc.Context) error {
-		claims, ok := middleware.JWTClaims[jwt.MapClaims](c)
+		claims, ok := jwtauth.Claims[jwt.MapClaims](c)
 		if !ok {
 			return zinc.NewError(zinc.StatusUnauthorized)
 		}
@@ -47,4 +53,4 @@ func main() {
 }
 ```
 
-The default extractor expects `Authorization: Bearer <token>`. Zinc also provides extractors for custom headers, cookies, query parameters, and fallback chains. See [JWT middleware](/middleware/jwt/).
+The default extractor expects `Authorization: Bearer <token>`. The package also provides extractors for custom headers, cookies, query parameters, and fallback chains. See [JWT middleware](/middleware/jwtauth/).
