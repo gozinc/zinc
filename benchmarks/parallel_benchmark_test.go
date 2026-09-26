@@ -4,9 +4,11 @@
 package benchmarks
 
 import (
+	"github.com/uptrace/bunrouter"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -334,7 +336,7 @@ func BenchmarkParallelRouteSetTraffic(b *testing.B) {
 		route := routes[picks[i]]
 		return route.method, poolPath(route.pattern, i)
 	})
-	runServeHTTPParallelBenchmarksWithProof(b, pool, scenarioCases(github), nil)
+	runServeHTTPParallelBenchmarksWithProof(b, pool, parallelScenarioCases(github), nil)
 }
 
 func BenchmarkParallelMiddlewareChain(b *testing.B) {
@@ -349,4 +351,116 @@ func BenchmarkParallelAPIHappyPath(b *testing.B) {
 	runServeHTTPParallelBenchmarksWithProof(b, pool, parallelAPIHappyPathCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse)
 	})
+}
+
+// parallelScenarioCases are scenarioCases for parallel runs. The serial
+// scenario handlers record the parameters they read in shared sinks, which
+// would race across goroutines; these read the same parameters and use the
+// sum locally instead. (A sum is never negative, so the error branch never
+// runs, but the compiler can't drop the reads.)
+func parallelScenarioCases(scenario benchmarkScenario) []benchmarkCase {
+	routes := scenario.routes
+	bad := func(sum int) bool { return sum < 0 }
+	return []benchmarkCase{
+		{name: "Zinc", build: func() http.Handler {
+			app := newZincErrorBenchmarkApp()
+			for _, route := range routes {
+				names := route.paramNames
+				app.Add(route.method, route.zincPattern, func(c *Context) error {
+					sum := 0
+					for _, name := range names {
+						if name == "*" {
+							name = "tail"
+						}
+						sum += len(c.Param(name))
+					}
+					if bad(sum) {
+						return c.String("BAD")
+					}
+					return c.String(benchmarkOKResponse)
+				})
+			}
+			return app
+		}},
+		{name: "Chi", build: func() http.Handler {
+			r := newChiErrorBenchmarkRouter()
+			for _, route := range routes {
+				names := route.paramNames
+				r.MethodFunc(route.method, route.chiPattern, func(w http.ResponseWriter, req *http.Request) {
+					sum := 0
+					for _, name := range names {
+						sum += len(chi.URLParam(req, name))
+					}
+					if bad(sum) {
+						writeText(w, "BAD")
+						return
+					}
+					writeText(w, benchmarkOKResponse)
+				})
+			}
+			return r
+		}},
+		{name: "Echo", build: func() http.Handler {
+			e := newEchoErrorBenchmarkApp()
+			for _, route := range routes {
+				names := route.paramNames
+				e.Add(route.method, route.pattern, func(c *echo.Context) error {
+					sum := 0
+					for _, name := range names {
+						sum += len(c.Param(name))
+					}
+					if bad(sum) {
+						return c.String(http.StatusOK, "BAD")
+					}
+					return c.String(http.StatusOK, benchmarkOKResponse)
+				})
+			}
+			return e
+		}},
+		{name: "Gin", build: func() http.Handler {
+			r := newGinErrorBenchmarkRouter()
+			for _, route := range routes {
+				names := route.paramNames
+				r.Handle(route.method, route.ginPattern, func(c *gin.Context) {
+					sum := 0
+					for _, name := range names {
+						if name == "*" {
+							sum += len(strings.TrimPrefix(c.Param("tail"), "/"))
+							continue
+						}
+						sum += len(c.Param(name))
+					}
+					if bad(sum) {
+						c.String(http.StatusOK, "BAD")
+						return
+					}
+					c.String(http.StatusOK, benchmarkOKResponse)
+				})
+			}
+			return r
+		}},
+		{name: "BunRouter", build: func() http.Handler {
+			a := newBunApp()
+			for _, route := range routes {
+				names := route.paramNames
+				a.handle(route.method, route.ginPattern, func(w http.ResponseWriter, req bunrouter.Request) error {
+					sum := 0
+					for _, name := range names {
+						if name == "*" {
+							sum += len(strings.TrimPrefix(req.Param("tail"), "/"))
+							continue
+						}
+						sum += len(req.Param(name))
+					}
+					if bad(sum) {
+						writeText(w, "BAD")
+						return nil
+					}
+					writeText(w, benchmarkOKResponse)
+					return nil
+				})
+			}
+			return a
+		}},
+	}
 }
