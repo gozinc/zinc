@@ -24,6 +24,11 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | A `Validator` | Failures answer 422 instead of 500 | [Validation errors](#validation-errors) |
 | `c.Fail`, `c.AbortWithStatus`, `c.AbortWithJSON`, `c.Error` | Removed or renamed | [Context error helpers](#context-error-helpers) |
 | `middleware.RateLimiter` with the default handler | It returns a 429 error instead of writing text | [JSON error bodies](#json-error-bodies) |
+| `zinc.DefaultConfig`, `zinc.NewWithConfig` | Removed: pass a `Config` literal to `zinc.New` | [Configuration](#configuration) |
+| `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed` | Renamed and inverted: `DisableAutoHead` and friends | [Configuration](#configuration) |
+| `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1` | [Configuration](#configuration) |
+| A goroutine calling `Listen` plus `Shutdown` on a signal | `ListenContext` does both | [Graceful shutdown](#graceful-shutdown) |
+| `zinc.GetVersion()`, `zinc.GetVersionHeader()` | Removed: use `zinc.Version` | [Configuration](#configuration) |
 
 ## Group middleware order
 
@@ -171,3 +176,46 @@ cfg.ErrorHandler = func(c *zinc.Context, err error) {
 	zinc.DefaultErrorHandler(c, err)
 }
 ```
+
+## Configuration
+
+**A zero-value `Config` now means the defaults.** In 0.3, a literal such as `zinc.Config{BodyLimit: 16 << 20}` quietly turned off automatic `HEAD` and `OPTIONS`, 405 responses, and the route cache, because Go fills omitted booleans with `false`. The docs asked you to copy `zinc.DefaultConfig` instead. In 0.4, pass only the fields you change:
+
+```go
+// 0.3
+cfg := zinc.DefaultConfig
+cfg.BodyLimit = 16 << 20
+app := zinc.NewWithConfig(cfg)
+
+// 0.4
+app := zinc.New(zinc.Config{BodyLimit: 16 << 20})
+```
+
+`zinc.NewWithConfig` and the `zinc.DefaultConfig` variable are removed. The defaults are constants now: `zinc.DefaultBodyLimit`, `DefaultReadTimeout`, `DefaultWriteTimeout`, `DefaultIdleTimeout`, `DefaultShutdownTimeout`, `DefaultRouteCacheSize`, and `DefaultProxyHeader`.
+
+The three switches that default to on are renamed and inverted, so that leaving them out keeps them on:
+
+| 0.3 | 0.4 |
+|---|---|
+| `AutoHead: false` | `DisableAutoHead: true` |
+| `AutoOptions: false` | `DisableAutoOptions: true` |
+| `HandleMethodNotAllowed: false` | `DisableMethodNotAllowed: true` |
+
+For limits and timeouts, `0` now always means the default, and a negative value turns the limit off. **Check any code that set `RouteCacheSize: 0` to disable the cache; it now gets the default cache. Use `-1`.** The same applies to `BodyLimit`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and the new `ShutdownTimeout`.
+
+`zinc.GetVersion()` and `zinc.GetVersionHeader()` are removed. Use the `zinc.Version` constant.
+
+## Graceful shutdown
+
+`app.ListenContext(ctx, addr)` serves until `ctx` ends, then drains in-flight requests for up to `Config.ShutdownTimeout` (10 seconds by default). It replaces the goroutine, signal, and `Shutdown` wiring most programs needed:
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+
+if err := app.ListenContext(ctx, ":8080"); err != nil {
+	log.Fatal(err)
+}
+```
+
+`Listen`, `Serve`, and `Shutdown` still work as before.

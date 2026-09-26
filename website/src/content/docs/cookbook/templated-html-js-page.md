@@ -42,9 +42,7 @@ import (
 func main() {
 	views := template.Must(template.ParseGlob("templates/*.html"))
 
-	cfg := zinc.DefaultConfig
-	cfg.Renderer = zinc.NewHTMLTemplateRenderer(views, zinc.WithTemplateSuffixes(".html"))
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(zinc.Config{Renderer: zinc.NewHTMLTemplateRenderer(views, zinc.WithTemplateSuffixes(".html"))})
 
 	if err := app.Static("/static", "./public"); err != nil {
 		log.Fatal(err)

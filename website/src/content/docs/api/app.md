@@ -6,11 +6,8 @@ description: Reference for zinc.App, covering construction, routing, middleware,
 `*zinc.App` is the application. It registers routes and middleware, and it is an `http.Handler`, so it runs on any `http.Server`.
 
 ```go
-app := zinc.New()                     // zinc.DefaultConfig
-
-cfg := zinc.DefaultConfig
-cfg.StrictRouting = true
-app = zinc.NewWithConfig(cfg)         // custom configuration
+app := zinc.New()                                  // defaults
+app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
 ```
 
 ## Routes
@@ -95,13 +92,14 @@ type RouteInfo struct {
 | Method | Purpose |
 |---|---|
 | `Listen(addr...) error` | Serve HTTP; the address defaults to `:8080` |
+| `ListenContext(ctx, addr) error` | Serve HTTP until `ctx` ends, then shut down gracefully within `Config.ShutdownTimeout` |
 | `ListenTLS(addr, certFile, keyFile) error` | Serve HTTPS |
 | `Serve(net.Listener) error` | Serve on a listener you created |
 | `Shutdown(ctx) error` | Stop accepting connections, wait for in-flight requests, and release disk-static roots |
 | `Close() error` | Stop the active server and release disk-static roots immediately |
 | `ServeHTTP(w, r)`, `Handler()` | Use the app as an `http.Handler` |
 
-`Listen`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `Shutdown` in a complete program.
+`Listen`, `ListenContext`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `ListenContext` in a complete program. `Shutdown` remains for servers started with `Listen` or `Serve`.
 
 ## Adapters
 

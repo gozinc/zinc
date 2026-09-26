@@ -908,7 +908,7 @@ func (c *Context) IPs() []string {
 	}
 	header := c.app.config.ProxyHeader
 	if header == "" {
-		header = DefaultConfig.ProxyHeader
+		header = DefaultProxyHeader
 	}
 	raw := strings.Join(c.request.Header.Values(header), ",")
 	if raw == "" {

@@ -135,7 +135,7 @@ Zinc answers routing misses with the right status:
 | `OPTIONS` for a known path | `204 No Content` with an `Allow` header |
 | `HEAD` for a path with a `GET` route | The `GET` handler runs, without a body |
 
-The last three come from the `HandleMethodNotAllowed`, `AutoOptions`, and `AutoHead` settings, all on by default in [`zinc.DefaultConfig`](/guide/configuration/).
+The last three are on by default. Turn them off with `DisableMethodNotAllowed`, `DisableAutoOptions`, and `DisableAutoHead` in [`zinc.Config`](/guide/configuration/).
 
 Replace the responses app-wide:
 

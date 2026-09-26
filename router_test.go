@@ -60,7 +60,7 @@ func TestRouterCaseInsensitiveDynamicRoutes(t *testing.T) {
 		t.Fatalf("allow=%q", allow)
 	}
 
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	handler := func(*Context) error { return nil }
 	mustDo(t, router.Add(MethodGet, "/Users/{id}", handler))
 	if err := router.Add(MethodGet, "/users/{name}", handler); err == nil {
@@ -131,7 +131,7 @@ func TestRouterBraceParamsAndWrappedRequestPathValues(t *testing.T) {
 }
 
 func TestBraceRoutePatternValidationAndMetadata(t *testing.T) {
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	handler := func(*Context) error { return nil }
 
 	mustDo(t, router.AddNamed(MethodGet, "/teams/{teamID}/users/{userID}", "users.show", handler))
@@ -172,7 +172,7 @@ func TestBraceRoutePatternValidationAndMetadata(t *testing.T) {
 }
 
 func TestRouterConflictsAndNormalization(t *testing.T) {
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "users/{id}", func(c *Context) error { return nil }))
 	if err := router.Add(MethodGet, "/users/{id}", func(c *Context) error { return nil }); err == nil {
 		t.Fatal("expected duplicate route error")
@@ -183,7 +183,7 @@ func TestRouterConflictsAndNormalization(t *testing.T) {
 }
 
 func TestRouterRejectsLegacyRoutePatterns(t *testing.T) {
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	handler := func(*Context) error { return nil }
 	patterns := []string{
 		"/users/:id",
@@ -609,7 +609,7 @@ func TestRadixNodeBranches(t *testing.T) {
 func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(2),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/Case", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodGet, "/trim", func(*Context) error { return nil }))
@@ -642,7 +642,7 @@ func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 }
 
 func TestRouterAddAndMatchErrorBranches(t *testing.T) {
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	if err := router.Add(MethodGet, "/users"); err == nil || !strings.Contains(err.Error(), "no handler provided") {
 		t.Fatalf("err=%v", err)
 	}
@@ -654,7 +654,7 @@ func TestRouterAddAndMatchErrorBranches(t *testing.T) {
 }
 
 func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "/shared/one", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodPost, "/shared/two", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodGet, "/users/{id}", func(*Context) error { return nil }))
@@ -678,7 +678,7 @@ func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
 func TestRouterDispatchIntoCachesMissResults(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(routeCacheMinRoutes + 8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
 		path := fmt.Sprintf("/bulk/%d", i)
@@ -745,7 +745,7 @@ func TestRouterSupportsMoreThanInlinePathParams(t *testing.T) {
 func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(routeCacheMinRoutes + 8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
 		path := fmt.Sprintf("/bulk/%d", i)
@@ -800,7 +800,7 @@ func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 func TestRouterDispatchIntoCachesSmallDynamicRouteSets(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
 
@@ -829,7 +829,7 @@ func TestRouterDispatchIntoCachesSmallDynamicRouteSets(t *testing.T) {
 func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
 
@@ -878,7 +878,7 @@ func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
 func TestRouterStaticRouteLengthFilter(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	shortPath := "/fixed"
 	longPath := "/" + strings.Repeat("x", 140)
@@ -908,7 +908,7 @@ func TestRouterStaticRouteLengthFilter(t *testing.T) {
 func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
 	router := &Router{
 		cache:  NewRouteCache(routeCacheMinRoutes + 8),
-		config: &DefaultConfig,
+		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
 		path := fmt.Sprintf("/bulk/%d", i)
@@ -967,7 +967,7 @@ func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
 func TestRouterSupportsCustomDynamicMethods(t *testing.T) {
 	const methodPurge = "PURGE"
 
-	router := &Router{config: &DefaultConfig}
+	router := &Router{config: &Config{}}
 	mustDo(t, router.Add(methodPurge, "/items/{id}", func(*Context) error { return nil }))
 
 	ctx := &Context{}

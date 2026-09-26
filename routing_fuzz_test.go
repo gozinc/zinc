@@ -13,9 +13,9 @@ import (
 // routing decision, including after a non-executing Find warms the cache.
 func FuzzRoutingCacheEquivalence(f *testing.F) {
 	build := func(size int) *App {
-		cfg := DefaultConfig
+		cfg := Config{}
 		cfg.RouteCacheSize = size
-		app := NewWithConfig(cfg)
+		app := New(cfg)
 		for i := 0; i < 80; i++ {
 			for _, method := range []string{"GET", "POST", "CUSTOM"} {
 				app.Add(method, fmt.Sprintf("/r%d/{id}/{part}", i), func(c *Context) error { return c.Send(c.FullPath() + "|" + c.Param("id") + "|" + c.Param("part")) })
@@ -25,7 +25,7 @@ func FuzzRoutingCacheEquivalence(f *testing.F) {
 		app.Get("/r1/new/item", func(c *Context) error { return c.Send("static") })
 		return app
 	}
-	cached, plain := build(100), build(0)
+	cached, plain := build(100), build(-1) // -1 disables the cache
 	for _, path := range []string{"/r1/a/b", "/r1/NEW/item", "/R1/K/İ/", "/K/ABC/İ", "/missing", "/r79/%2F/x", "//r2/a/b"} {
 		f.Add(path, uint8(0))
 	}

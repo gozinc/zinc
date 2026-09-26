@@ -1,44 +1,53 @@
 ---
 title: Configuration
-description: Reference for zinc.Config and zinc.DefaultConfig.
+description: Reference for zinc.Config and the default constants.
 ---
 
-`zinc.Config` holds every application setting. `zinc.DefaultConfig` holds the defaults that `zinc.New()` uses.
+`zinc.Config` holds every application setting. Pass it to `zinc.New`; every field you leave out keeps its default.
 
 ```go
-cfg := zinc.DefaultConfig // copy the defaults
-cfg.BodyLimit = 16 << 20  // change what you need
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{
+	BodyLimit: 16 << 20, // change what you need
+})
 ```
 
 ## Fields
 
-| Field | Type | Default | Purpose |
+| Field | Type | Zero value means | Purpose |
 |---|---|---|---|
-| `CaseSensitive` | `bool` | `false` | Match literal route segments case-sensitively |
-| `StrictRouting` | `bool` | `false` | Treat `/users` and `/users/` as different routes |
-| `AutoHead` | `bool` | `true` | Serve `HEAD` from the matching `GET` route |
-| `AutoOptions` | `bool` | `true` | Answer `OPTIONS` with `204` and `Allow` |
-| `HandleMethodNotAllowed` | `bool` | `true` | Answer `405` with `Allow` instead of `404` |
-| `RouteCacheSize` | `int` | `1000` | Cached dynamic paths; `0` disables |
-| `BodyLimit` | `int64` | `4 << 20` | Maximum body size read by binding |
-| `ReadTimeout` | `time.Duration` | `5s` | Server read timeout |
-| `WriteTimeout` | `time.Duration` | `10s` | Server write timeout |
-| `IdleTimeout` | `time.Duration` | `120s` | Keep-alive idle timeout |
-| `ServerHeader` | `string` | `""` | `Server` response header, when set |
+| `CaseSensitive` | `bool` | off | Match literal route segments case-sensitively |
+| `StrictRouting` | `bool` | off | Treat `/users` and `/users/` as different routes |
+| `DisableAutoHead` | `bool` | automatic `HEAD` on | Stop serving `HEAD` from the matching `GET` route |
+| `DisableAutoOptions` | `bool` | automatic `OPTIONS` on | Stop answering `OPTIONS` with `204` and `Allow` |
+| `DisableMethodNotAllowed` | `bool` | `405` on | Answer method mismatches with `404` instead of `405` and `Allow` |
+| `RouteCacheSize` | `int` | `1000` | Cached dynamic paths; `-1` disables |
+| `BodyLimit` | `int64` | `4 << 20` | Maximum body size read by binding and forms; `-1` for no limit |
+| `ReadTimeout` | `time.Duration` | `5s` | Server read timeout; `-1` for none |
+| `WriteTimeout` | `time.Duration` | `10s` | Server write timeout, per event for SSE; `-1` for none |
+| `IdleTimeout` | `time.Duration` | `120s` | Keep-alive idle timeout; `-1` for none |
+| `ShutdownTimeout` | `time.Duration` | `10s` | How long `ListenContext` drains requests; `-1` waits indefinitely |
+| `ServerHeader` | `string` | none | `Server` response header, when set |
 | `ProxyHeader` | `string` | `"X-Forwarded-For"` | Header read by `c.IP()` |
-| `TrustedProxies` | `[]string` | `nil` | IPs and CIDR ranges allowed to set `ProxyHeader` |
+| `TrustedProxies` | `[]string` | none | IPs and CIDR ranges allowed to set `ProxyHeader` |
 | `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text |
-| `Validator` | `Validator` | `nil` | Runs after every bind |
-| `Renderer` | `Renderer` | `nil` | Renders templates for `c.Render` |
+| `Validator` | `Validator` | none | Runs after every bind |
+| `Renderer` | `Renderer` | none | Renders templates for `c.Render` |
 | `JSONCodec` | `JSONCodec` | `encoding/json` | Encodes and decodes JSON |
 | `RequestBinder` | `RequestBinder` | built in | Decodes requests for `c.Bind()` |
 
-## How defaults are applied
+For limits and timeouts, `0` selects the default and a negative value turns the limit off. Switches that are on by default are named `Disable…`, so an omitted field never turns a feature off.
 
-`NewWithConfig` fills these fields from `DefaultConfig` when they are zero: `BodyLimit`, the three timeouts, `ProxyHeader`, `JSONCodec`, `RequestBinder`, and `ErrorHandler`.
+## Constants
 
-It cannot tell an unset boolean from `false`, so it leaves `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed`, and `RouteCacheSize` exactly as given. Start from a copy of `DefaultConfig`, not a bare `zinc.Config{}` literal, to keep them on.
+| Constant | Value |
+|---|---|
+| `DefaultBodyLimit` | `4 << 20` |
+| `DefaultReadTimeout` | `5 * time.Second` |
+| `DefaultWriteTimeout` | `10 * time.Second` |
+| `DefaultIdleTimeout` | `120 * time.Second` |
+| `DefaultShutdownTimeout` | `10 * time.Second` |
+| `DefaultRouteCacheSize` | `1000` |
+| `DefaultProxyHeader` | `"X-Forwarded-For"` |
 
 ## Related
 

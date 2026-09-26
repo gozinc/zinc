@@ -114,7 +114,7 @@ func TestThrottleMiddleware(t *testing.T) {
 }
 
 func TestRealIPMiddleware(t *testing.T) {
-	app := zinc.NewWithConfig(zinc.Config{
+	app := zinc.New(zinc.Config{
 		ProxyHeader:    zinc.HeaderXForwardedFor,
 		TrustedProxies: []string{"10.0.0.1"},
 	})

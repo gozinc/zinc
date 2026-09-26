@@ -36,9 +36,7 @@ app.Use(middleware.RealIP())
 It is only as trustworthy as your proxy configuration. Set `TrustedProxies` first, and read [Client IP and Proxies](/guide/ip-address/) before relying on it.
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.TrustedProxies = []string{"10.0.0.0/8"}
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{TrustedProxies: []string{"10.0.0.0/8"}})
 app.Use(middleware.RealIP())
 ```
 

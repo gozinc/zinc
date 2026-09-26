@@ -48,10 +48,10 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 func (a *App) dispatch(ctx *Context) error {
 	method := ctx.Method()
 	path := ctx.Path()
-	needsAllowScan := (method == MethodOptions && a.config.AutoOptions) || a.config.HandleMethodNotAllowed
+	needsAllowScan := (method == MethodOptions && a.autoOptions) || a.methodNotAllowed
 
 	handled, allowed, err := a.router.dispatchInto(method, path, needsAllowScan, ctx)
-	if !handled && method == MethodHead && a.config.AutoHead {
+	if !handled && method == MethodHead && a.autoHead {
 		ctx.truncateParams(0)
 		handled, allowed, err = a.router.dispatchInto(MethodGet, path, needsAllowScan, ctx)
 	}
@@ -72,13 +72,13 @@ func (a *App) dispatch(ctx *Context) error {
 		return err
 	}
 
-	allowedHeader := allowed.header(a.config.AutoHead, a.config.AutoOptions)
-	if method == MethodOptions && a.config.AutoOptions && allowedHeader != "" {
+	allowedHeader := allowed.header(a.autoHead, a.autoOptions)
+	if method == MethodOptions && a.autoOptions && allowedHeader != "" {
 		ctx.SetHeader(HeaderAllow, allowedHeader)
 		return ctx.Status(StatusNoContent).NoContent()
 	}
 
-	if a.config.HandleMethodNotAllowed && allowedHeader != "" {
+	if a.methodNotAllowed && allowedHeader != "" {
 		if a.methodNA == nil && a.defaultErrors {
 			return ctx.writeDefaultErrorResponse(StatusMethodNotAllowed, allowedHeader)
 		}

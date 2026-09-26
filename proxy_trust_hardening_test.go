@@ -8,9 +8,9 @@ import (
 )
 
 func TestProxyTrustWalkAndConfigOwnership(t *testing.T) {
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.TrustedProxies = []string{"10.0.0.0/8", "2001:db8::/32"}
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	cfg.TrustedProxies[0] = "0.0.0.0/0"
 	app.Get("/", func(c *zinc.Context) error { return c.Send(c.IP() + "|" + c.Scheme()) })
 	for _, tt := range []struct{ peer, chain, proto, want string }{
@@ -37,5 +37,5 @@ func TestProxyTrustWalkAndConfigOwnership(t *testing.T) {
 			t.Fatal("invalid trust configuration accepted")
 		}
 	}()
-	zinc.NewWithConfig(zinc.Config{TrustedProxies: []string{"typo/24"}})
+	zinc.New(zinc.Config{TrustedProxies: []string{"typo/24"}})
 }

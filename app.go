@@ -172,16 +172,23 @@ type App struct {
 	serverHeader     []string
 	staticRoots      []*confinedDirFS
 	defaultErrors    bool
+	// Routing switches resolved from Config, so dispatch reads positive flags.
+	autoHead         bool
+	autoOptions      bool
+	methodNotAllowed bool
 }
 
-// New creates an App from DefaultConfig.
-func New() *App {
-	return NewWithConfig(DefaultConfig)
-}
-
-// NewWithConfig creates an App and fills zero-valued service dependencies and
-// server limits from DefaultConfig.
-func NewWithConfig(cfg Config) *App {
+// New creates an App. With no Config, or with a zero-valued field, Zinc's
+// defaults apply; see Config.
+func New(config ...Config) *App {
+	var cfg Config
+	switch len(config) {
+	case 0:
+	case 1:
+		cfg = config[0]
+	default:
+		panic("zinc: New takes at most one Config")
+	}
 	defaultErrors := cfg.ErrorHandler == nil
 	cfg = normalizeConfig(cfg)
 	cfg.TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
@@ -199,8 +206,11 @@ func NewWithConfig(cfg Config) *App {
 			cache:  cache,
 			config: &cfg,
 		},
-		middleware:    make([]HandlerFunc, 0),
-		defaultErrors: defaultErrors,
+		middleware:       make([]HandlerFunc, 0),
+		defaultErrors:    defaultErrors,
+		autoHead:         !cfg.DisableAutoHead,
+		autoOptions:      !cfg.DisableAutoOptions,
+		methodNotAllowed: !cfg.DisableMethodNotAllowed,
 	}
 	if cfg.ServerHeader != "" {
 		app.serverHeader = []string{cfg.ServerHeader}
@@ -208,21 +218,17 @@ func NewWithConfig(cfg Config) *App {
 	return app
 }
 
+// normalizeConfig resolves zero values to defaults. Negative limits and
+// timeouts are kept; they mean "off" and are interpreted where used.
 func normalizeConfig(cfg Config) Config {
-	if cfg.BodyLimit == 0 {
-		cfg.BodyLimit = DefaultConfig.BodyLimit
-	}
-	if cfg.ReadTimeout == 0 {
-		cfg.ReadTimeout = DefaultConfig.ReadTimeout
-	}
-	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = DefaultConfig.WriteTimeout
-	}
-	if cfg.IdleTimeout == 0 {
-		cfg.IdleTimeout = DefaultConfig.IdleTimeout
-	}
+	cfg.BodyLimit = orDefault(cfg.BodyLimit, DefaultBodyLimit)
+	cfg.ReadTimeout = orDefault(cfg.ReadTimeout, DefaultReadTimeout)
+	cfg.WriteTimeout = orDefault(cfg.WriteTimeout, DefaultWriteTimeout)
+	cfg.IdleTimeout = orDefault(cfg.IdleTimeout, DefaultIdleTimeout)
+	cfg.ShutdownTimeout = orDefault(cfg.ShutdownTimeout, DefaultShutdownTimeout)
+	cfg.RouteCacheSize = orDefault(cfg.RouteCacheSize, DefaultRouteCacheSize)
 	if cfg.ProxyHeader == "" {
-		cfg.ProxyHeader = DefaultConfig.ProxyHeader
+		cfg.ProxyHeader = DefaultProxyHeader
 	}
 	if cfg.JSONCodec == nil {
 		cfg.JSONCodec = defaultJSONCodec{}
@@ -293,27 +299,79 @@ func (a *App) serveTLS(ln net.Listener, certFile, keyFile string) error {
 }
 
 func (a *App) serve(ln net.Listener, certFile, keyFile string) error {
-	srv := &http.Server{
-		Handler:      a,
-		ReadTimeout:  a.config.ReadTimeout,
-		WriteTimeout: a.config.WriteTimeout,
-		IdleTimeout:  a.config.IdleTimeout,
-	}
-
-	a.serverMu.Lock()
-	a.server = srv
-	a.serverMu.Unlock()
-
-	var err error
-	if certFile != "" || keyFile != "" {
-		err = srv.ServeTLS(ln, certFile, keyFile)
-	} else {
-		err = srv.Serve(ln)
-	}
+	err := a.startServer(ln, certFile, keyFile)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
+}
+
+// newServer builds the server for Listen, ListenTLS, Serve, and ListenContext.
+func (a *App) newServer() *http.Server {
+	srv := &http.Server{
+		Handler:      a,
+		ReadTimeout:  serverTimeout(a.config.ReadTimeout),
+		WriteTimeout: serverTimeout(a.config.WriteTimeout),
+		IdleTimeout:  serverTimeout(a.config.IdleTimeout),
+	}
+	a.serverMu.Lock()
+	a.server = srv
+	a.serverMu.Unlock()
+	return srv
+}
+
+func (a *App) startServer(ln net.Listener, certFile, keyFile string) error {
+	srv := a.newServer()
+	if certFile != "" || keyFile != "" {
+		return srv.ServeTLS(ln, certFile, keyFile)
+	}
+	return srv.Serve(ln)
+}
+
+// ListenContext serves on addr until ctx ends, then shuts down gracefully:
+// it stops accepting connections and waits up to Config.ShutdownTimeout for
+// in-flight requests. It returns nil after a clean shutdown. Pair it with
+// signal.NotifyContext to stop on SIGINT or SIGTERM; Zinc installs no signal
+// handlers itself.
+func (a *App) ListenContext(ctx context.Context, addr string) error {
+	listenAddr, err := resolveListenAddr(addr)
+	if err != nil {
+		return err
+	}
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return err
+	}
+	return a.serveContext(ctx, ln)
+}
+
+func (a *App) serveContext(ctx context.Context, ln net.Listener) error {
+	srv := a.newServer()
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+
+	select {
+	case err := <-served:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+	}
+
+	shutdownCtx := context.WithoutCancel(ctx)
+	if timeout := a.config.ShutdownTimeout; timeout > 0 {
+		var cancel context.CancelFunc
+		shutdownCtx, cancel = context.WithTimeout(shutdownCtx, timeout)
+		defer cancel()
+	}
+	err := srv.Shutdown(shutdownCtx)
+	if err != nil {
+		// Requests outlived the timeout: close their connections instead.
+		err = errors.Join(fmt.Errorf("zinc: graceful shutdown: %w", err), srv.Close())
+	}
+	<-served
+	return errors.Join(err, a.closeStaticRoots())
 }
 
 // Shutdown gracefully stops the active server and releases confined static

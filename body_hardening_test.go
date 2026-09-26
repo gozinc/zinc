@@ -37,12 +37,12 @@ func TestBindingBodyBudgetAcrossFormSources(t *testing.T) {
 			}
 			for _, knownLength := range []bool{false, true} {
 				for _, exact := range []bool{false, true} {
-					cfg := zinc.DefaultConfig
+					cfg := zinc.Config{}
 					cfg.BodyLimit = int64(len(body))
 					if !exact {
 						cfg.BodyLimit--
 					}
-					app := zinc.NewWithConfig(cfg)
+					app := zinc.New(cfg)
 					app.Post("/", func(c *zinc.Context) error {
 						var input struct {
 							Name string `form:"name"`
@@ -100,9 +100,9 @@ func TestDefaultDecompressionBudgetAppliesToRawReaders(t *testing.T) {
 	writer := gzip.NewWriter(&compressed)
 	_, _ = io.WriteString(writer, strings.Repeat("x", 1000))
 	_ = writer.Close()
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.BodyLimit = 64
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	app.Use(middleware.Decompress())
 	app.Post("/", func(c *zinc.Context) error { _, err := io.ReadAll(c.Request().Body); return err })
 	r := httptest.NewRequest("POST", "/", bytes.NewReader(compressed.Bytes()))
@@ -143,9 +143,9 @@ func TestMultipartTemporaryFilesAreReleased(t *testing.T) {
 	}
 }
 func TestFormBindingHonorsBodyLimit(t *testing.T) {
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.BodyLimit = 8
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	app.Post("/", func(c *zinc.Context) error {
 		var input struct {
 			Name string `form:"name"`
@@ -182,9 +182,9 @@ func TestBodyLimitAcceptsExactBoundary(t *testing.T) {
 }
 
 func TestXMLPreallocationHonorsBodyLimit(t *testing.T) {
-	cfg := zinc.DefaultConfig
+	cfg := zinc.Config{}
 	cfg.BodyLimit = 64
-	app := zinc.NewWithConfig(cfg)
+	app := zinc.New(cfg)
 	app.Post("/", func(c *zinc.Context) error {
 		var input struct {
 			Value string `xml:"value"`

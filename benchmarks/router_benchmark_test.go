@@ -41,7 +41,7 @@ func runZincServeHTTPRequestSetBenchmark(b *testing.B, handler http.Handler, req
 }
 
 func buildZincDiagnosticRouterApp(cfg Config) *App {
-	app := NewWithConfig(cfg)
+	app := New(cfg)
 	app.Get("/hello", func(c *Context) error {
 		benchmarkSinkString = c.FullPath()
 		return c.String(benchmarkOKResponse)
@@ -65,9 +65,9 @@ func buildZincRouteCacheBenchmarkApp() *App {
 }
 
 func buildZincRouteCacheBenchmarkAppWithSize(cacheSize int) *App {
-	cfg := DefaultConfig
+	cfg := Config{}
 	cfg.RouteCacheSize = cacheSize
-	app := NewWithConfig(cfg)
+	app := New(cfg)
 	for i := 0; i < 64; i++ {
 		path := "/cache/" + strconv.Itoa(i) + "/items/{id}"
 		app.Get(path, func(c *Context) error {
@@ -79,9 +79,9 @@ func buildZincRouteCacheBenchmarkAppWithSize(cacheSize int) *App {
 }
 
 func buildZincCaseInsensitiveBenchmarkApp() *App {
-	cfg := DefaultConfig
+	cfg := Config{}
 	cfg.CaseSensitive = false
-	app := NewWithConfig(cfg)
+	app := New(cfg)
 	app.Get("/Reports/Daily", func(c *Context) error {
 		benchmarkSinkString = c.FullPath()
 		return c.String(benchmarkOKResponse)
@@ -90,10 +90,10 @@ func buildZincCaseInsensitiveBenchmarkApp() *App {
 }
 
 func buildZincStrictRoutingBenchmarkApp() *App {
-	cfg := DefaultConfig
+	cfg := Config{}
 	cfg.StrictRouting = true
-	cfg.RouteCacheSize = 0
-	app := NewWithConfig(cfg)
+	cfg.RouteCacheSize = -1 // disabled
+	app := New(cfg)
 	app.Get("/teams/{teamId}", func(c *Context) error {
 		return c.String(benchmarkOKResponse)
 	})
@@ -124,25 +124,25 @@ func buildZincColdCacheTargets(count int) []string {
 }
 
 func BenchmarkZincRouterStatic(b *testing.B) {
-	handler := buildZincDiagnosticRouterApp(DefaultConfig)
+	handler := buildZincDiagnosticRouterApp(Config{})
 	proveResponseAndSinkString(b, handler, MethodGet, "/hello", http.StatusOK, benchmarkOKResponse, "/hello")
 	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, "/hello", nil))
 }
 
 func BenchmarkZincRouterParam(b *testing.B) {
-	handler := buildZincDiagnosticRouterApp(DefaultConfig)
+	handler := buildZincDiagnosticRouterApp(Config{})
 	proveResponseAndSinkString(b, handler, MethodGet, "/teams/42/users/7", http.StatusOK, benchmarkOKResponse, "42|7")
 	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, "/teams/42/users/7", nil))
 }
 
 func BenchmarkZincRouterNotFound(b *testing.B) {
-	handler := buildZincDiagnosticRouterApp(DefaultConfig)
+	handler := buildZincDiagnosticRouterApp(Config{})
 	proveResponse(b, handler, MethodGet, "/missing/path", http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, "/missing/path", nil))
 }
 
 func BenchmarkZincRouterMethodMismatch(b *testing.B) {
-	handler := buildZincDiagnosticRouterApp(DefaultConfig)
+	handler := buildZincDiagnosticRouterApp(Config{})
 	target := "/teams/42/users/7/preferences"
 
 	rec := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func BenchmarkZincRouterStrictRoutingSlash(b *testing.B) {
 }
 
 func BenchmarkZincRouterMethodNotAllowed(b *testing.B) {
-	handler := buildZincDiagnosticRouterApp(DefaultConfig)
+	handler := buildZincDiagnosticRouterApp(Config{})
 	target := "/items/42"
 
 	rec := httptest.NewRecorder()

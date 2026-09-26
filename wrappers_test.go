@@ -121,7 +121,7 @@ func TestGroupWrapperCoverage(t *testing.T) {
 }
 
 func TestBinderWrapperCoverage(t *testing.T) {
-	app := NewWithConfig(Config{Validator: validatingStub{}})
+	app := New(Config{Validator: validatingStub{}})
 	req := httptest.NewRequest(MethodPost, "/users/12?ready=true&page=5", strings.NewReader(`{"name":"lin"}`))
 	req.Header.Set(HeaderContentType, "application/json")
 	ctx, _ := newRecorderContext(t, req)

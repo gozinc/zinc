@@ -126,21 +126,17 @@ To stop with a body of your own instead, write the response and return its resul
 Most applications only need to log server errors. Wrap the default handler, and keep its responses:
 
 ```go
-cfg := zinc.DefaultConfig
-cfg.ErrorHandler = func(c *zinc.Context, err error) {
-	if zinc.StatusCode(err) >= 500 {
-		slog.ErrorContext(c.Context(), "request failed", "route", c.FullPath(), "err", err)
-	}
-	zinc.DefaultErrorHandler(c, err)
-}
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{
+	ErrorHandler: func(c *zinc.Context, err error) {
+		if zinc.StatusCode(err) >= 500 {
+			slog.ErrorContext(c.Context(), "request failed", "route", c.FullPath(), "err", err)
+		}
+		zinc.DefaultErrorHandler(c, err)
+	},
+})
 ```
 
 `zinc.StatusCode(err)` reports the status the default handler would send. To change the body format entirely, write your own handler and use `errors.As` for the types above. `zinc.TextErrors` is a ready-made handler that sends plain-text bodies, as Zinc 0.3 did.
-
-:::caution[Start from DefaultConfig]
-Copy `zinc.DefaultConfig` and change fields, as above. A bare `zinc.Config{...}` literal leaves `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed`, and the route cache switched off, because their zero values are `false` and `0`.
-:::
 
 ## Panics
 

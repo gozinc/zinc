@@ -3,16 +3,14 @@
 
 package zinc
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
 
-func TestVersionHelpers(t *testing.T) {
-	if Version == "" {
-		t.Fatal("Version must not be empty")
-	}
-	if GetVersion() != Version {
-		t.Fatalf("GetVersion=%q Version=%q", GetVersion(), Version)
-	}
-	if GetVersionHeader() != "Zinc/"+Version {
-		t.Fatalf("header=%q", GetVersionHeader())
+// Version is bumped by hand at release, so guard its shape.
+func TestVersionIsSemantic(t *testing.T) {
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`).MatchString(Version) {
+		t.Fatalf("Version = %q, want MAJOR.MINOR.PATCH", Version)
 	}
 }

@@ -63,9 +63,7 @@ Configure a renderer once, then render by name:
 ```go
 views := template.Must(template.ParseGlob("views/*.html"))
 
-cfg := zinc.DefaultConfig
-cfg.Renderer = zinc.NewHTMLTemplateRenderer(views)
-app := zinc.NewWithConfig(cfg)
+app := zinc.New(zinc.Config{Renderer: zinc.NewHTMLTemplateRenderer(views)})
 
 app.Get("/dashboard", func(c *zinc.Context) error {
 	return c.Render("dashboard.html", zinc.Map{"Title": "Overview"})
