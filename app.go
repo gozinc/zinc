@@ -208,6 +208,9 @@ type App struct {
 	serverHeader     []string
 	staticRoots      []*confinedDirFS
 	defaultErrors    bool
+	// Custom body formats from Config, keyed by base media type; nil when none.
+	decoders map[string]Decoder
+	encoders map[string]Encoder
 	// Routing switches resolved from Config, so dispatch reads positive flags.
 	autoHead         bool
 	autoOptions      bool
@@ -247,6 +250,8 @@ func New(config ...Config) *App {
 		autoHead:         !cfg.DisableAutoHead,
 		autoOptions:      !cfg.DisableAutoOptions,
 		methodNotAllowed: !cfg.DisableMethodNotAllowed,
+		decoders:         compileDecoders(cfg.Decoders),
+		encoders:         compileEncoders(cfg.Encoders),
 	}
 	if cfg.ServerHeader != "" {
 		app.serverHeader = []string{cfg.ServerHeader}
@@ -265,12 +270,6 @@ func normalizeConfig(cfg Config) Config {
 	cfg.RouteCacheSize = orDefault(cfg.RouteCacheSize, DefaultRouteCacheSize)
 	if cfg.ProxyHeader == "" {
 		cfg.ProxyHeader = DefaultProxyHeader
-	}
-	if cfg.JSONCodec == nil {
-		cfg.JSONCodec = defaultJSONCodec{}
-	}
-	if cfg.RequestBinder == nil {
-		cfg.RequestBinder = defaultBinder{codec: cfg.JSONCodec}
 	}
 	if cfg.ErrorHandler == nil {
 		cfg.ErrorHandler = DefaultErrorHandler

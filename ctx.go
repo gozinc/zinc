@@ -6,6 +6,7 @@ package zinc
 import (
 	"bytes"
 	stdctx "context"
+	"encoding/json"
 	"errors"
 	"io"
 	"math"
@@ -618,7 +619,9 @@ func readAllBody(reader io.Reader, contentLength int64) ([]byte, error) {
 	}
 }
 
-func (c *Context) readAndCacheJSONBody(codec JSONCodec, v any) (int, error, error) {
+// readAndCacheJSONBody reads the body once and decodes it with the app's
+// JSON decoder, or encoding/json.
+func (c *Context) readAndCacheJSONBody(v any) (int, error, error) {
 	body, readErr := c.readAndCacheBodyBytes()
 	if readErr != nil {
 		return len(body), readErr, nil
@@ -626,7 +629,10 @@ func (c *Context) readAndCacheJSONBody(codec JSONCodec, v any) (int, error, erro
 	if len(body) == 0 {
 		return 0, nil, nil
 	}
-	return len(body), nil, decodeJSONBody(codec, body, v)
+	if decode := c.decoderFor("application/json"); decode != nil {
+		return len(body), nil, decode(body, v)
+	}
+	return len(body), nil, json.Unmarshal(body, v)
 }
 
 func (c *Context) readAndCacheBody(decode func(io.Reader) error) (int, error, error) {

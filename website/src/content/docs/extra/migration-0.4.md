@@ -28,6 +28,9 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | `Skipper` fields, `middleware.Maybe` | `zinc.Skip` wraps any middleware | [Middleware packages](#middleware-packages) |
 | `middleware.JWT` | Moved to `github.com/0mjs/contrib/jwtauth` | [Middleware packages](#middleware-packages) |
 | `middleware.Static`, `middleware.Jaeger`, `middleware.RealIP` | Removed | [Middleware packages](#middleware-packages) |
+| `c.YAML`, `c.TOML`, `c.Bind().YAML`, `c.Bind().TOML`, YAML or TOML request bodies | Zinc no longer includes YAML or TOML; add them with `Config.Decoders` and `Config.Encoders` | [Body formats](#body-formats) |
+| `Config.JSONCodec`, `Config.RequestBinder` | Removed; an `application/json` entry in `Decoders` and `Encoders` swaps the JSON library | [Body formats](#body-formats) |
+| A custom JSON codec whose decode errors answered 500 | Decoder errors answer 400 unless they carry a status | [Body formats](#body-formats) |
 | `zinc.DefaultConfig`, `zinc.NewWithConfig` | Removed: pass a `Config` literal to `zinc.New` | [Configuration](#configuration) |
 | `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed` | Renamed and inverted: `DisableAutoHead` and friends | [Configuration](#configuration) |
 | `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1` | [Configuration](#configuration) |
@@ -88,7 +91,7 @@ type ListUsers struct {
 }
 ```
 
-A tag with options but no name, such as `query:",omitempty"`, still opts in under the lower-cased field name. Body binding through `json`, `xml`, `yaml`, and `toml` is unchanged.
+A tag with options but no name, such as `query:",omitempty"`, still opts in under the lower-cased field name. Body binding through `json` and `xml` is unchanged; YAML and TOML moved out of Zinc, as [Body formats](#body-formats) describes.
 
 ## Matching HTTP errors
 
@@ -389,6 +392,39 @@ app.Use(zinc.Skip(func(c *zinc.Context) bool { return c.Path() == "/healthz" }, 
 - **Static middleware** is removed; `app.Static` and `app.StaticFS` serve files. To serve files on the same paths as routes, see [Static Files](/guide/static-files/#files-and-routes-on-the-same-paths).
 - **Jaeger** is removed. Use [OpenTelemetry](/middleware/open-telemetry/), which exports to Jaeger.
 - **RealIP** is removed. It rewrote `RemoteAddr` from `c.IP()`, which Zinc already computes from `TrustedProxies`; read `c.IP()` instead.
+
+## Body formats
+
+Zinc's go.mod no longer requires any module. YAML and TOML were its only dependencies, and every app paid for them, so they are no longer built in. Add them back with the library of your choice; any library's `Unmarshal` and `Marshal` plug in directly:
+
+```go
+import "go.yaml.in/yaml/v3"
+
+app := zinc.New(zinc.Config{
+	Decoders: map[string]zinc.Decoder{
+		"application/yaml":   yaml.Unmarshal,
+		"application/x-yaml": yaml.Unmarshal,
+		"text/yaml":          yaml.Unmarshal,
+	},
+	Encoders: map[string]zinc.Encoder{"application/yaml": yaml.Marshal},
+})
+```
+
+| 0.3 | 0.4 |
+|---|---|
+| A YAML or TOML body with `c.Bind().Body` or `.All` | Unchanged once the decoder is configured |
+| `c.Bind().YAML(&v)`, `c.Bind().TOML(&v)` | `c.Bind().Body(&v)`, which picks the decoder from `Content-Type` |
+| `c.YAML(v)`, `c.TOML(v)` | `c.Encode("application/yaml", v)`, `c.Encode("application/toml", v)` |
+| YAML or TOML in `c.Negotiate` | Unchanged once the encoder is configured |
+| `Config{JSONCodec: myCodec}` | `Config{Decoders: map[string]zinc.Decoder{"application/json": myUnmarshal}, Encoders: map[string]zinc.Encoder{"application/json": myMarshal}}` |
+| `Config{RequestBinder: myBinder}` | Removed. Use `Decoders` for other formats and `Validator` for checks. |
+
+Two behaviors to know:
+
+- A custom decoder's error, including a custom JSON decoder's, answers `400 Bad Request` with "invalid request body", keeping the error for logs. In 0.3, errors from a custom JSON codec answered 500. Return a Zinc error, such as `zinc.InternalServerError(...)`, from a decoder when the failure is the server's. The same applies to an error from a type's own `UnmarshalJSON` method.
+- Zinc writes a custom encoder's bytes exactly as returned. The built-in JSON encoder ends each body with a newline; a replacement may not.
+
+See [Body formats](/guide/customization/#body-formats) for TOML, a different JSON library, and strict decoding.
 
 ## New: typed handlers
 

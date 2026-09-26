@@ -31,7 +31,7 @@ app.Get("/customers/{customer}/orders", func(c *zinc.Context) error {
 | `query:"page"` | Query string | `Query` |
 | `header:"x-tenant"` | Request headers | `Header` |
 | `form:"name"` | URL-encoded or multipart form | `Form` |
-| `json`, `xml`, `yaml`, `toml` | Request body | `JSON`, `XML`, `YAML`, `TOML` |
+| `json`, `xml` | Request body | `JSON`, `XML`, or `Body` for [other formats](/guide/customization/#body-formats) |
 
 Path, query, header, and form values bind only to fields that carry the matching tag. A field without a `query` tag can't be set from the query string, even by `All`, so a field hidden from JSON with `json:"-"` stays out of reach. A tag with options but no name, such as `query:",omitempty"`, opts in under the lower-cased field name.
 
@@ -41,7 +41,7 @@ Path, query, header, and form values bind only to fields that carry the matching
 
 1. route parameters,
 2. query values,
-3. the body, choosing JSON, XML, YAML, TOML, text, or form decoding from `Content-Type`,
+3. the body, choosing JSON, XML, text, form, or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`,
 
 and then runs your [validator](#validation), if one is configured.
 
@@ -72,7 +72,7 @@ if err := c.Bind().JSON(&in); err != nil {
 }
 ```
 
-The available methods are `All`, `Path`, `Query`, `Header`, `Form`, `Body` (chosen by `Content-Type`), and the explicit body formats `JSON`, `XML`, `YAML`, `TOML`, and `Text`.
+The available methods are `All`, `Path`, `Query`, `Header`, `Form`, `Body` (chosen by `Content-Type`), and the explicit body formats `JSON`, `XML`, and `Text`. For YAML, TOML, or any other format, configure a [decoder](/guide/customization/#body-formats) and use `Body` or `All`.
 
 ## Handle binding errors
 
@@ -170,14 +170,14 @@ Both `multipart.FileHeader` and `*multipart.FileHeader` work, as single values o
 
 ## Body size limit
 
-Binding reads at most `Config.BodyLimit` bytes, 4 MB by default. Larger bodies return `413 Request Entity Too Large`. Raise or lower the limit in [configuration](/guide/configuration/), or per route with the [Body Limit](/middleware/body-limit/) middleware.
+Binding reads at most `Config.BodyLimit` bytes, 4 MB by default. Larger bodies return `413 Request Entity Too Large`. Raise or lower the limit in [configuration](/guide/configuration/), or per route with the [Body Limit](/middleware/bodylimit/) middleware.
 
 ## Next steps
 
 - [Errors](/guide/errors/) turns binding and validation failures into consistent responses.
 - [Request Data](/guide/request/) reads single values without a struct.
-- [Binding API](/api/binding/) documents `RequestBinder` for replacing the decoder.
+- [Customization](/guide/customization/#body-formats) adds YAML, TOML, or a different JSON library.
 
-Struct targets passed to `All` consistently merge path, query, then body for JSON, XML, YAML, and TOML. Scalar/map YAML and TOML targets and plain text remain body-only. Validation runs once after the combined bind. Source-specific operations each validate immediately; use `All` for the supported combined phase or a custom `RequestBinder` when composing other sources.
+Struct targets passed to `All` consistently merge path, query, then body, whatever the body format. Non-struct targets, such as a map, and plain text bind from the body alone. Validation runs once after the combined bind. Source-specific operations each validate immediately; use `All` when you need the combined phase.
 
 Path, query, header, and form scalar fields support `encoding.TextUnmarshaler`, including `time.Time` and custom IDs. Optional scalar pointers stay nil when absent and are allocated when present; explicit zero values remain distinguishable from absence. Conversion errors retain their source and field. Only tagged fields bind from path, query, header, and form. Later `All` sources can overwrite earlier values when a field is tagged for more than one source.

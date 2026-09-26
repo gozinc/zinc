@@ -151,12 +151,6 @@ func TestBinderWrapperCoverage(t *testing.T) {
 		t.Fatalf("json payload=%+v", fromBody)
 	}
 
-	var viaBinder bindPayload
-	mustDo(t, app.config.RequestBinder.BindBody(ctx, &viaBinder))
-	if viaBinder.Name != "lin" {
-		t.Fatalf("request binder payload=%+v", viaBinder)
-	}
-
 	bodyReq := httptest.NewRequest(MethodPost, "/users/13", strings.NewReader(`{"name":"body"}`))
 	bodyReq.Header.Set(HeaderContentType, "application/json")
 	bodyCtx, _ := newRecorderContext(t, bodyReq)
@@ -166,12 +160,6 @@ func TestBinderWrapperCoverage(t *testing.T) {
 	mustDo(t, bodyCtx.Bind().Body(&fromBindBody))
 	if fromBindBody.Name != "body" {
 		t.Fatalf("body payload=%+v", fromBindBody)
-	}
-
-	var viaCodec bindPayload
-	mustDo(t, defaultJSONCodec{}.Decode(strings.NewReader(`{"name":"codec"}`), &viaCodec))
-	if viaCodec.Name != "codec" {
-		t.Fatalf("codec payload=%+v", viaCodec)
 	}
 
 	bindErr := &BindError{Source: "body", Err: io.ErrUnexpectedEOF}

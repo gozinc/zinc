@@ -76,8 +76,8 @@ It returns `nil` after a clean shutdown. If requests are still running when `Shu
 | `ErrorHandler` | How returned errors become responses (`zinc.DefaultErrorHandler`) |
 | `Validator` | Validation after every bind (none by default) |
 | `Renderer` | Template rendering for `c.Render` (none by default) |
-| `JSONCodec` | JSON encoding and decoding |
-| `RequestBinder` | Request decoding for `c.Bind()` |
+| `Decoders` | Request body formats beyond JSON, XML, and forms, or a different JSON library |
+| `Encoders` | Response formats for `c.Encode` and `c.Negotiate`, or a different JSON library |
 
 [Customization](/guide/customization/) shows each one in use.
 

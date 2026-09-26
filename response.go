@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -18,9 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	toml "github.com/pelletier/go-toml/v2"
-	"gopkg.in/yaml.v3"
 )
 
 // ErrResponseAlreadySent is returned when a handler attempts a second terminal
@@ -42,8 +40,6 @@ const (
 	contentType = "Content-Type"
 	jsonType    = MIMEJSON
 	xmlType     = MIMEXML
-	yamlType    = "application/yaml; charset=utf-8"
-	tomlType    = "application/toml; charset=utf-8"
 	plainText   = MIMEText
 	htmlType    = MIMEHTML
 	eventStream = MIMEEventStream
@@ -171,26 +167,32 @@ func (c *Context) Data(contentType string, b []byte) error {
 	return err
 }
 
-// JSON encodes v using the configured JSON codec.
+// JSON writes v as JSON, using the app's JSON encoder when one is configured.
 func (c *Context) JSON(v any) error {
 	return c.writeJSON(v, "")
 }
 
-// JSONPretty encodes v using the configured JSON codec and indentation.
+// JSONPretty writes v as JSON indented by indent.
 func (c *Context) JSONPretty(v any, indent string) error {
 	return c.writeJSON(v, indent)
 }
 
-// jsonCodec returns the application's codec, or the standard one for a
-// Context used without an App.
-func (c *Context) jsonCodec() JSONCodec {
-	if c.app != nil && c.app.config.JSONCodec != nil {
-		return c.app.config.JSONCodec
-	}
-	return defaultJSONCodec{}
-}
-
 func (c *Context) writeJSON(v any, indent string) error {
+	if encode := c.encoderFor("application/json"); encode != nil && v != nil {
+		data, err := encode(v)
+		if err != nil {
+			return err
+		}
+		if indent != "" {
+			var buf bytes.Buffer
+			if err := json.Indent(&buf, data, "", indent); err != nil {
+				return err
+			}
+			data = buf.Bytes()
+		}
+		return c.Data(jsonType, data)
+	}
+
 	writer, writeBody, err := c.prepareResponse(jsonType)
 	if err != nil || !writeBody {
 		return err
@@ -201,7 +203,11 @@ func (c *Context) writeJSON(v any, indent string) error {
 		return err
 	}
 
-	if err := c.jsonCodec().Encode(writer, v, indent); err != nil {
+	enc := json.NewEncoder(writer)
+	if indent != "" {
+		enc.SetIndent("", indent)
+	}
+	if err := enc.Encode(v); err != nil {
 		return err
 	}
 	if !c.written {
@@ -210,7 +216,7 @@ func (c *Context) writeJSON(v any, indent string) error {
 	return nil
 }
 
-// XML encodes v as XML.
+// XML writes v as XML, using the app's XML encoder when one is configured.
 func (c *Context) XML(v any) error {
 	if v == nil {
 		return c.writeResponse(xmlType, func() error {
@@ -218,54 +224,15 @@ func (c *Context) XML(v any) error {
 			return err
 		})
 	}
+	if encode := c.encoderFor("application/xml"); encode != nil {
+		return c.writeEncoded(xmlType, encode, v)
+	}
 
 	var buf bytes.Buffer
 	if err := xml.NewEncoder(&buf).Encode(v); err != nil {
 		return err
 	}
 	return c.writeResponse(xmlType, func() error {
-		_, err := c.Writer().Write(buf.Bytes())
-		return err
-	})
-}
-
-// YAML encodes v as YAML.
-func (c *Context) YAML(v any) error {
-	if v == nil {
-		return c.writeResponse(yamlType, func() error {
-			_, err := c.Writer().Write(nullBytes)
-			return err
-		})
-	}
-
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	if err := encoder.Encode(v); err != nil {
-		return err
-	}
-	if err := encoder.Close(); err != nil {
-		return err
-	}
-	return c.writeResponse(yamlType, func() error {
-		_, err := c.Writer().Write(buf.Bytes())
-		return err
-	})
-}
-
-// TOML encodes v as TOML.
-func (c *Context) TOML(v any) error {
-	if v == nil {
-		return c.writeResponse(tomlType, func() error {
-			_, err := c.Writer().Write(nullBytes)
-			return err
-		})
-	}
-
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
-		return err
-	}
-	return c.writeResponse(tomlType, func() error {
 		_, err := c.Writer().Write(buf.Bytes())
 		return err
 	})
@@ -616,15 +583,10 @@ func (c *Context) sseData(data any) ([]byte, error) {
 	case []byte:
 		return value, nil
 	default:
-		var buf bytes.Buffer
-		codec := JSONCodec(defaultJSONCodec{})
-		if c.app != nil && c.app.config.JSONCodec != nil {
-			codec = c.app.config.JSONCodec
+		if encode := c.encoderFor("application/json"); encode != nil {
+			return encode(value)
 		}
-		if err := codec.Encode(&buf, value, ""); err != nil {
-			return nil, err
-		}
-		return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+		return json.Marshal(value)
 	}
 }
 
@@ -744,16 +706,6 @@ func (c *Context) writeNegotiated(ct string, value any) error {
 			return c.Data(xmlType, data)
 		}
 		return c.XML(value)
-	case "application/yaml", "application/x-yaml", "text/yaml":
-		if data, ok := value.([]byte); ok {
-			return c.Data(yamlType, data)
-		}
-		return c.YAML(value)
-	case "application/toml":
-		if data, ok := value.([]byte); ok {
-			return c.Data(tomlType, data)
-		}
-		return c.TOML(value)
 	case "text/html":
 		switch data := value.(type) {
 		case []byte:
@@ -773,6 +725,12 @@ func (c *Context) writeNegotiated(ct string, value any) error {
 			return c.String(fmt.Sprint(data))
 		}
 	default:
+		if encode := c.encoderFor(mediaTypeOnly(ct)); encode != nil {
+			if data, ok := value.([]byte); ok {
+				return c.Data(ct, data)
+			}
+			return c.writeEncoded(ct, encode, value)
+		}
 		switch data := value.(type) {
 		case []byte:
 			return c.Data(ct, data)

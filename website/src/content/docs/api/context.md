@@ -54,7 +54,7 @@ Typed versions are package functions, because Go methods can't be generic:
 
 | Method | Purpose |
 |---|---|
-| `Bind()` | The binder: `All`, `Path`, `Query`, `Header`, `Form`, `Body`, `JSON`, `XML`, `YAML`, `TOML`, `Text` |
+| `Bind()` | The binder: `All`, `Path`, `Query`, `Header`, `Form`, `Body`, `JSON`, `XML`, `Text` |
 | `Validate(v)` | Runs the configured `Validator` directly |
 | `BodyLimit()` | The application's request-body budget, for middleware that transforms bodies |
 
@@ -79,7 +79,8 @@ These return the context, so they chain into a body method.
 | Method | Sends |
 |---|---|
 | `JSON(v)`, `JSONPretty(v, indent)` | JSON |
-| `XML(v)`, `YAML(v)`, `TOML(v)` | Other structured formats |
+| `XML(v)` | XML |
+| `Encode(mediaType, v)` | Any format with a configured encoder, or JSON and XML |
 | `String(s)`, `HTML(s)` | Text or HTML |
 | `Send(v)` | A string as text, `[]byte` as `application/octet-stream`, anything else as JSON |
 | `Data(contentType, b)` | Bytes with a content type, such as `zinc.MIMEJSON` for pre-encoded JSON |

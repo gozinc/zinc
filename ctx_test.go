@@ -736,8 +736,6 @@ func TestSetFieldValueCoversEdgeCases(t *testing.T) {
 }
 
 func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
-	binder := defaultBinder{codec: defaultJSONCodec{}}
-
 	t.Run("Bind handles nil body", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/users/9?page=3", nil)
 		req.Body = nil
@@ -749,7 +747,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 			Page int `query:"page"`
 		}
 		ctx.setParam("id", "9")
-		mustDo(t, binder.Bind(ctx, &got))
+		mustDo(t, bindAll(ctx, &got))
 		if got.ID != 9 || got.Page != 3 {
 			t.Fatalf("payload=%+v", got)
 		}
@@ -765,7 +763,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 			Page int `query:"page"`
 		}
 		ctx.setParam("id", "9")
-		mustDo(t, binder.Bind(ctx, &got))
+		mustDo(t, bindAll(ctx, &got))
 		if got.ID != 9 || got.Page != 3 {
 			t.Fatalf("payload=%+v", got)
 		}
@@ -778,7 +776,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		defer ctx.release()
 
 		var got struct{}
-		mustDo(t, binder.Bind(ctx, &got))
+		mustDo(t, bindAll(ctx, &got))
 	})
 
 	t.Run("Bind unsupported content type", func(t *testing.T) {
@@ -787,7 +785,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.Bind(ctx, &struct{}{})
+		err := bindAll(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "unsupported content type") {
 			t.Fatalf("err=%v", err)
 		}
@@ -800,24 +798,9 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		defer ctx.release()
 
 		var got string
-		mustDo(t, binder.Bind(ctx, &got))
+		mustDo(t, bindAll(ctx, &got))
 		if got != "hello" {
 			t.Fatalf("got=%q", got)
-		}
-	})
-
-	t.Run("Bind YAML into struct", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("name: lin\n"))
-		req.Header.Set(HeaderContentType, "application/x-yaml")
-		ctx, _ := newRecorderContext(t, req)
-		defer ctx.release()
-
-		var got struct {
-			Name string `yaml:"name"`
-		}
-		mustDo(t, binder.Bind(ctx, &got))
-		if got.Name != "lin" {
-			t.Fatalf("got=%+v", got)
 		}
 	})
 
@@ -827,7 +810,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.BindBody(ctx, &struct{}{})
+		err := bindBody(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "request body is empty") {
 			t.Fatalf("err=%v", err)
 		}
@@ -840,24 +823,9 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		defer ctx.release()
 
 		var got []byte
-		mustDo(t, binder.BindBody(ctx, &got))
+		mustDo(t, bindBody(ctx, &got))
 		if string(got) != "hello" {
 			t.Fatalf("got=%q", string(got))
-		}
-	})
-
-	t.Run("BindBody TOML into struct", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("name = 'lin'\n"))
-		req.Header.Set(HeaderContentType, "application/toml")
-		ctx, _ := newRecorderContext(t, req)
-		defer ctx.release()
-
-		var got struct {
-			Name string `toml:"name"`
-		}
-		mustDo(t, binder.BindBody(ctx, &got))
-		if got.Name != "lin" {
-			t.Fatalf("got=%+v", got)
 		}
 	})
 
@@ -867,7 +835,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.BindBody(ctx, new(string))
+		err := bindBody(ctx, new(string))
 		if err == nil || !strings.Contains(err.Error(), "request body is empty") {
 			t.Fatalf("err=%v", err)
 		}
@@ -879,7 +847,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.BindBody(ctx, &struct{}{})
+		err := bindBody(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "bind body") {
 			t.Fatalf("err=%v", err)
 		}
@@ -894,7 +862,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		var got struct {
 			Name string `form:"name"`
 		}
-		mustDo(t, binder.BindBody(ctx, &got))
+		mustDo(t, bindBody(ctx, &got))
 		if got.Name != "lin" {
 			t.Fatalf("name=%q", got.Name)
 		}
@@ -906,7 +874,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.BindBody(ctx, &struct{}{})
+		err := bindBody(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "unsupported content type") {
 			t.Fatalf("err=%v", err)
 		}
@@ -919,7 +887,7 @@ func TestDefaultBinderBindAndBindBodyBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.BindForm(ctx, &struct{}{})
+		err := bindForm(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "parse form") {
 			t.Fatalf("err=%v", err)
 		}
@@ -989,68 +957,71 @@ func TestBindTextAndBindingText(t *testing.T) {
 	})
 }
 
-func TestBindYAMLAndBindTOML(t *testing.T) {
-	t.Run("Context BindYAML", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("name: lin\n"))
-		req.Header.Set(HeaderContentType, "application/yaml")
+func TestCustomDecoders(t *testing.T) {
+	upper := func(data []byte, v any) error {
+		if string(data) == "fail" {
+			return errors.New("decoder: bad input")
+		}
+		if string(data) == "internal" {
+			return InternalServerError("decoder is down")
+		}
+		*(v.(*string)) = strings.ToUpper(string(data))
+		return nil
+	}
+	app := New(Config{Decoders: map[string]Decoder{"Text/X-Upper; charset=utf-8": upper}})
+	bind := func(body, contentType string) (string, error) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req.Header.Set(HeaderContentType, contentType)
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
+		ctx.app = app
+		var got string
+		err := ctx.Bind().Body(&got)
+		return got, err
+	}
 
-		var got struct {
-			Name string `yaml:"name"`
-		}
-		mustDo(t, ctx.Bind().YAML(&got))
-		if got.Name != "lin" {
-			t.Fatalf("got=%+v", got)
-		}
-	})
+	if got, err := bind("zinc", "text/x-upper; charset=utf-8"); err != nil || got != "ZINC" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if got, err := bind("zinc", "TEXT/X-UPPER"); err != nil || got != "ZINC" {
+		t.Fatalf("mixed-case media type: got %q, %v", got, err)
+	}
+	var bindErr *BindError
+	if _, err := bind("fail", "text/x-upper"); !errors.As(err, &bindErr) || StatusCode(err) != StatusBadRequest {
+		t.Fatalf("decoder error = %v, want a 400 *BindError", err)
+	}
+	if _, err := bind("internal", "text/x-upper"); StatusCode(err) != StatusInternalServerError {
+		t.Fatalf("status error = %v, want its own 500", err)
+	}
+	if _, err := bind("", "text/x-upper"); !errors.Is(err, errEmptyBody) {
+		t.Fatalf("empty body = %v", err)
+	}
+	if _, err := bind("zinc", "application/yaml"); err == nil || !strings.Contains(err.Error(), "unsupported content type") {
+		t.Fatalf("unconfigured type = %v", err)
+	}
+}
 
-	t.Run("Binding TOML", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("count = 7\n"))
-		req.Header.Set(HeaderContentType, "application/toml")
-		ctx, _ := newRecorderContext(t, req)
-		defer ctx.release()
-
-		var got struct {
-			Count int `toml:"count"`
-		}
-		mustDo(t, ctx.Bind().TOML(&got))
-		if got.Count != 7 {
-			t.Fatalf("got=%+v", got)
-		}
-	})
-
-	t.Run("BindYAML empty body", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
-		req.Header.Set(HeaderContentType, "application/yaml")
-		ctx, _ := newRecorderContext(t, req)
-		defer ctx.release()
-
-		err := ctx.Bind().YAML(&struct{}{})
-		if err == nil || !strings.Contains(err.Error(), "request body is empty") {
-			t.Fatalf("err=%v", err)
-		}
-	})
-
-	t.Run("BindTOML decode error", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("count = ["))
-		req.Header.Set(HeaderContentType, "application/toml")
-		ctx, _ := newRecorderContext(t, req)
-		defer ctx.release()
-
-		var got struct {
-			Count int `toml:"count"`
-		}
-		err := ctx.Bind().TOML(&got)
-		if err == nil {
-			t.Fatal("expected TOML decode error")
-		}
-	})
+func TestFormatConfigRejectsMistakes(t *testing.T) {
+	noop := func([]byte, any) error { return nil }
+	for name, cfg := range map[string]Config{
+		"form decoder":     {Decoders: map[string]Decoder{"multipart/form-data": noop}},
+		"nil decoder":      {Decoders: map[string]Decoder{"application/yaml": nil}},
+		"bad media type":   {Decoders: map[string]Decoder{"yaml": noop}},
+		"nil encoder":      {Encoders: map[string]Encoder{"application/yaml": nil}},
+		"empty media type": {Encoders: map[string]Encoder{"": func(any) ([]byte, error) { return nil, nil }}},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s did not panic", name)
+				}
+			}()
+			New(cfg)
+		}()
+	}
 }
 
 func TestBinderAdditionalErrorBranches(t *testing.T) {
-	binder := defaultBinder{codec: defaultJSONCodec{}}
-
 	t.Run("Bind path and query binding errors", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/?count=bad", strings.NewReader(`{"name":"ok"}`))
 		req.Header.Set(HeaderContentType, "application/json")
@@ -1063,7 +1034,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 			Count int `query:"count"`
 			Name  string
 		}
-		err := binder.Bind(ctx, &payload)
+		err := bindAll(ctx, &payload)
 		if err == nil {
 			t.Fatal("expected bind error from invalid path/query data")
 		}
@@ -1083,7 +1054,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		err := binder.Bind(ctx, &struct{}{})
+		err := bindAll(ctx, &struct{}{})
 		if err == nil || !strings.Contains(err.Error(), "read failed") {
 			t.Fatalf("err=%v", err)
 		}
@@ -1094,7 +1065,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		jsonReq.Header.Set(HeaderContentType, "application/json")
 		jsonCtx, _ := newRecorderContext(t, jsonReq)
 		defer jsonCtx.release()
-		if err := binder.Bind(jsonCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
+		if err := bindAll(jsonCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
 			t.Fatalf("err=%v", err)
 		}
 
@@ -1102,7 +1073,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		xmlReq.Header.Set(HeaderContentType, "application/xml")
 		xmlCtx, _ := newRecorderContext(t, xmlReq)
 		defer xmlCtx.release()
-		if err := binder.Bind(xmlCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
+		if err := bindAll(xmlCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
 			t.Fatalf("err=%v", err)
 		}
 
@@ -1113,7 +1084,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		var formPayload struct {
 			Count int `form:"count"`
 		}
-		if err := binder.Bind(formCtx, &formPayload); err == nil {
+		if err := bindAll(formCtx, &formPayload); err == nil {
 			t.Fatal("expected bindData error for invalid form int")
 		}
 	})
@@ -1124,7 +1095,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		readErrReq.Body = errReadCloser{err: errors.New("read failed")}
 		readErrCtx, _ := newRecorderContext(t, readErrReq)
 		defer readErrCtx.release()
-		if err := binder.BindBody(readErrCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "read failed") {
+		if err := bindBody(readErrCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "read failed") {
 			t.Fatalf("err=%v", err)
 		}
 
@@ -1132,7 +1103,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		decodeErrReq.Header.Set(HeaderContentType, "application/json")
 		decodeErrCtx, _ := newRecorderContext(t, decodeErrReq)
 		defer decodeErrCtx.release()
-		if err := binder.BindBody(decodeErrCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
+		if err := bindBody(decodeErrCtx, &struct{}{}); err == nil || !strings.Contains(err.Error(), "bind body") {
 			t.Fatalf("err=%v", err)
 		}
 	})
@@ -1144,7 +1115,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		var queryPayload struct {
 			Count int `query:"count"`
 		}
-		if err := binder.BindQuery(queryCtx, &queryPayload); err == nil {
+		if err := bindQuery(queryCtx, &queryPayload); err == nil {
 			t.Fatal("expected query bind error")
 		}
 
@@ -1153,7 +1124,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		formReq.Body = errReadCloser{err: errors.New("read failed")}
 		formCtx, _ := newRecorderContext(t, formReq)
 		defer formCtx.release()
-		if err := binder.BindForm(formCtx, &struct{}{}); err == nil {
+		if err := bindForm(formCtx, &struct{}{}); err == nil {
 			t.Fatal("expected form parse error")
 		}
 
@@ -1164,7 +1135,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		var headerPayload struct {
 			Count int `header:"x-count"`
 		}
-		if err := binder.BindHeader(headerCtx, &headerPayload); err == nil {
+		if err := bindHeader(headerCtx, &headerPayload); err == nil {
 			t.Fatal("expected header bind error")
 		}
 
@@ -1175,7 +1146,7 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		var pathPayload struct {
 			ID int `path:"id"`
 		}
-		if err := binder.BindPath(pathCtx, &pathPayload); err == nil {
+		if err := bindPath(pathCtx, &pathPayload); err == nil {
 			t.Fatal("expected path bind error")
 		}
 	})

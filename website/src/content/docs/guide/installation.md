@@ -28,7 +28,7 @@ import (
 )
 ```
 
-The core package depends only on the standard library plus encoders for YAML and TOML, and the middleware packages add nothing. Middleware with third-party dependencies, such as [JWT](/middleware/jwtauth/), lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib) and is installed separately. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, plug in through `net/http`.
+The core package depends only on the standard library: its go.mod requires no other module, and the middleware packages add nothing. YAML, TOML, and other formats plug in through [decoders and encoders](/guide/customization/#body-formats) with the library you choose. Middleware with third-party dependencies, such as [JWT](/middleware/jwtauth/), lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib) and is installed separately. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, plug in through `net/http`.
 
 ## Check the installed version
 
