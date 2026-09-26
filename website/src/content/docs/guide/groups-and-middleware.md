@@ -60,7 +60,7 @@ Return an error, or write a response, instead of calling `c.Next()`:
 
 ```go
 func requireAPIKey(c *zinc.Context) error {
-	if !keys.Valid(c.GetHeader("X-API-Key")) {
+	if !keys.Valid(c.Header("X-API-Key")) {
 		return zinc.ErrUnauthorized // the chain stops; the error handler responds
 	}
 	return c.Next()

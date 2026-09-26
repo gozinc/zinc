@@ -9,7 +9,7 @@ Zinc uses the standard library's `http.Cookie` type, so every attribute works ex
 
 ```go
 app.Post("/login", func(c *zinc.Context) error {
-	token, err := auth.SignIn(c.Context(), c.PostForm("email"), c.PostForm("password"))
+	token, err := auth.SignIn(c.Context(), c.FormValue("email"), c.FormValue("password"))
 	if err != nil {
 		return zinc.ErrUnauthorized
 	}
@@ -47,11 +47,14 @@ user, err := auth.UserFromToken(c.Context(), cookie.Value)
 ## Clear cookies
 
 ```go
-c.ClearCookie("session", "preferences")
+c.ClearCookie(&http.Cookie{Name: "session"})
+c.ClearCookie(&http.Cookie{Name: "prefs", Path: "/app", Domain: "example.com"})
 return c.NoContent()
 ```
 
-`ClearCookie` sends expired cookies with the given names, so the browser deletes them.
+`ClearCookie` sends an expired copy of the cookie, so the browser deletes it. The name, path, and domain must match the cookie you set; the path defaults to `/`.
+
+To give every cookie a default `SameSite` mode, set `Config.CookieSameSite`. It applies to cookies that don't set `SameSite` themselves.
 
 ## Related middleware
 

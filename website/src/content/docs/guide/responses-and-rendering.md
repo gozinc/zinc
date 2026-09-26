@@ -20,13 +20,13 @@ return c.
 | XML, YAML, TOML | `c.XML(v)`, `c.YAML(v)`, `c.TOML(v)` |
 | Text or HTML | `c.String(s)`, `c.HTML(s)` |
 | Nothing | `c.NoContent()` (204) |
-| Pre-encoded bytes | `c.JSONBlob`, `c.XMLBlob`, `c.HTMLBlob`, `c.Blob` |
+| Pre-encoded bytes | `c.Data(contentType, b)` |
 | A template | `c.Render(name, data)` |
 | A file | `c.File(path)`, `c.FileFS(name, fsys)` |
-| A download | `c.Download(path, filename)`, `c.Inline(path)` |
+| A download | `c.Attachment(path, filename)`, `c.Inline(path)` |
 | A stream | `c.Stream(contentType, reader)` |
 | An event stream | `c.SSE(event)` |
-| A redirect | `c.Redirect(code, url)` |
+| A redirect | `c.Redirect(url)` (302), or `c.Status(code).Redirect(url)` |
 
 The status defaults to `200 OK`.
 
@@ -49,11 +49,11 @@ return c.XML(invoice)
 return c.YAML(config)
 ```
 
-`zinc.Map` is shorthand for `map[string]any`. For bytes that are already encoded, the blob helpers write them unchanged:
+`zinc.Map` is shorthand for `map[string]any`. For bytes that are already encoded, `c.Data` writes them unchanged:
 
 ```go
-return c.JSONBlob(zinc.StatusOK, cachedJSON)
-return c.Blob(zinc.StatusOK, "application/vnd.api+json", payload)
+return c.Data(zinc.MIMEJSON, cachedJSON)
+return c.Status(zinc.StatusOK).Data("application/vnd.api+json", payload)
 ```
 
 ## Templates
@@ -77,7 +77,7 @@ app.Get("/dashboard", func(c *zinc.Context) error {
 ```go
 return c.File("./public/report.pdf")          // served with a detected content type
 return c.FileFS("report.pdf", embeddedFiles)  // from any fs.FS
-return c.Download("./exports/users.csv", "users-2026-09.csv") // "Save as" with a filename
+return c.Attachment("./exports/users.csv", "users-2026-09.csv") // "Save as" with a filename
 return c.Inline("./public/report.pdf")        // display in the browser
 ```
 
@@ -98,7 +98,7 @@ For server-sent events, call `c.SSE` once per event. Each event is flushed to th
 ```go
 app.Get("/events", func(c *zinc.Context) error {
 	for msg := range updates(c.Context()) {
-		if err := c.SSE(zinc.SSEvent{Event: "update", Data: msg}); err != nil {
+		if err := c.SSE(zinc.Event{Event: "update", Data: msg}); err != nil {
 			return err
 		}
 	}
@@ -126,7 +126,7 @@ default:
 `Accepts` honours quality values and wildcards in the `Accept` header, and returns the first offer when the header is missing. When each type has a ready-made body, `Negotiate` picks and sends it in one call:
 
 ```go
-return c.Negotiate(zinc.StatusOK, zinc.Map{
+return c.Negotiate(zinc.Map{
 	"application/json": zinc.Map{"ok": true},
 	"text/plain":       "ok",
 })
@@ -136,7 +136,7 @@ return c.Negotiate(zinc.StatusOK, zinc.Map{
 
 ```go
 c.SetCookie(&http.Cookie{Name: "theme", Value: "dark", Path: "/"})
-return c.Redirect(zinc.StatusSeeOther, "/dashboard")
+return c.Status(zinc.StatusSeeOther).Redirect("/dashboard")
 ```
 
 [Cookies](/guide/cookies/) covers reading, clearing, and secure defaults.

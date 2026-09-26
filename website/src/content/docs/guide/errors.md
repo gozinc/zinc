@@ -112,7 +112,7 @@ Middleware stops a request by returning an error instead of calling `c.Next()`:
 
 ```go
 func requireAPIKey(c *zinc.Context) error {
-	if c.GetHeader("X-API-Key") == "" {
+	if c.Header("X-API-Key") == "" {
 		return zinc.Unauthorized("missing API key")
 	}
 	return c.Next()

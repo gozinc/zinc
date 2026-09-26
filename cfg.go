@@ -3,7 +3,10 @@
 
 package zinc
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 // Defaults applied to zero-valued Config fields.
 const (
@@ -57,6 +60,10 @@ type Config struct {
 	// requests after its context ends. 0 means DefaultShutdownTimeout;
 	// negative means wait until they finish.
 	ShutdownTimeout time.Duration
+
+	// CookieSameSite is applied to cookies written by SetCookie and
+	// ClearCookie that don't set SameSite themselves. Zero leaves them unset.
+	CookieSameSite http.SameSite
 
 	// ProxyHeader identifies the forwarding header used by Context.IP.
 	// Empty means DefaultProxyHeader.

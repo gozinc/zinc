@@ -49,7 +49,7 @@ func main() {
 	app.Get("/users/{id}", func(c *zinc.Context) error {
 		return c.JSON(zinc.Map{
 			"id":         c.Param("id"),
-			"request_id": c.RequestID(),
+			"request_id": c.Header(zinc.HeaderXRequestID),
 		})
 	})
 

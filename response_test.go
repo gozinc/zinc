@@ -32,12 +32,13 @@ func (rendererStub) Render(w io.Writer, name string, data any, c *Context) error
 
 func TestResponseHelpers(t *testing.T) {
 	t.Run("headers cookies and content helpers", func(t *testing.T) {
-		app := New()
+		app := New(Config{CookieSameSite: http.SameSiteLaxMode})
 		app.Get("/headers", func(c *Context) error {
 			c.SetHeader("X-One", "1").AppendHeader("X-Many", "a", "b").Type("json").Location("/next").Vary("Origin", "Accept")
-			c.SetSameSite(http.SameSiteLaxMode)
 			c.SetCookie(&http.Cookie{Name: "session", Value: "abc", Path: "/"})
-			c.ClearCookie("stale")
+			c.SetCookie(&http.Cookie{Name: "strict", Value: "s", SameSite: http.SameSiteStrictMode})
+			c.ClearCookie(&http.Cookie{Name: "stale"})
+			c.ClearCookie(&http.Cookie{Name: "scoped", Path: "/admin", Domain: "example.com"})
 			return c.String("ok")
 		})
 		resp := performRequest(t, app, http.MethodGet, "/headers", nil, nil)
@@ -54,21 +55,30 @@ func TestResponseHelpers(t *testing.T) {
 			t.Fatalf("vary=%v", vary)
 		}
 		cookies := resp.Result().Cookies()
-		if len(cookies) < 2 {
+		if len(cookies) != 4 {
 			t.Fatalf("cookies=%v", cookies)
 		}
-		if cookies[0].SameSite != http.SameSiteLaxMode || cookies[1].SameSite != http.SameSiteLaxMode {
+		// Config.CookieSameSite fills in cookies that don't choose their own.
+		if cookies[0].SameSite != http.SameSiteLaxMode || cookies[1].SameSite != http.SameSiteStrictMode {
 			t.Fatalf("cookie same site=%v %v", cookies[0].SameSite, cookies[1].SameSite)
+		}
+		// ClearCookie keeps the path and domain, so scoped cookies can be removed.
+		stale, scoped := cookies[2], cookies[3]
+		if stale.Name != "stale" || stale.Path != "/" || stale.MaxAge != -1 || stale.Value != "" {
+			t.Fatalf("cleared cookie=%+v", stale)
+		}
+		if scoped.Path != "/admin" || scoped.Domain != "example.com" || scoped.MaxAge != -1 {
+			t.Fatalf("cleared scoped cookie=%+v", scoped)
 		}
 	})
 
 	t.Run("data encoders and streams", func(t *testing.T) {
 		app := New()
 		app.Get("/data", func(c *Context) error { return c.Data("application/custom", []byte("data")) })
-		app.Get("/blob", func(c *Context) error { return c.Blob(http.StatusCreated, "application/custom", []byte("blob")) })
-		app.Get("/json-blob", func(c *Context) error { return c.JSONBlob(http.StatusAccepted, []byte(`{"ok":true}`)) })
-		app.Get("/xml-blob", func(c *Context) error { return c.XMLBlob(http.StatusAccepted, []byte(`<ok>true</ok>`)) })
-		app.Get("/html-blob", func(c *Context) error { return c.HTMLBlob(http.StatusAccepted, []byte(`<p>ok</p>`)) })
+		app.Get("/blob", func(c *Context) error { return c.Status(http.StatusCreated).Data("application/custom", []byte("blob")) })
+		app.Get("/json-blob", func(c *Context) error { return c.Status(http.StatusAccepted).Data(MIMEJSON, []byte(`{"ok":true}`)) })
+		app.Get("/xml-blob", func(c *Context) error { return c.Status(http.StatusAccepted).Data(MIMEXML, []byte(`<ok>true</ok>`)) })
+		app.Get("/html-blob", func(c *Context) error { return c.Status(http.StatusAccepted).Data(MIMEHTML, []byte(`<p>ok</p>`)) })
 		app.Get("/json", func(c *Context) error { return c.JSONPretty(Map{"ok": true}, "  ") })
 		app.Get("/xml", func(c *Context) error { return c.XML(xmlPayload{Value: "x"}) })
 		app.Get("/yaml", func(c *Context) error { return c.YAML(Map{"ok": true}) })
@@ -119,7 +129,7 @@ func TestResponseHelpers(t *testing.T) {
 		app := New()
 		app.Get("/events", func(c *Context) error {
 			c.Status(http.StatusCreated)
-			if err := c.SSE(SSEvent{
+			if err := c.SSE(Event{
 				Event: "message",
 				ID:    "1",
 				Retry: 2 * time.Second,
@@ -127,7 +137,7 @@ func TestResponseHelpers(t *testing.T) {
 			}); err != nil {
 				return err
 			}
-			return c.SSE(SSEvent{Data: "line 1\nline 2"})
+			return c.SSE(Event{Data: "line 1\nline 2"})
 		})
 
 		resp := performRequest(t, app, http.MethodGet, "/events", nil, nil)
@@ -146,7 +156,7 @@ func TestResponseHelpers(t *testing.T) {
 	t.Run("content negotiation", func(t *testing.T) {
 		app := New()
 		app.Get("/negotiate", func(c *Context) error {
-			return c.Negotiate(http.StatusAccepted, map[string]any{
+			return c.Status(http.StatusAccepted).Negotiate(map[string]any{
 				"application/json": Map{"ok": true},
 				"text/plain":       "plain",
 			})
@@ -185,7 +195,7 @@ func TestResponseHelpers(t *testing.T) {
 	t.Run("no content redirect render and repeated write", func(t *testing.T) {
 		app := New(Config{Renderer: rendererStub{}})
 		app.Get("/nocontent", func(c *Context) error { return c.NoContent() })
-		app.Get("/redirect", func(c *Context) error { return c.Redirect(http.StatusMovedPermanently, "/to") })
+		app.Get("/redirect", func(c *Context) error { return c.Status(http.StatusMovedPermanently).Redirect("/to") })
 		app.Get("/render", func(c *Context) error { return c.Render("home", nil) })
 		app.Get("/double", func(c *Context) error {
 			mustDo(t, c.String("once"))
@@ -225,8 +235,8 @@ func TestResponseHelpers(t *testing.T) {
 		path := filepath.Join(dir, "testdata.txt")
 		mustDo(t, os.WriteFile(path, []byte("attachment"), 0o644))
 		app.Get("/file", func(c *Context) error { return c.File(path) })
-		app.Get("/download", func(c *Context) error { return c.Download(path) })
-		app.Get("/download-named", func(c *Context) error { return c.Download(path, "custom-name.txt") })
+		app.Get("/download", func(c *Context) error { return c.Attachment(path) })
+		app.Get("/download-named", func(c *Context) error { return c.Attachment(path, "custom-name.txt") })
 		app.Get("/inline", func(c *Context) error { return c.Inline(path, "inline-name.txt") })
 		attachApp := New()
 		attachApp.Get("/attach", func(c *Context) error { return c.Attachment(path, "download.txt") })
@@ -478,14 +488,14 @@ func TestWriteNegotiatedContentTypes(t *testing.T) {
 func TestRedirectAndRenderErrorBranches(t *testing.T) {
 	ctx, rec := newRecorderContext(t, httptest.NewRequest(http.MethodGet, "/", nil))
 	defer ctx.release()
-	mustDo(t, ctx.Redirect(0, "/next"))
+	mustDo(t, ctx.Status(0).Redirect("/next"))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status=%d", rec.Code)
 	}
 	if rec.Header().Get(HeaderLocation) != "/next" {
 		t.Fatalf("location=%q", rec.Header().Get(HeaderLocation))
 	}
-	if err := ctx.Redirect(http.StatusTemporaryRedirect, "/again"); !errors.Is(err, ErrResponseAlreadySent) {
+	if err := ctx.Status(http.StatusTemporaryRedirect).Redirect("/again"); !errors.Is(err, ErrResponseAlreadySent) {
 		t.Fatalf("err=%v", err)
 	}
 

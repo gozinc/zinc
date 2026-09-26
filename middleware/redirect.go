@@ -63,6 +63,6 @@ func RedirectWithConfig(config RedirectConfig) zinc.Middleware {
 		if !ok {
 			return c.Next()
 		}
-		return c.Redirect(statusCode, pathWithRawQuery(target, req.URL.RawQuery))
+		return c.Status(statusCode).Redirect(pathWithRawQuery(target, req.URL.RawQuery))
 	}
 }

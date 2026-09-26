@@ -108,7 +108,7 @@ func TestMethodOverrideFromHeader(t *testing.T) {
 	app := zinc.New()
 	app.Use(MethodOverride())
 	app.Put("/resource", func(c *zinc.Context) error {
-		return c.String(c.Method() + ":" + c.GetHeader(HeaderXOriginalMethod))
+		return c.String(c.Method() + ":" + c.Header(HeaderXOriginalMethod))
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/resource", nil)

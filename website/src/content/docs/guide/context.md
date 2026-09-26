@@ -10,7 +10,7 @@ app.Get("/users/{id}", func(c *zinc.Context) error {
 	return c.JSON(zinc.Map{
 		"id":    c.Param("id"),        // request data
 		"route": c.FullPath(),         // "/users/{id}", the matched pattern
-		"agent": c.GetHeader("User-Agent"),
+		"agent": c.Header("User-Agent"),
 	})
 })
 ```
@@ -19,11 +19,11 @@ The guides cover each area in depth: [Request Data](/guide/request/) for reading
 
 ## Share values between middleware and handlers
 
-Middleware often discovers something that later handlers need, such as the current user. Store it with `Set` and read it with a typed getter.
+Middleware often discovers something that later handlers need, such as the current user. Store it with `Set` and read it back with `zinc.Value` or `zinc.MustValue`, which check its type.
 
 ```go
 func loadUser(c *zinc.Context) error {
-	user, err := sessions.User(c.Context(), c.GetHeader("Authorization"))
+	user, err := sessions.User(c.Context(), c.Header("Authorization"))
 	if err != nil {
 		return zinc.ErrUnauthorized
 	}
@@ -32,17 +32,16 @@ func loadUser(c *zinc.Context) error {
 }
 
 app.Get("/me", loadUser, func(c *zinc.Context) error {
-	user := c.MustGet("user").(*User)
+	user := zinc.MustValue[*User](c, "user")
 	return c.JSON(user)
 })
 ```
 
 | Getter | Returns |
 |---|---|
-| `Get(key)` | `(any, bool)` |
-| `MustGet(key)` | `any`, and panics when missing. Use it only when a missing value is a bug. |
-| `GetString`, `GetBool`, `GetInt`, `GetInt64`, `GetFloat64` | The typed value, or its zero value |
-| `GetStringSlice`, `GetStringMap`, `GetStringMapString` | The typed collection, or `nil` |
+| `c.Get(key)` | `(any, bool)` |
+| `zinc.Value[T](c, key)` | `(T, bool)`: the value if it is stored and has type `T` |
+| `zinc.MustValue[T](c, key)` | `T`, and panics when it is missing or has another type. Use it for values an earlier middleware always sets. |
 
 Values live only for the current request.
 
@@ -64,7 +63,7 @@ Copy what background work needs, then pass the copies:
 app.Post("/reports/{id}", func(c *zinc.Context) error {
 	job := ReportJob{
 		ID:        c.Param("id"),
-		RequestID: c.RequestID(),
+		RequestID: c.Header(zinc.HeaderXRequestID),
 	}
 	go reports.Build(context.WithoutCancel(c.Context()), job)
 	return c.Status(zinc.StatusAccepted).JSON(zinc.Map{"queued": job.ID})

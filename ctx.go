@@ -29,7 +29,7 @@ type Context struct {
 	response     responseWriterSet
 	errorHandled bool
 	request      *http.Request
-	PathParams   params
+	pathParams   params
 	inlineParams [inlineParamSlotCount]param
 	queryParams  url.Values
 	written      bool
@@ -46,7 +46,6 @@ type Context struct {
 	body         []byte
 	bodyRead     bool
 	bodyErr      error
-	sameSite     http.SameSite
 	paramPath    string
 	paramCount   int
 	paramRanges  paramRanges
@@ -73,6 +72,10 @@ const directParamStart int32 = -1
 
 const bodyReadPreallocateLimit int64 = 64 << 10
 
+// defaultMultipartMemory matches net/http: larger multipart parts spill to
+// temporary files.
+const defaultMultipartMemory = 32 << 20
+
 var contextPool = sync.Pool{
 	New: func() any {
 		c := &Context{
@@ -80,14 +83,13 @@ var contextPool = sync.Pool{
 			index:      -1,
 			routeIndex: -1,
 		}
-		c.PathParams = c.inlineParams[:inlineParamSlotCount]
+		c.pathParams = c.inlineParams[:inlineParamSlotCount]
 		return c
 	},
 }
 
-// NewContext acquires a Context for w and r. Callers that construct contexts
-// directly must eventually return them through the application lifecycle.
-func NewContext(w http.ResponseWriter, r *http.Request) *Context {
+// newContext acquires a pooled Context for w and r. The caller must release it.
+func newContext(w http.ResponseWriter, r *http.Request) *Context {
 	c := contextPool.Get().(*Context)
 	c.reset(w, r)
 	return c
@@ -128,10 +130,9 @@ func (c *Context) release() {
 	c.body = nil
 	c.bodyRead = false
 	c.bodyErr = nil
-	c.sameSite = 0
 	c.paramPath = ""
 	c.paramRoute = nil
-	clear(c.PathParams[:c.paramCount])
+	clear(c.pathParams[:c.paramCount])
 	c.paramCount = 0
 	clear(c.store)
 	c.app = nil
@@ -266,84 +267,6 @@ func (c *Context) Get(key any) (any, bool) {
 	return value, ok
 }
 
-// MustGet retrieves a request-scoped value or panics when the key is absent.
-func (c *Context) MustGet(key any) any {
-	value, ok := c.Get(key)
-	if !ok {
-		panic("zinc: context key not found")
-	}
-	return value
-}
-
-// GetString returns a stored string or its zero value.
-func (c *Context) GetString(key any) string {
-	value, _ := c.Get(key)
-	result, _ := value.(string)
-	return result
-}
-
-// GetBool returns a stored bool or its zero value.
-func (c *Context) GetBool(key any) bool {
-	value, _ := c.Get(key)
-	result, _ := value.(bool)
-	return result
-}
-
-// GetInt returns a stored int or its zero value.
-func (c *Context) GetInt(key any) int {
-	value, _ := c.Get(key)
-	result, _ := value.(int)
-	return result
-}
-
-// GetInt64 returns a stored int64 or its zero value.
-func (c *Context) GetInt64(key any) int64 {
-	value, _ := c.Get(key)
-	result, _ := value.(int64)
-	return result
-}
-
-// GetFloat64 returns a stored float64 or its zero value.
-func (c *Context) GetFloat64(key any) float64 {
-	value, _ := c.Get(key)
-	result, _ := value.(float64)
-	return result
-}
-
-// GetStringSlice returns a stored string slice or nil.
-func (c *Context) GetStringSlice(key any) []string {
-	value, _ := c.Get(key)
-	result, _ := value.([]string)
-	return result
-}
-
-// GetStringMap returns a stored map, accepting both map[string]any and Map.
-func (c *Context) GetStringMap(key any) map[string]any {
-	value, _ := c.Get(key)
-	switch result := value.(type) {
-	case map[string]any:
-		return result
-	case Map:
-		return map[string]any(result)
-	default:
-		return nil
-	}
-}
-
-// GetStringMapString returns a stored string map or nil.
-func (c *Context) GetStringMapString(key any) map[string]string {
-	value, _ := c.Get(key)
-	result, _ := value.(map[string]string)
-	return result
-}
-
-// GetStringMapStringSlice returns a stored string-slice map or nil.
-func (c *Context) GetStringMapStringSlice(key any) map[string][]string {
-	value, _ := c.Get(key)
-	result, _ := value.(map[string][]string)
-	return result
-}
-
 // Status selects the status code for the next response write.
 func (c *Context) Status(code int) *Context {
 	c.status = code
@@ -361,8 +284,8 @@ func (c *Context) Param(name string) string {
 			if index >= c.paramCount {
 				return ""
 			}
-			if c.PathParams[index].start == directParamStart {
-				return c.PathParams[index].value
+			if c.pathParams[index].start == directParamStart {
+				return c.pathParams[index].value
 			}
 			return c.pathParamValueAt(index)
 		}
@@ -372,22 +295,14 @@ func (c *Context) Param(name string) string {
 		c.materializePathParams()
 	}
 	for i := 0; i < c.paramCount; i++ {
-		if c.PathParams[i].key == name {
-			if c.PathParams[i].start == directParamStart {
-				return c.PathParams[i].value
+		if c.pathParams[i].key == name {
+			if c.pathParams[i].start == directParamStart {
+				return c.pathParams[i].value
 			}
 			return c.pathParamValueAt(i)
 		}
 	}
 	return ""
-}
-
-// ParamOr returns a route parameter or fallback when it is empty.
-func (c *Context) ParamOr(name, fallback string) string {
-	if value := c.Param(name); value != "" {
-		return value
-	}
-	return fallback
 }
 
 // Query returns the first query value for name.
@@ -405,6 +320,12 @@ func (c *Context) Query(name string) string {
 // Match net/url.ParseQuery's treatment of escapes, duplicate keys, and
 // unescaped semicolons so Query and QueryValues have the same result.
 func firstRawQueryValue(raw, name string) string {
+	value, _ := lookupRawQuery(raw, name)
+	return value
+}
+
+// lookupRawQuery finds the first value for name without building url.Values.
+func lookupRawQuery(raw, name string) (string, bool) {
 	for raw != "" {
 		field, remaining, _ := strings.Cut(raw, "&")
 		raw = remaining
@@ -427,19 +348,11 @@ func firstRawQueryValue(raw, name string) string {
 			if err != nil {
 				continue
 			}
-			return decoded
+			return decoded, true
 		}
-		return value
+		return value, true
 	}
-	return ""
-}
-
-// QueryOr returns the first query value or fallback when it is empty.
-func (c *Context) QueryOr(name, fallback string) string {
-	if value := c.Query(name); value != "" {
-		return value
-	}
-	return fallback
+	return "", false
 }
 
 // QueryArray returns a copy of all query values for name.
@@ -465,33 +378,6 @@ func (c *Context) QueryValues() url.Values {
 		c.queryParams = c.request.URL.Query()
 	}
 	return c.queryParams
-}
-
-// PostForm returns the first body form value for name.
-func (c *Context) PostForm(name string) string {
-	return c.postFormValues().Get(name)
-}
-
-// PostFormOr returns a body form value or fallback when it is empty.
-func (c *Context) PostFormOr(name, fallback string) string {
-	if value := c.PostForm(name); value != "" {
-		return value
-	}
-	return fallback
-}
-
-// PostFormArray returns a copy of all body form values for name.
-func (c *Context) PostFormArray(name string) []string {
-	values := c.postFormValues()[name]
-	if len(values) == 0 {
-		return []string{}
-	}
-	return append([]string(nil), values...)
-}
-
-// PostFormMap collects bracketed body form keys such as user[name].
-func (c *Context) PostFormMap(name string) map[string]string {
-	return valuesMap(c.postFormValues(), name)
 }
 
 // FormValue returns the first form value using net/http form parsing semantics.
@@ -546,7 +432,7 @@ func (c *Context) MultipartForm() (*multipart.Form, error) {
 	if c.request.MultipartForm != nil {
 		return c.request.MultipartForm, nil
 	}
-	if err := c.request.ParseMultipartForm(32 << 20); err != nil {
+	if err := c.request.ParseMultipartForm(defaultMultipartMemory); err != nil {
 		return nil, err
 	}
 	return c.request.MultipartForm, nil
@@ -572,8 +458,8 @@ func (c *Context) SaveFile(file *multipart.FileHeader, dst string) error {
 	return err
 }
 
-// GetHeader returns the first request header value for key.
-func (c *Context) GetHeader(key string) string {
+// Header returns the first request header value for key.
+func (c *Context) Header(key string) string {
 	if c.request == nil {
 		return ""
 	}
@@ -582,13 +468,13 @@ func (c *Context) GetHeader(key string) string {
 
 // ContentType returns the normalized media type without parameters.
 func (c *Context) ContentType() string {
-	return mediaTypeOnly(c.GetHeader(HeaderContentType))
+	return mediaTypeOnly(c.Header(HeaderContentType))
 }
 
 // IsWebSocket reports whether the request asks to upgrade to WebSocket.
 func (c *Context) IsWebSocket() bool {
-	return headerHasToken(c.GetHeader(HeaderConnection), "upgrade") &&
-		strings.EqualFold(strings.TrimSpace(c.GetHeader(HeaderUpgrade)), "websocket")
+	return headerHasToken(c.Header(HeaderConnection), "upgrade") &&
+		strings.EqualFold(strings.TrimSpace(c.Header(HeaderUpgrade)), "websocket")
 }
 
 // Cookie returns the named request cookie.
@@ -624,37 +510,6 @@ func (c *Context) BodyString() (string, error) {
 		return "", err
 	}
 	return string(body), nil
-}
-
-func (c *Context) postFormValues() url.Values {
-	if err := c.limitFormBody(); err != nil {
-		return nil
-	}
-	if c.request == nil {
-		return url.Values{}
-	}
-	if c.request.PostForm != nil {
-		return c.request.PostForm
-	}
-	if c.ContentType() == "multipart/form-data" {
-		if err := c.request.ParseMultipartForm(32 << 20); err != nil {
-			return url.Values{}
-		}
-		if c.request.PostForm != nil {
-			return c.request.PostForm
-		}
-		if c.request.MultipartForm != nil {
-			return c.request.MultipartForm.Value
-		}
-		return url.Values{}
-	}
-	if err := c.request.ParseForm(); err != nil {
-		return url.Values{}
-	}
-	if c.request.PostForm == nil {
-		return url.Values{}
-	}
-	return c.request.PostForm
 }
 
 func valuesMap(values url.Values, name string) map[string]string {
@@ -952,12 +807,7 @@ func (c *Context) Secure() bool {
 
 // IsPreflight reports whether the request is a CORS preflight.
 func (c *Context) IsPreflight() bool {
-	return c.Method() == MethodOptions && c.GetHeader(HeaderAccessControlRequestMethod) != ""
-}
-
-// RequestID returns the X-Request-ID request header.
-func (c *Context) RequestID() string {
-	return c.GetHeader(HeaderXRequestID)
+	return c.Method() == MethodOptions && c.Header(HeaderAccessControlRequestMethod) != ""
 }
 
 // FullPath returns the registered route pattern matched by this request.
@@ -1009,8 +859,8 @@ func (c *Context) setRouteIndex(index uint32) {
 }
 
 func (c *Context) initPathParams() {
-	if c.PathParams == nil {
-		c.PathParams = c.inlineParams[:inlineParamSlotCount]
+	if c.pathParams == nil {
+		c.pathParams = c.inlineParams[:inlineParamSlotCount]
 	}
 }
 
@@ -1023,10 +873,10 @@ func (c *Context) paramRangesScratch() *paramRanges {
 
 func (c *Context) ensurePathParamCapacity(count int) {
 	c.initPathParams()
-	if count <= len(c.PathParams) {
+	if count <= len(c.pathParams) {
 		return
 	}
-	size := len(c.PathParams)
+	size := len(c.pathParams)
 	if size < inlineParamSlotCount {
 		size = inlineParamSlotCount
 	}
@@ -1037,8 +887,8 @@ func (c *Context) ensurePathParamCapacity(count int) {
 		size *= 2
 	}
 	grown := make(params, size)
-	copy(grown, c.PathParams[:c.paramCount])
-	c.PathParams = grown
+	copy(grown, c.pathParams[:c.paramCount])
+	c.pathParams = grown
 }
 
 func (c *Context) applyRouteParams(path string, route *radixRoute, values paramRanges) {
@@ -1049,14 +899,14 @@ func (c *Context) applyRouteParams(path string, route *radixRoute, values paramR
 	previousCount := c.paramCount
 	for i := 0; i < count; i++ {
 		valueRange := values.at(i)
-		c.PathParams[i] = param{
+		c.pathParams[i] = param{
 			key:   route.paramNameAt(i),
 			start: int32(valueRange.start),
 			end:   int32(valueRange.end),
 		}
 	}
 	for i := count; i < previousCount; i++ {
-		c.PathParams[i] = emptyParam
+		c.pathParams[i] = emptyParam
 	}
 	c.paramCount = count
 }
@@ -1069,7 +919,7 @@ func (c *Context) populateRequestPathValues() {
 		return
 	}
 	for i := 0; i < c.paramCount; i++ {
-		name := c.PathParams[i].key
+		name := c.pathParams[i].key
 		if name == "" {
 			continue
 		}
@@ -1085,7 +935,7 @@ func (c *Context) truncateParams(count int) {
 		count = c.paramCount
 	}
 	for i := count; i < c.paramCount; i++ {
-		c.PathParams[i] = emptyParam
+		c.pathParams[i] = emptyParam
 	}
 	c.paramCount = count
 	if count == 0 {
@@ -1094,7 +944,7 @@ func (c *Context) truncateParams(count int) {
 }
 
 func (c *Context) pathParamValueAt(i int) string {
-	p := &c.PathParams[i]
+	p := &c.pathParams[i]
 	if p.start == directParamStart {
 		return p.value
 	}
@@ -1122,7 +972,7 @@ func (c *Context) materializePathParams() {
 		path = c.request.URL.Path
 	}
 	for i := 0; i < c.paramCount; i++ {
-		p := &c.PathParams[i]
+		p := &c.pathParams[i]
 		if p.start == directParamStart {
 			continue
 		}

@@ -123,7 +123,7 @@ func JWTFromHeader(header string) JWTExtractor {
 	header = textproto.CanonicalMIMEHeaderKey(header)
 
 	return func(c *zinc.Context) (string, error) {
-		value := strings.TrimSpace(c.GetHeader(header))
+		value := strings.TrimSpace(c.Header(header))
 		if value == "" {
 			return "", fmt.Errorf("%w: %s header", ErrJWTTokenMissing, header)
 		}
@@ -139,7 +139,7 @@ func JWTFromHeaderPrefix(header, prefix string) JWTExtractor {
 	}
 
 	return func(c *zinc.Context) (string, error) {
-		value := strings.TrimSpace(c.GetHeader(header))
+		value := strings.TrimSpace(c.Header(header))
 		if value == "" {
 			return "", fmt.Errorf("%w: %s header", ErrJWTTokenMissing, header)
 		}

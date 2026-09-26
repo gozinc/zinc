@@ -123,7 +123,7 @@ func TestDefaultErrorHandlerBodies(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			c := NewContext(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			c := newContext(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 			defer c.release()
 			DefaultErrorHandler(c, tc.err)
 			if rec.Code != tc.status || rec.Body.String() != tc.body {

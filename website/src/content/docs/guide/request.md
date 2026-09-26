@@ -7,33 +7,55 @@ Everything about the incoming request is available on `*zinc.Context`. This page
 
 ## Path parameters
 
+`c.Param` returns a parameter as a string. `zinc.Param` parses it to the type you ask for:
+
 ```go
 app.Get("/users/{id}", func(c *zinc.Context) error {
-	id := c.Param("id")
-	return c.String(id)
+	id, err := zinc.Param[int64](c, "id")
+	if err != nil {
+		return err // 400: {"fields":{"id":"must be an integer"}}
+	}
+	return c.JSON(users.Find(id))
 })
 ```
-
-`c.ParamOr("id", "me")` returns a fallback when a parameter is empty, which is useful with wildcards.
 
 ## Query strings
 
 ```go
 // GET /search?q=zinc&tag=go&tag=http&page=2
 app.Get("/search", func(c *zinc.Context) error {
-	q := c.Query("q")               // "zinc"
-	page := c.QueryOr("page", "1")  // "2", or "1" when missing
-	tags := c.QueryArray("tag")     // ["go", "http"]
+	q := c.Query("q")                  // "zinc"
+	page := zinc.QueryOr(c, "page", 1) // 2, or 1 when missing or not a number
+	tags := c.QueryArray("tag")        // ["go", "http"]
 	return c.JSON(zinc.Map{"q": q, "page": page, "tags": tags})
 })
 ```
 
+`zinc.QueryOr` infers the type from its fallback. For a value the request must include, use `zinc.Query`, which reports a missing or unparsable value as a 400 naming the parameter:
+
+```go
+since, err := zinc.Query[time.Time](c, "since")
+if err != nil {
+	return err
+}
+```
+
 For bracket-style keys such as `?filter[status]=open&filter[owner]=me`, `c.QueryMap("filter")` returns `map[string]string{"status": "open", "owner": "me"}`.
+
+## Typed values
+
+`zinc.Param`, `zinc.Query`, and `zinc.Form` parse to:
+
+- `string`, `bool`, any integer type, `float32`, and `float64`;
+- any type implementing `encoding.TextUnmarshaler`, such as `time.Time` or a custom ID;
+- named types over those, such as `type UserID int64`, and pointers to any of them.
+
+They return a `*zinc.BindError` on failure. Return it, and the client gets a 400 naming the value. `zinc.QueryOr` and `zinc.FormOr` never fail; they fall back instead.
 
 ## Headers
 
 ```go
-token := c.GetHeader(zinc.HeaderAuthorization)
+token := c.Header(zinc.HeaderAuthorization)
 contentType := c.ContentType() // media type without parameters, such as "application/json"
 ```
 
@@ -43,13 +65,16 @@ Zinc defines constants for common header names, such as `zinc.HeaderAuthorizatio
 
 ```go
 app.Post("/profile", func(c *zinc.Context) error {
-	name := c.PostForm("name")
-	roles := c.PostFormArray("roles")
-	return c.JSON(zinc.Map{"name": name, "roles": roles})
+	name := c.FormValue("name")
+	age, err := zinc.Form[int](c, "age")
+	if err != nil {
+		return err
+	}
+	return c.JSON(zinc.Map{"name": name, "age": age})
 })
 ```
 
-`PostForm` reads URL-encoded and multipart bodies. `PostFormOr` and `PostFormMap` mirror their query counterparts.
+`c.FormValue`, `zinc.Form`, and `zinc.FormOr` read URL-encoded and multipart bodies, falling back to the query string as `http.Request.FormValue` does. For repeated fields, bind into a struct with a slice field; see [Binding](/guide/binding/).
 
 ## Uploaded files
 

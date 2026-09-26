@@ -114,7 +114,7 @@ func RequestIDValue(c *zinc.Context) string {
 	if c == nil {
 		return ""
 	}
-	return c.RequestID()
+	return c.Header(zinc.HeaderXRequestID)
 }
 
 // RandomRequestID returns a 128-bit cryptographically random hexadecimal ID.

@@ -57,7 +57,7 @@ func BenchmarkContextAcquireRelease(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ctx := NewContext(rec, req)
+		ctx := newContext(rec, req)
 		ctx.release()
 	}
 }
@@ -67,14 +67,13 @@ func TestContextReleaseResetDoesNotLeakRequestState(t *testing.T) {
 	secondRequest := httptest.NewRequest(http.MethodGet, "/second", nil)
 	firstWriter := httptest.NewRecorder()
 	secondWriter := httptest.NewRecorder()
-	ctx := NewContext(firstWriter, firstRequest)
+	ctx := newContext(firstWriter, firstRequest)
 
 	ctx.queryParams = url.Values{"dirty": {"true"}}
 	ctx.handlers = []HandlerFunc{func(*Context) error { return nil }}
 	ctx.body = []byte("body")
 	ctx.bodyRead = true
 	ctx.bodyErr = errors.New("dirty body")
-	ctx.sameSite = http.SameSiteStrictMode
 	ctx.paramPath = "/first"
 	ctx.paramRoute = &radixRoute{}
 	ctx.written = true
@@ -92,7 +91,7 @@ func TestContextReleaseResetDoesNotLeakRequestState(t *testing.T) {
 	if ctx.app != nil || ctx.lastErr != nil || len(ctx.store) != 0 || ctx.paramCount != 0 || ctx.routeInfo.path != "" {
 		t.Fatal("released Context retains request-owned state")
 	}
-	reused := NewContext(secondWriter, secondRequest)
+	reused := newContext(secondWriter, secondRequest)
 	defer reused.release()
 
 	if reused.writer.(interface{ Unwrap() http.ResponseWriter }).Unwrap() != secondWriter || reused.request != secondRequest {
@@ -101,7 +100,7 @@ func TestContextReleaseResetDoesNotLeakRequestState(t *testing.T) {
 	if reused.queryParams != nil || reused.handlers != nil || reused.body != nil || reused.bodyRead || reused.bodyErr != nil {
 		t.Fatal("request data leaked across context reuse")
 	}
-	if reused.sameSite != 0 || reused.paramPath != "" || reused.paramRoute != nil || reused.paramCount != 0 {
+	if reused.paramPath != "" || reused.paramRoute != nil || reused.paramCount != 0 {
 		t.Fatal("routing data leaked across context reuse")
 	}
 	if reused.written || reused.index != -1 || reused.status != http.StatusOK || reused.app != nil {
@@ -133,8 +132,8 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 	if got, ok := ctx.Get("key"); !ok || got != "value" {
 		t.Fatalf("Get = %v %v", got, ok)
 	}
-	if ctx.MustGet("key") != "value" {
-		t.Fatal("MustGet returned wrong value")
+	if MustValue[string](ctx, "key") != "value" {
+		t.Fatal("MustValue returned wrong value")
 	}
 
 	if ctx.Method() != http.MethodGet {
@@ -150,16 +149,16 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 	if ctx.Path() != "/users/99" {
 		t.Fatalf("path=%q", ctx.Path())
 	}
-	if ctx.Param("id") != "42" || ctx.ParamOr("missing", "fallback") != "fallback" {
+	if ctx.Param("id") != "42" || ctx.Param("missing") != "" {
 		t.Fatal("param helpers failed")
 	}
-	if ctx.Query("page") != "3" || ctx.QueryOr("missing", "fallback") != "fallback" {
+	if ctx.Query("page") != "3" || QueryOr(ctx, "missing", "fallback") != "fallback" {
 		t.Fatal("query helpers failed")
 	}
 	if ctx.QueryValues().Encode() != (url.Values{"page": []string{"3"}, "ready": []string{"true"}}).Encode() {
 		t.Fatalf("query values=%v", ctx.QueryValues())
 	}
-	if ctx.GetHeader(HeaderXRequestID) != "req-123" {
+	if ctx.Header(HeaderXRequestID) != "req-123" {
 		t.Fatal("header lookup failed")
 	}
 	cookie, err := ctx.Cookie("session")
@@ -183,9 +182,6 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 	if !preflightCtx.IsPreflight() {
 		t.Fatal("expected preflight request")
 	}
-	if ctx.RequestID() != "req-123" {
-		t.Fatal("request id helper failed")
-	}
 
 	valueCtx := stdctx.WithValue(ctx.Context(), contextTestKey("key"), "value")
 	ctx.SetContext(valueCtx)
@@ -199,55 +195,38 @@ func TestContextRequestHelpersAndMetadata(t *testing.T) {
 	}
 }
 
-func TestContextTypedStoreGetters(t *testing.T) {
+func TestContextValueAccessors(t *testing.T) {
 	ctx, _ := newRecorderContext(t, httptest.NewRequest(http.MethodGet, "/", nil))
 	defer ctx.release()
 
-	ctx.Set("string", "zinc")
-	ctx.Set("bool", true)
-	ctx.Set("int", 7)
-	ctx.Set("int64", int64(9))
-	ctx.Set("float64", 1.5)
-	ctx.Set("strings", []string{"a", "b"})
-	ctx.Set("map", Map{"ok": true})
-	ctx.Set("mapString", map[string]string{"name": "zinc"})
-	ctx.Set("mapStringSlice", map[string][]string{"tags": {"api", "go"}})
+	type user struct{ ID int }
+	ctx.Set("user", &user{ID: 7})
+	ctx.Set("count", 3)
 
-	if ctx.GetString("string") != "zinc" ||
-		!ctx.GetBool("bool") ||
-		ctx.GetInt("int") != 7 ||
-		ctx.GetInt64("int64") != 9 ||
-		ctx.GetFloat64("float64") != 1.5 {
-		t.Fatal("scalar typed getters failed")
+	if u, ok := Value[*user](ctx, "user"); !ok || u.ID != 7 {
+		t.Fatalf("Value = %v %v", u, ok)
 	}
-	if got := ctx.GetStringSlice("strings"); len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Fatalf("string slice=%v", got)
+	if n, ok := Value[int](ctx, "count"); !ok || n != 3 {
+		t.Fatalf("Value[int] = %v %v", n, ok)
 	}
-	if got := ctx.GetStringMap("map"); got["ok"] != true {
-		t.Fatalf("string map=%v", got)
+	if _, ok := Value[string](ctx, "count"); ok {
+		t.Fatal("Value with the wrong type should report false")
 	}
-	if got := ctx.GetStringMapString("mapString"); got["name"] != "zinc" {
-		t.Fatalf("string map string=%v", got)
+	if _, ok := Value[int](ctx, "missing"); ok {
+		t.Fatal("Value for a missing key should report false")
 	}
-	if got := ctx.GetStringMapStringSlice("mapStringSlice"); len(got["tags"]) != 2 {
-		t.Fatalf("string map string slice=%v", got)
+	if MustValue[*user](ctx, "user").ID != 7 {
+		t.Fatal("MustValue returned the wrong value")
 	}
-
-	if ctx.GetString("missing") != "" ||
-		ctx.GetBool("missing") ||
-		ctx.GetInt("missing") != 0 ||
-		ctx.GetInt64("missing") != 0 ||
-		ctx.GetFloat64("missing") != 0 {
-		t.Fatal("missing scalar getters should return zero values")
-	}
-	if ctx.GetString("int") != "" || ctx.GetInt("string") != 0 {
-		t.Fatal("mismatched typed getters should return zero values")
-	}
-	if ctx.GetStringSlice("missing") != nil ||
-		ctx.GetStringMap("missing") != nil ||
-		ctx.GetStringMapString("missing") != nil ||
-		ctx.GetStringMapStringSlice("missing") != nil {
-		t.Fatal("missing collection getters should return nil")
+	for _, key := range []string{"missing", "count"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("MustValue[string](%q) did not panic", key)
+				}
+			}()
+			MustValue[string](ctx, key)
+		}()
 	}
 }
 
@@ -266,7 +245,7 @@ func TestQueryMatchesURLQuery(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/search", nil)
 			req.URL.RawQuery = raw
-			ctx := NewContext(httptest.NewRecorder(), req)
+			ctx := newContext(httptest.NewRecorder(), req)
 			defer ctx.release()
 			for _, name := range []string{"name", "empty", "", "other", "missing"} {
 				if got, want := ctx.Query(name), req.URL.Query().Get(name); got != want {
@@ -277,7 +256,7 @@ func TestQueryMatchesURLQuery(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/search?name=original", nil)
-	ctx := NewContext(httptest.NewRecorder(), req)
+	ctx := newContext(httptest.NewRecorder(), req)
 	defer ctx.release()
 	ctx.QueryValues().Set("name", "changed")
 	if got := ctx.Query("name"); got != "changed" {
@@ -301,7 +280,7 @@ func TestBindFieldsFromQueryMatchesParsedValues(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/search", nil)
 			req.URL.RawQuery = raw
-			ctx := NewContext(httptest.NewRecorder(), req)
+			ctx := newContext(httptest.NewRecorder(), req)
 			defer ctx.release()
 			var got, want target
 			if err := bindFieldsFromQuery(reflect.ValueOf(&got).Elem(), fields, ctx); err != nil {
@@ -317,7 +296,7 @@ func TestBindFieldsFromQueryMatchesParsedValues(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/search?name=original", nil)
-	ctx := NewContext(httptest.NewRecorder(), req)
+	ctx := newContext(httptest.NewRecorder(), req)
 	defer ctx.release()
 	ctx.QueryValues().Set("name", "changed")
 	var got target
@@ -347,43 +326,43 @@ func TestContextQueryAndPostFormCollections(t *testing.T) {
 		}
 	})
 
-	t.Run("urlencoded post form arrays and maps", func(t *testing.T) {
-		form := url.Values{
-			"name":       {"body"},
-			"tag":        {"a", "b"},
-			"user[name]": {"zinc"},
-			"user[role]": {"admin"},
-		}
+	t.Run("urlencoded form values", func(t *testing.T) {
+		form := url.Values{"name": {"body"}, "count": {"7"}, "bad": {"x"}}
 		req := httptest.NewRequest(http.MethodPost, "/submit?name=query&queryOnly=yes", strings.NewReader(form.Encode()))
 		req.Header.Set(HeaderContentType, "application/x-www-form-urlencoded")
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		if got := ctx.PostForm("name"); got != "body" {
-			t.Fatalf("post form name=%q", got)
+		// Form follows FormValue: the body wins, and the query is a fallback.
+		if got, err := Form[string](ctx, "name"); err != nil || got != "body" {
+			t.Fatalf("Form name=%q err=%v", got, err)
 		}
-		if got := ctx.PostForm("queryOnly"); got != "" {
-			t.Fatalf("post form should not read query values, got=%q", got)
+		if got, err := Form[string](ctx, "queryOnly"); err != nil || got != "yes" {
+			t.Fatalf("Form queryOnly=%q err=%v", got, err)
 		}
-		if got := ctx.PostFormOr("missing", "fallback"); got != "fallback" {
-			t.Fatalf("post form fallback=%q", got)
+		if got, err := Form[int](ctx, "count"); err != nil || got != 7 {
+			t.Fatalf("Form count=%d err=%v", got, err)
 		}
-		if got := ctx.PostFormArray("tag"); !reflect.DeepEqual(got, []string{"a", "b"}) {
-			t.Fatalf("post form array=%v", got)
+		var bindErr *BindError
+		if _, err := Form[int](ctx, "bad"); !errors.As(err, &bindErr) || bindErr.Source != "form" || bindErr.Reason != "must be an integer" {
+			t.Fatalf("Form bad err=%v", err)
 		}
-		postFormMap := ctx.PostFormMap("user")
-		if postFormMap["name"] != "zinc" || postFormMap["role"] != "admin" {
-			t.Fatalf("post form map=%v", postFormMap)
+		if _, err := Form[int](ctx, "missing"); !errors.As(err, &bindErr) || bindErr.Reason != "is required" {
+			t.Fatalf("Form missing err=%v", err)
+		}
+		if got := FormOr(ctx, "missing", "fallback"); got != "fallback" {
+			t.Fatalf("FormOr fallback=%q", got)
+		}
+		if got := FormOr(ctx, "bad", 3); got != 3 {
+			t.Fatalf("FormOr unparsable=%d", got)
 		}
 	})
 
-	t.Run("multipart post form arrays and maps", func(t *testing.T) {
+	t.Run("multipart form values", func(t *testing.T) {
 		var body bytes.Buffer
 		writer := multipart.NewWriter(&body)
 		mustDo(t, writer.WriteField("tag", "a"))
 		mustDo(t, writer.WriteField("tag", "b"))
-		mustDo(t, writer.WriteField("user[name]", "zinc"))
-		mustDo(t, writer.WriteField("user[role]", "admin"))
 		mustDo(t, writer.Close())
 
 		req := httptest.NewRequest(http.MethodPost, "/submit", &body)
@@ -391,12 +370,8 @@ func TestContextQueryAndPostFormCollections(t *testing.T) {
 		ctx, _ := newRecorderContext(t, req)
 		defer ctx.release()
 
-		if got := ctx.PostFormArray("tag"); !reflect.DeepEqual(got, []string{"a", "b"}) {
-			t.Fatalf("multipart post form array=%v", got)
-		}
-		postFormMap := ctx.PostFormMap("user")
-		if postFormMap["name"] != "zinc" || postFormMap["role"] != "admin" {
-			t.Fatalf("multipart post form map=%v", postFormMap)
+		if got, err := Form[string](ctx, "tag"); err != nil || got != "a" {
+			t.Fatalf("multipart Form=%q err=%v", got, err)
 		}
 	})
 }
@@ -1266,8 +1241,8 @@ func TestContextNilRequestFallbacks(t *testing.T) {
 		t.Fatal("expected MultipartForm error with nil request")
 	}
 
-	if c.GetHeader("X-Any") != "" {
-		t.Fatalf("header=%q", c.GetHeader("X-Any"))
+	if c.Header("X-Any") != "" {
+		t.Fatalf("header=%q", c.Header("X-Any"))
 	}
 	if _, err := c.Cookie("session"); !errors.Is(err, http.ErrNoCookie) {
 		t.Fatalf("cookie err=%v", err)
@@ -1299,9 +1274,6 @@ func TestContextNilRequestFallbacks(t *testing.T) {
 	if c.RemoteIP() != "" {
 		t.Fatalf("remote ip=%q", c.RemoteIP())
 	}
-	if c.RequestID() != "" {
-		t.Fatalf("request id=%q", c.RequestID())
-	}
 
 	if err := c.Next(); err != nil {
 		t.Fatalf("next err=%v", err)
@@ -1314,10 +1286,10 @@ func TestContextNilRequestFallbacks(t *testing.T) {
 
 	defer func() {
 		if recovered := recover(); recovered == nil {
-			t.Fatal("expected panic from MustGet missing key")
+			t.Fatal("expected panic from MustValue missing key")
 		}
 	}()
-	_ = c.MustGet("missing")
+	_ = MustValue[string](&c, "missing")
 }
 
 func TestContextReleaseNilPointer(t *testing.T) {
@@ -1456,8 +1428,8 @@ func TestContextParamMutationHelpers(t *testing.T) {
 	if got, ok := ctx.lookupPathParam("x"); !ok || got != "10" {
 		t.Fatalf("lookup x=%q ok=%v", got, ok)
 	}
-	if ctx.PathParams[2] != emptyParam {
-		t.Fatalf("stale path param=%+v", ctx.PathParams[2])
+	if ctx.pathParams[2] != emptyParam {
+		t.Fatalf("stale path param=%+v", ctx.pathParams[2])
 	}
 
 	ctx.truncateParams(1)
@@ -1500,16 +1472,16 @@ func TestContextParamMutationHelpersBeyondInline(t *testing.T) {
 	if got, ok := ctx.lookupPathParam(names[9]); !ok || got != "10" {
 		t.Fatalf("lookup param10=%q ok=%v", got, ok)
 	}
-	if len(ctx.PathParams) < len(names) || ctx.PathParams[9].key != names[9] {
-		t.Fatalf("path params not expanded: len=%d last=%+v", len(ctx.PathParams), ctx.PathParams[9])
+	if len(ctx.pathParams) < len(names) || ctx.pathParams[9].key != names[9] {
+		t.Fatalf("path params not expanded: len=%d last=%+v", len(ctx.pathParams), ctx.pathParams[9])
 	}
 
 	ctx.truncateParams(8)
 	if ctx.paramCount != 8 {
 		t.Fatalf("param count=%d", ctx.paramCount)
 	}
-	if ctx.PathParams[8] != emptyParam || ctx.PathParams[9] != emptyParam {
-		t.Fatalf("spill params should be cleared: p9=%+v p10=%+v", ctx.PathParams[8], ctx.PathParams[9])
+	if ctx.pathParams[8] != emptyParam || ctx.pathParams[9] != emptyParam {
+		t.Fatalf("spill params should be cleared: p9=%+v p10=%+v", ctx.pathParams[8], ctx.pathParams[9])
 	}
 }
 

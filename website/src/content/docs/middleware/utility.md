@@ -54,7 +54,7 @@ Use `Throttle` when the protected resource is concurrency-sensitive: database po
 
 ```go
 app.Use(middleware.Maybe(func(c *zinc.Context) bool {
-	return c.GetHeader("X-Debug") == "1"
+	return c.Header("X-Debug") == "1"
 }, debugMiddleware))
 ```
 

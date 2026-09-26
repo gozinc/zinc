@@ -588,8 +588,8 @@ func (c *Context) lookupPathParam(name string) (string, bool) {
 			if index >= c.paramCount {
 				return "", false
 			}
-			if c.PathParams[index].start == directParamStart {
-				return c.PathParams[index].value, true
+			if c.pathParams[index].start == directParamStart {
+				return c.pathParams[index].value, true
 			}
 			return c.pathParamValueAt(index), true
 		}
@@ -599,11 +599,11 @@ func (c *Context) lookupPathParam(name string) (string, bool) {
 		c.materializePathParams()
 	}
 	for i := 0; i < c.paramCount; i++ {
-		if c.PathParams[i].key != name {
+		if c.pathParams[i].key != name {
 			continue
 		}
-		if c.PathParams[i].start == directParamStart {
-			return c.PathParams[i].value, true
+		if c.pathParams[i].start == directParamStart {
+			return c.pathParams[i].value, true
 		}
 		return c.pathParamValueAt(i), true
 	}

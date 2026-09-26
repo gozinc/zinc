@@ -62,7 +62,7 @@ func main() {
 				return zinc.BadRequest("could not read webhook body")
 			}
 
-			if !verify(body, c.GetHeader("X-Hub-Signature-256"), secret) {
+			if !verify(body, c.Header("X-Hub-Signature-256"), secret) {
 				return zinc.Unauthorized("invalid webhook signature")
 			}
 
