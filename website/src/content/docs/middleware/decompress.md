@@ -3,13 +3,15 @@ title: Decompress
 description: Decompress gzip request bodies before handlers read them.
 ---
 
-`Decompress` accepts request bodies sent with `Content-Encoding: gzip` and decompresses them before handlers and binding read them.
+`decompress` accepts request bodies sent with `Content-Encoding: gzip` and decompresses them before handlers and binding read them.
 
 ```go
-app.Use(middleware.Decompress())
+import "github.com/0mjs/zinc/middleware/decompress"
+
+app.Use(decompress.New())
 ```
 
-Handlers can then read the body normally.
+Handlers then read the body normally:
 
 ```go
 app.Post("/ingest", func(c *zinc.Context) error {
@@ -23,12 +25,10 @@ app.Post("/ingest", func(c *zinc.Context) error {
 
 Unsupported content encodings return `415 Unsupported Media Type`. Invalid gzip bodies return `400 Bad Request`.
 
-A small compressed body can expand enormously. Set `MaxDecompressedSize` on any public endpoint to cap the decompressed size:
+A small compressed body can expand enormously, so the decompressed size is capped. By default the cap is the app's `Config.BodyLimit`, or 4 MiB when the app has none. Set `MaxDecompressedSize` to choose another:
 
 ```go
-app.Use(middleware.DecompressWithConfig(middleware.DecompressConfig{
-	MaxDecompressedSize: 4 << 20,
-}))
+app.Use(decompress.New(decompress.Config{MaxDecompressedSize: 16 << 20}))
 ```
 
 Requests that expand past the limit return `413 Payload Too Large`.

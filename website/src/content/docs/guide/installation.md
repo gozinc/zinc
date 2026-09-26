@@ -18,16 +18,17 @@ go get github.com/0mjs/zinc
 
 ## Import
 
-Zinc has two packages. Both come from the same module, so one `go get` installs both.
+The core package is `github.com/0mjs/zinc`. Each first-party middleware is its own small package in the same module, so one `go get` installs them all:
 
 ```go
 import (
-	"github.com/0mjs/zinc"            // app, router, context, binding, responses
-	"github.com/0mjs/zinc/middleware" // first-party middleware
+	"github.com/0mjs/zinc"                      // app, router, context, binding, responses
+	"github.com/0mjs/zinc/middleware/logger"    // one package per middleware
+	"github.com/0mjs/zinc/middleware/requestid"
 )
 ```
 
-The core package depends only on the standard library plus encoders for YAML and TOML. The middleware package adds `golang-jwt` for the JWT middleware. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, stay in your code and plug in through `net/http`.
+The core package depends only on the standard library plus encoders for YAML and TOML, and the middleware packages add nothing. Middleware with third-party dependencies, such as [JWT](/middleware/jwtauth/), lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib) and is installed separately. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, plug in through `net/http`.
 
 ## Check the installed version
 

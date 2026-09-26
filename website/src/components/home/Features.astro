@@ -21,17 +21,17 @@ const stages: Stage[] = [
   {
     id: "middleware",
     name: "Middleware",
-    blurb: "Wraps every request first: IDs, logs, recovery, and security headers from 29 first-party pieces.",
+    blurb: "Wraps every request first: IDs, logs, recovery, and security headers, each its own small package.",
     file: "main.go",
     href: "/middleware/overview/",
     code: `app.Use(
-	middleware.RequestID(),
-	middleware.RequestLogger(),
-	middleware.Recover(),
-	middleware.Secure(),
+	requestid.New(),
+	logger.New(),
+	recover.New(),
+	secure.New(),
 )
 
-api := app.Group("/api", middleware.ContextTimeout(5*time.Second))`,
+api := app.Group("/api", timeout.New(timeout.Config{Timeout: 5 * time.Second}))`,
     mark: 2,
     note: "Every response carries an ID that your logs share.",
     exchange: [

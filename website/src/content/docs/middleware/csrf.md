@@ -3,12 +3,12 @@ title: CSRF
 description: Cookie-backed CSRF protection with configurable token readers and fetch metadata checks.
 ---
 
-`CSRF` issues a token for safe requests and verifies it on unsafe requests.
-
-## Default behavior
+`csrf` issues a token for safe requests and verifies it on unsafe requests.
 
 ```go
-app.Use(middleware.CSRF())
+import "github.com/0mjs/zinc/middleware/csrf"
+
+app.Use(csrf.New())
 ```
 
 By default Zinc:
@@ -18,80 +18,49 @@ By default Zinc:
 - issues tokens on safe methods like `GET` and `HEAD`
 - verifies tokens on unsafe methods like `POST`, `PUT`, `PATCH`, and `DELETE`
 
+Put the token in a page or form with `csrf.Token(c)`.
+
 ## Custom readers
 
-You can combine readers when your app accepts tokens from more than one place.
+Combine readers when your app accepts tokens from more than one place:
 
 ```go
-app.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-	Readers: []middleware.CSRFReader{
-		middleware.CSRFFromFirst(
-			middleware.CSRFFromHeader(zinc.HeaderXCSRFToken),
-			middleware.CSRFFromForm("_csrf"),
-			middleware.CSRFFromQuery("csrf"),
+app.Use(csrf.New(csrf.Config{
+	Readers: []csrf.Reader{
+		csrf.FromFirst(
+			csrf.FromHeader(zinc.HeaderXCSRFToken),
+			csrf.FromForm("_csrf"),
+			csrf.FromQuery("csrf"),
 		),
 	},
 	ExposeHeader: zinc.HeaderXCSRFToken,
 }))
 ```
 
-## Reader helpers
-
-- `CSRFFromHeader(name)`
-- `CSRFFromQuery(name)`
-- `CSRFFromForm(name)`
-- `CSRFFromFirst(readers...)`
-
-## Config fields
+## Config
 
 | Field | Meaning |
 |---|---|
-| `Skipper` | Skip protection for selected requests |
 | `Readers` | Token readers for unsafe requests |
 | `Generate` | Custom token generator |
-| `TokenBytes` | Random token size when using the default generator |
-| `Cookie` | Cookie name and attributes |
+| `TokenBytes` | Random token size for the default generator |
+| `Cookie` | Cookie name and attributes, as a `csrf.Cookie` |
 | `ExposeHeader` | Optional response header that publishes the token |
 | `TrustedOrigins` | Additional origins accepted for fetch metadata checks |
 | `AllowFetchSite` | Custom fetch-site decision hook |
-| `ErrorHandler` | Override CSRF failure behavior |
+| `ErrorHandler` | Replaces CSRF failure behavior |
 
-## Cookie configuration
+`csrf.Cookie` has `Name`, `Domain`, `Path`, `MaxAge`, `Secure`, `HTTPOnly`, and `SameSite`. With `SameSite=None`, Zinc forces `Secure=true`.
 
-`CSRFCookie` supports:
-
-- `Name`
-- `Domain`
-- `Path`
-- `MaxAge`
-- `Secure`
-- `HTTPOnly`
-- `SameSite`
-
-If you choose `SameSite=None`, Zinc automatically forces `Secure=true`.
-
-## Accessing CSRF state
+## Reading CSRF state
 
 ```go
-state, ok := middleware.CSRFCurrent(c)
-token, ok := middleware.CSRFToken(c)
+token := csrf.Token(c)     // "" without the middleware
+state, ok := csrf.Get(c)   // or csrf.MustGet(c)
 ```
 
-The state tells you:
-
-- the token value
-- whether it was newly issued
-- whether the request was verified
-- the cookie name
-- the normalized fetch-site value
+The state holds the token, whether it was newly issued, whether the request was verified, the cookie name, and the normalized fetch-site value.
 
 ## Failure model
 
-CSRF failures are returned as `*middleware.CSRFViolation`, with reason values such as:
-
-- `token_missing`
-- `cookie_missing`
-- `token_invalid`
-- `fetch_site_rejected`
-
-That makes it easy to customize API error responses without losing the reason for rejection.
+Failures are returned as `*csrf.Violation`, with a `Reason` such as `csrf.ReasonTokenMissing`, `ReasonCookieMissing`, `ReasonTokenInvalid`, or `ReasonFetchSiteRejected`. You can shape API error responses without losing why the request was rejected.

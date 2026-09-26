@@ -3,10 +3,14 @@ title: CORS
 description: Let browsers on other origins call your API, with correct preflight handling and safe credential rules.
 ---
 
-Browsers block a page on one origin from reading responses from another unless the server allows it with CORS headers. `CORS` sends those headers and answers preflight requests.
+Browsers block a page on one origin from reading responses from another unless the server allows it with CORS headers. `cors` sends those headers and answers preflight requests.
 
 ```go
-app.Use(middleware.CORS("https://app.example.com", "https://admin.example.com"))
+import "github.com/0mjs/zinc/middleware/cors"
+
+app.Use(cors.New(cors.Config{
+	AllowOrigins: []string{"https://app.example.com", "https://admin.example.com"},
+}))
 ```
 
 Requests from the listed origins get `Access-Control-Allow-Origin`. Requests without an `Origin` header, such as server-to-server calls, pass through untouched. Preflight `OPTIONS` requests get `204 No Content`.
@@ -15,27 +19,27 @@ Requests from the listed origins get `Access-Control-Allow-Origin`. Requests wit
 
 | Setting | Default |
 |---|---|
-| Origins | `*` when `CORS()` gets no arguments |
+| Origins | `*` |
 | Methods | `GET`, `POST`, `HEAD`, `PUT`, `DELETE`, `PATCH` |
 | Request headers | `Origin`, `Content-Type`, `Accept`, `Authorization` |
 | Exposed headers | none |
 | Credentials | not allowed |
 | Preflight cache | not set |
 
-## Configure with options
+## Config
+
+Fields you leave empty keep the defaults above.
 
 ```go
-app.Use(middleware.CORSWithOptions(
-	middleware.CORSAllowOrigins("https://app.example.com"),
-	middleware.CORSAllowMethods("GET", "POST", "PATCH", "DELETE"),
-	middleware.CORSAllowHeaders("Authorization", "Content-Type", "X-Request-ID"),
-	middleware.CORSExposeHeaders("X-Request-ID"),
-	middleware.CORSAllowCredentials(true),
-	middleware.CORSMaxAge(10*time.Minute),
-))
+app.Use(cors.New(cors.Config{
+	AllowOrigins:     []string{"https://app.example.com"},
+	AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE"},
+	AllowHeaders:     []string{"Authorization", "Content-Type", "X-Request-ID"},
+	ExposeHeaders:    []string{"X-Request-ID"},
+	AllowCredentials: true,
+	MaxAge:           600, // seconds
+}))
 ```
-
-Or pass a full `middleware.CORSConfig` to `CORSWithConfig`. Start from `middleware.DefaultCORSConfig()` to keep the defaults you do not change.
 
 | Field | Meaning |
 |---|---|
@@ -45,7 +49,6 @@ Or pass a full `middleware.CORSConfig` to `CORSWithConfig`. Start from `middlewa
 | `ExposeHeaders` | Response headers that browser code may read |
 | `AllowCredentials` | Sends `Access-Control-Allow-Credentials: true` |
 | `MaxAge` | Seconds a browser may cache a preflight result |
-| `Skipper` | Skips the middleware for selected requests |
 
 ## Credentials
 

@@ -59,7 +59,7 @@ Whatever header you choose, trust only the addresses of the proxies that set it.
 
 ## Where this matters
 
-[Rate Limiter](/middleware/rate-limiter/)'s per-IP mode and the [RealIP](/middleware/utility/#realip) middleware both use `c.IP()`. Configure proxies before relying on either.
+A per-IP [rate limiter](/middleware/limiter/) keys on `c.IP()`, and so do logs that record the client address. Configure proxies before relying on either.
 
 Trust entries are validated and copied when the app is created. Invalid IP addresses or CIDRs panic.
 

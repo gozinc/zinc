@@ -26,30 +26,30 @@ import (
 	"os"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
+	"github.com/0mjs/zinc/middleware/logger"
+	"github.com/0mjs/zinc/middleware/recover"
+	"github.com/0mjs/zinc/middleware/requestid"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	jsonLog := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
-	loggerConfig := middleware.DefaultRequestLoggerConfig()
-	loggerConfig.Logger = logger
-	loggerConfig.LogRoutePath = true
-	loggerConfig.LogHeaders = []string{"Traceparent"}
-
 	app := zinc.New()
 	app.Use(
-		middleware.RequestID(),
-		middleware.RequestLoggerWithConfig(loggerConfig),
-		middleware.Recover(),
+		requestid.New(),
+		logger.New(logger.Config{
+			Logger:  jsonLog,
+			Headers: []string{"Traceparent"},
+		}),
+		recover.New(),
 	)
 
 	app.Get("/users/{id}", func(c *zinc.Context) error {
 		return c.JSON(zinc.Map{
 			"id":         c.Param("id"),
-			"request_id": c.Header(zinc.HeaderXRequestID),
+			"request_id": requestid.Get(c),
 		})
 	})
 
@@ -63,10 +63,10 @@ func main() {
 curl http://localhost:8080/users/42
 ```
 
-The log record includes latency, method, URI, status, remote IP, request ID,
-content length, response size, and the selected `Traceparent` header. Avoid
-logging authorization, cookie, or other secret-bearing headers.
+The log record includes the method, URI, route pattern, status, latency, remote
+IP, request ID, request and response sizes, and the selected `Traceparent`
+header. Avoid logging authorization, cookie, or other secret-bearing headers.
 
-For complete control, set `RequestLoggerConfig.LogValuesFunc`. It receives a
-`RequestLoggerValues` snapshot and can map fields into an existing logging or
+For complete control, set `logger.Config.Log`. It receives a `logger.Values`
+snapshot for every request and can map fields into an existing logging or
 observability pipeline.

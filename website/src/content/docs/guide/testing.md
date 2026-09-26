@@ -33,7 +33,7 @@ Build routes in a function that both `main` and your tests call. Tests then exer
 // app.go
 func newApp(store Store) *zinc.App {
 	app := zinc.New()
-	app.Use(middleware.Recover())
+	app.Use(recover.New())
 	app.Get("/users/{id}", showUser(store))
 	return app
 }
@@ -87,7 +87,7 @@ Mount the middleware on a tiny app and assert what it changes: headers, status, 
 ```go
 func TestRequestID(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.RequestID())
+	app.Use(requestid.New())
 	app.Get("/", func(c *zinc.Context) error { return c.NoContent() })
 
 	rec := httptest.NewRecorder()

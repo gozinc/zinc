@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/middleware"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +13,11 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/middleware/compress"
+	"github.com/0mjs/zinc/middleware/prometheus"
+	recovermw "github.com/0mjs/zinc/middleware/recover"
 )
 
 func TestFailedJSONDoesNotCommitSelectedStatus(t *testing.T) {
@@ -52,7 +55,7 @@ func TestEmptyStreamCommitsSelectedStatus(t *testing.T) {
 
 func TestGzipFlushKeepsIdentityForLaterWrites(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.GzipWithConfig(middleware.GzipConfig{MinLength: 32}))
+	app.Use(compress.New(compress.Config{MinLength: 32}))
 	app.Get("/", func(c *zinc.Context) error {
 		_, _ = io.WriteString(c.Writer(), "first")
 		if err := http.NewResponseController(c.Writer()).Flush(); err != nil {
@@ -76,7 +79,7 @@ func TestGzipFlushKeepsIdentityForLaterWrites(t *testing.T) {
 
 func TestRecoverPreservesAbortHandlerAndRestoresWriter(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.Recover(), middleware.Gzip())
+	app.Use(recovermw.New(), compress.New())
 	app.Get("/", func(c *zinc.Context) error { panic(http.ErrAbortHandler) })
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Accept-Encoding", "gzip")
@@ -96,7 +99,7 @@ func TestRecoverPreservesAbortHandlerAndRestoresWriter(t *testing.T) {
 
 func TestMiddlewareDoesNotInventWriterCapabilities(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.Gzip())
+	app.Use(compress.New())
 	app.Get("/", func(c *zinc.Context) error {
 		if _, ok := c.Writer().(http.Flusher); ok {
 			t.Error("invented flushing")
@@ -149,7 +152,7 @@ func TestMiddlewareHandlesErrorOnce(t *testing.T) {
 	cfg := zinc.Config{}
 	cfg.ErrorHandler = func(c *zinc.Context, err error) { calls++; _ = c.Status(500).String("failure") }
 	app := zinc.New(cfg)
-	app.Use(middleware.Prometheus(middleware.NewPrometheusMetrics()), middleware.Gzip())
+	app.Use(prometheus.New(), compress.New())
 	app.Get("/", func(c *zinc.Context) error { return errors.New("internal") })
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Accept-Encoding", "gzip")
@@ -161,7 +164,7 @@ func TestMiddlewareHandlesErrorOnce(t *testing.T) {
 
 func TestGzipMinLengthFlushSendsPendingBytes(t *testing.T) {
 	app := zinc.New()
-	app.Use(middleware.GzipWithConfig(middleware.GzipConfig{MinLength: 1024}))
+	app.Use(compress.New(compress.Config{MinLength: 1024}))
 	w := httptest.NewRecorder()
 	app.Get("/", func(c *zinc.Context) error {
 		_, _ = io.WriteString(c.Writer(), "hello")

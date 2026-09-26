@@ -92,3 +92,20 @@ func (g *Group) UseHTTP(middleware ...HTTPMiddleware) *Group {
 	}
 	return g
 }
+
+// Skip runs mw except when skip reports true for the request, in which case
+// the chain continues without it. It replaces the Skipper option each
+// middleware used to carry:
+//
+//	app.Use(zinc.Skip(isHealthCheck, logger.New()))
+func Skip(skip func(*Context) bool, mw Middleware) Middleware {
+	if skip == nil || mw == nil {
+		panic("zinc: Skip needs a predicate and a middleware")
+	}
+	return func(c *Context) error {
+		if skip(c) {
+			return c.Next()
+		}
+		return mw(c)
+	}
+}

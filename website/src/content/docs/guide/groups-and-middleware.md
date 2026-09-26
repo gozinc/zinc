@@ -30,11 +30,11 @@ Attach middleware at the narrowest scope that fits:
 | Standard middleware, group or route | `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)` | That group or route, in Zinc middleware order |
 
 ```go
-app.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover())
+app.Use(requestid.New(), logger.New(), recover.New())
 
 api := app.Group("/api", requireAPIKey)
 api.Get("/users/{id}", showUser)
-api.Post("/exports", middleware.BodyLimit(1<<20), startExport)
+api.Post("/exports", bodylimit.New(bodylimit.Config{Limit: bodylimit.MB}), startExport)
 ```
 
 ## Execution order
@@ -113,16 +113,35 @@ Groups support everything the app does: every route method, `Handle`, `HandleHTT
 Group middleware runs only when a route in the group matches. For behavior that must also cover unmatched paths under a prefix, such as authentication for everything below `/admin`, use `app.UsePrefix`.
 :::
 
-## First-party middleware
+## Skip middleware for some requests
 
-Zinc ships 29 middleware in `github.com/0mjs/zinc/middleware`. A typical API starts with:
+`zinc.Skip` runs a middleware unless its predicate reports true, in which case the chain continues without it:
 
 ```go
+app.Use(zinc.Skip(func(c *zinc.Context) bool {
+	return c.Path() == "/healthz"
+}, logger.New()))
+```
+
+It works with any middleware, yours or Zinc's, so none of them needs its own skip option.
+
+## First-party middleware
+
+Zinc ships 27 middleware packages under `github.com/0mjs/zinc/middleware`, each with a `New` function. A typical API starts with:
+
+```go
+import (
+	"github.com/0mjs/zinc/middleware/logger"
+	"github.com/0mjs/zinc/middleware/recover"
+	"github.com/0mjs/zinc/middleware/requestid"
+	"github.com/0mjs/zinc/middleware/secure"
+)
+
 app.Use(
-	middleware.RequestID(),
-	middleware.RequestLogger(),
-	middleware.Recover(),
-	middleware.Secure(),
+	requestid.New(),
+	logger.New(),
+	recover.New(),
+	secure.New(),
 )
 ```
 
