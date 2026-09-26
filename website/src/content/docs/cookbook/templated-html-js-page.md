@@ -44,9 +44,7 @@ func main() {
 
 	app := zinc.New(zinc.Config{Renderer: zinc.NewHTMLTemplateRenderer(views, zinc.WithTemplateSuffixes(".html"))})
 
-	if err := app.Static("/static", "./public"); err != nil {
-		log.Fatal(err)
-	}
+	app.Static("/static", "./public")
 
 	app.Get("/", func(c *zinc.Context) error {
 		return c.Render("home", zinc.Map{

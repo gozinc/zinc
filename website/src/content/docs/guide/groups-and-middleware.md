@@ -26,7 +26,8 @@ Attach middleware at the narrowest scope that fits:
 | Path prefix | `app.UsePrefix("/admin", mw...)` | Every request under the prefix, before routing |
 | Group | `app.Group("/api", mw...)` or `group.Use(mw...)` | Routes registered on the group and its subgroups |
 | One route | `app.Get("/x", mw, handler)` | That route only |
-| Standard middleware | `app.UseHTTP(func(http.Handler) http.Handler)` | Every request, outside all Zinc middleware |
+| Standard middleware, whole app | `app.UseHTTP(func(http.Handler) http.Handler)` | Every request, outside all Zinc middleware |
+| Standard middleware, group or route | `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)` | That group or route, in Zinc middleware order |
 
 ```go
 app.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover())

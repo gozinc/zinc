@@ -34,21 +34,17 @@ func TestNestedGroupFileHelpersPreserveMiddleware(t *testing.T) {
 			}
 			app.Use(wrap("global"))
 			group := app.Group("/parent", wrap("parent")).Group("/child", wrap("child"))
-			var err error
 			switch helper {
 			case "Mount":
 				group.Mount("/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "secret") }))
 			case "Static":
-				err = group.Static("/files", root)
+				group.Static("/files", root)
 			case "StaticFS":
-				err = group.StaticFS("/files", os.DirFS(root))
+				group.StaticFS("/files", os.DirFS(root))
 			case "File":
-				err = group.File("/files/secret.txt", file)
+				group.File("/files/secret.txt", file)
 			case "FileFS":
-				err = group.FileFS("/files/secret.txt", "secret.txt", os.DirFS(root))
-			}
-			if err != nil {
-				t.Fatal(err)
+				group.FileFS("/files/secret.txt", "secret.txt", os.DirFS(root))
 			}
 			// Registration captures the group chain, so late middleware is
 			// rejected rather than silently skipping the helper.
@@ -94,9 +90,7 @@ func TestStaticRootContainsSymlinksAndDecodesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := zinc.New()
-	if err := app.Static("/files", root); err != nil {
-		t.Fatal(err)
-	}
+	app.Static("/files", root)
 	if w := hardeningRequest(app, "GET", "/files/escape/secret"); w.Code == 200 {
 		t.Fatal("symlink escaped static root")
 	}
@@ -121,13 +115,9 @@ func TestGroupHelpersPreserveAuthentication(t *testing.T) {
 			case "Mount":
 				group.Mount("/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "secret") }))
 			case "StaticFS":
-				if err := group.StaticFS("/files", files); err != nil {
-					t.Fatal(err)
-				}
+				group.StaticFS("/files", files)
 			case "FileFS":
-				if err := group.FileFS("/files/secret.txt", "secret.txt", files); err != nil {
-					t.Fatal(err)
-				}
+				group.FileFS("/files/secret.txt", "secret.txt", files)
 			}
 			w := hardeningRequest(app, "GET", "/private/files/secret.txt")
 			if w.Code != http.StatusUnauthorized {
@@ -140,9 +130,7 @@ func TestGroupHelpersPreserveAuthentication(t *testing.T) {
 func TestStaticUsesSamePathAsPrefixAuthentication(t *testing.T) {
 	app := zinc.New()
 	app.UsePrefix("/files/private", func(c *zinc.Context) error { return zinc.ErrUnauthorized })
-	if err := app.StaticFS("/files", fstest.MapFS{"private/secret.txt": &fstest.MapFile{Data: []byte("secret")}}); err != nil {
-		t.Fatal(err)
-	}
+	app.StaticFS("/files", fstest.MapFS{"private/secret.txt": &fstest.MapFile{Data: []byte("secret")}})
 	if w := hardeningRequest(app, "GET", "/files/private/secret.txt"); w.Code != 401 {
 		t.Fatalf("baseline: %d", w.Code)
 	}

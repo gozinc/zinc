@@ -53,6 +53,9 @@ type Context struct {
 	// originalURI is captured on the first rewrite so OriginalURL can report
 	// the request as received. It stays empty for requests never rewritten.
 	originalURI string
+	// bridgeErr carries the Zinc chain's error back out through standard
+	// middleware adapted by FromHTTP.
+	bridgeErr error
 }
 
 type param struct {
@@ -139,6 +142,7 @@ func (c *Context) release() {
 	c.lastErr = nil
 	c.routeInfo = routeMeta{}
 	c.originalURI = ""
+	c.bridgeErr = nil
 	contextPool.Put(c)
 }
 

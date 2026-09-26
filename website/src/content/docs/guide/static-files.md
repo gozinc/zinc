@@ -6,9 +6,7 @@ description: Serve directories, single files, and embedded assets safely.
 Serve a folder of assets with one call. Zinc answers `GET` and `HEAD`, sets content types, supports `Range` and conditional requests through `http.ServeContent`, and rejects paths that try to escape the folder.
 
 ```go
-if err := app.Static("/assets", "./public"); err != nil {
-	log.Fatal(err)
-}
+app.Static("/assets", "./public")
 ```
 
 `GET /assets/css/app.css` now serves `./public/css/app.css`. A directory that does not exist is not detected until a request arrives, so check the path at startup if a wrong deploy path should stop the process.
@@ -18,9 +16,7 @@ Zinc opens one confined directory handle on the first file request and retains i
 ## A single file
 
 ```go
-if err := app.File("/robots.txt", "./public/robots.txt"); err != nil {
-	log.Fatal(err)
-}
+app.File("/robots.txt", "./public/robots.txt")
 ```
 
 ## Embedded assets
@@ -38,12 +34,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := app.StaticFS("/assets", assets); err != nil {
-		log.Fatal(err)
-	}
-	if err := app.FileFS("/favicon.ico", "favicon.ico", assets); err != nil {
-		log.Fatal(err)
-	}
+	app.StaticFS("/assets", assets)
+	app.FileFS("/favicon.ico", "favicon.ico", assets)
 
 	log.Fatal(app.Listen(":8080"))
 }
@@ -54,7 +46,7 @@ func main() {
 ## Index files and directory listings
 
 ```go
-err := app.Static("/docs", "./site",
+app.Static("/docs", "./site",
 	zinc.WithStaticIndex("home.html"),  // served for directory requests; default "index.html"
 	zinc.WithStaticBrowse(true),        // list files when there is no index
 )

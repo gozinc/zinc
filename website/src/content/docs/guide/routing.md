@@ -159,25 +159,23 @@ app.RouteNotFound("/api/{tail...}", func(c *zinc.Context) error {
 
 ## Named routes and URLs
 
-Give a route a name to build its URL elsewhere without hard-coding paths.
+Every registration method returns the `Route` it created. Name it to build its URL elsewhere without hard-coding paths:
 
 ```go
-app.Handle(zinc.RouteSpec{
-	Name:    "users.show",
-	Method:  zinc.MethodGet,
-	Path:    "/users/{id}",
-	Handler: showUser,
-})
+app.Get("/users/{id}", showUser).Name("users.show")
 
 url, err := app.URL("users.show", "42") // "/users/42"
 ```
 
+Names are unique. A duplicate panics at startup, like an invalid pattern.
+
 ### Routes from configuration
 
-`Handle` panics on an invalid spec, like every source-defined route. For patterns you do not control, `TryHandle` returns the error instead:
+Route declarations in your source panic when they are invalid, so mistakes surface at startup. For routes you do not control, such as patterns from configuration or plugins, `TryHandle` returns every problem, including a duplicate name, as an error:
 
 ```go
 if err := app.TryHandle(zinc.RouteSpec{
+	Name:    nameFromConfig,
 	Method:  zinc.MethodGet,
 	Path:    patternFromConfig,
 	Handler: showUser,
@@ -208,8 +206,8 @@ Route metadata stays available for tests, debug pages, and tooling.
 
 ```go
 all := app.Routes()                                     // every route, in registration order
-users := app.RoutesByPrefix("/users")                   // one subtree
 route, ok := app.FindRoute(zinc.MethodGet, "/users/42") // what would serve this request
+named, ok := app.RouteByName("users.show")              // a named route
 ```
 
 ## Next steps

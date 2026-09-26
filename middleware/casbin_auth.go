@@ -27,7 +27,7 @@ type CasbinAuthConfig struct {
 	Subject        CasbinValueFunc
 	Object         CasbinValueFunc
 	Action         CasbinValueFunc
-	SuccessHandler zinc.RouteHandler
+	SuccessHandler zinc.HandlerFunc
 	ErrorHandler   CasbinErrorHandler
 }
 

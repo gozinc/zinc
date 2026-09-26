@@ -67,7 +67,7 @@ type BasicAuthConfig struct {
 	Skipper        func(*zinc.Context) bool
 	Extractor      BasicAuthExtractor
 	Validator      BasicAuthValidator
-	SuccessHandler zinc.RouteHandler
+	SuccessHandler zinc.HandlerFunc
 	ErrorHandler   BasicAuthErrorHandler
 	Realm          string
 }

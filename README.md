@@ -96,8 +96,9 @@ server := &http.Server{Addr: ":8080", Handler: app, ReadHeaderTimeout: 5 * time.
 // Serve a route with any standard handler.
 app.HandleHTTP("GET /metrics", promhttp.Handler())
 
-// Wrap the app in standard middleware.
+// Wrap the app in standard middleware, or just one group.
 app.UseHTTP(otelhttp.NewMiddleware("api"))
+admin := app.Group("/admin").UseHTTP(basicAuth)
 
 // Hand a whole subtree to an existing handler. The prefix is stripped.
 app.Mount("/legacy", legacyMux)

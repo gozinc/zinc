@@ -38,9 +38,6 @@ func (s *httpHandlerSlot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
 }
 
-// RouteHandler is retained as a descriptive alias for HandlerFunc.
-type RouteHandler = HandlerFunc
-
 // Middleware is a HandlerFunc that calls Context.Next to continue the chain.
 type Middleware = HandlerFunc
 
@@ -52,6 +49,26 @@ type RouteInfo struct {
 	Params  []string
 	Mounted bool
 	Handler string
+}
+
+// Route is a registered route. Registration methods return it so the route
+// can be named for URL building:
+//
+//	app.Get("/users/{id}", showUser).Name("users.show")
+type Route struct {
+	table *routeTable
+	index uint32
+}
+
+// Name gives the route a unique name, used by App.URL, App.RouteByName, and
+// RouteInfo.Name. Like other registration mistakes, a duplicate name panics;
+// routes from configuration should use TryHandle, which returns the error.
+func (r Route) Name(name string) Route {
+	if r.table == nil {
+		panic("zinc: Name on a route that was not registered")
+	}
+	mustRegister(r.table.nameRoute(r.index, name))
+	return r
 }
 
 // RouteSpec describes a route supplied by configuration, plugins, or generated code.
@@ -157,8 +174,8 @@ type mountedHandler struct {
 type App struct {
 	config           Config
 	trustedProxies   []netip.Prefix
-	router           *Router
-	notFoundRoutes   *Router
+	router           *routeTable
+	notFoundRoutes   *routeTable
 	middleware       []HandlerFunc
 	middlewareChain  []HandlerFunc
 	httpHandler      http.Handler
@@ -194,15 +211,15 @@ func New(config ...Config) *App {
 	cfg.TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
 	trusted := compileTrustedProxies(cfg.TrustedProxies)
 
-	var cache *RouteCache
+	var cache *routeCache
 	if cfg.RouteCacheSize > 0 {
-		cache = NewRouteCache(cfg.RouteCacheSize)
+		cache = newRouteCache(cfg.RouteCacheSize)
 	}
 
 	app := &App{
 		config:         cfg,
 		trustedProxies: trusted,
-		router: &Router{
+		router: &routeTable{
 			cache:  cache,
 			config: &cfg,
 		},
@@ -465,7 +482,7 @@ func (a *App) rebuildMiddlewareChain() {
 
 // Group creates a route group rooted at prefix.
 func (a *App) Group(prefix string, handlers ...HandlerFunc) *Group {
-	return NewGroup(a, prefix, handlers...)
+	return newGroup(a, prefix, handlers...)
 }
 
 // Route configures and returns a group through fn.
@@ -537,7 +554,7 @@ func (a *App) RouteNotFound(path string, handlers ...HandlerFunc) {
 		panic("zinc: route handler is nil")
 	}
 	if a.notFoundRoutes == nil {
-		a.notFoundRoutes = &Router{config: &a.config}
+		a.notFoundRoutes = &routeTable{config: &a.config}
 	}
 	mustRegister(a.notFoundRoutes.Add(MethodGet, path, handlers...))
 }
@@ -561,11 +578,6 @@ func (a *App) Routes() []RouteInfo {
 	return out
 }
 
-// Handle registers a source-defined route and panics when its declaration is invalid.
-func (a *App) Handle(spec RouteSpec) {
-	mustRegister(a.TryHandle(spec))
-}
-
 // TryHandle registers a route whose declaration came from dynamic input.
 func (a *App) TryHandle(spec RouteSpec) error {
 	if spec.Handler == nil {
@@ -577,7 +589,7 @@ func (a *App) TryHandle(spec RouteSpec) error {
 // HandleHTTP registers a standard net/http handler using a "METHOD /path"
 // pattern, such as "GET /metrics". Matched parameters are available through
 // http.Request.PathValue inside the standard handler.
-func (a *App) HandleHTTP(pattern string, handler http.Handler) {
+func (a *App) HandleHTTP(pattern string, handler http.Handler) Route {
 	if handler == nil {
 		panic("zinc: HTTP handler is nil")
 	}
@@ -585,7 +597,7 @@ func (a *App) HandleHTTP(pattern string, handler http.Handler) {
 	if err != nil {
 		panic(err)
 	}
-	mustRegister(a.router.Add(method, path, Wrap(handler)))
+	return a.Add(method, path, Wrap(handler))
 }
 
 func mustRegister(err error) {
@@ -639,31 +651,6 @@ func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 		return mount.info.export(), true
 	}
 	return RouteInfo{}, false
-}
-
-// RoutesByMethod returns route metadata registered for method.
-func (a *App) RoutesByMethod(method string) []RouteInfo {
-	routes := a.Routes()
-	out := make([]RouteInfo, 0, len(routes))
-	for _, route := range routes {
-		if route.Method == method {
-			out = append(out, route)
-		}
-	}
-	return out
-}
-
-// RoutesByPrefix returns route metadata below prefix.
-func (a *App) RoutesByPrefix(prefix string) []RouteInfo {
-	prefix = normalizeRegisteredPrefix(prefix)
-	routes := a.Routes()
-	out := make([]RouteInfo, 0, len(routes))
-	for _, route := range routes {
-		if strings.HasPrefix(route.Path, prefix) {
-			out = append(out, route)
-		}
-	}
-	return out
 }
 
 // Wrap adapts a standard net/http handler to HandlerFunc. Matched parameters
@@ -755,53 +742,55 @@ func handlerNameFromPC(pc uintptr) string {
 }
 
 // Add registers handlers and panics when the route declaration is invalid.
-func (a *App) Add(method, path string, handlers ...HandlerFunc) {
-	mustRegister(a.router.Add(method, path, handlers...))
+func (a *App) Add(method, path string, handlers ...HandlerFunc) Route {
+	index, err := a.router.register(method, path, "", handlers...)
+	mustRegister(err)
+	return Route{table: a.router, index: index}
 }
 
 // Get registers a GET route.
-func (a *App) Get(path string, handlers ...HandlerFunc) {
-	a.Add(MethodGet, path, handlers...)
+func (a *App) Get(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodGet, path, handlers...)
 }
 
 // Post registers a POST route.
-func (a *App) Post(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPost, path, handlers...)
+func (a *App) Post(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodPost, path, handlers...)
 }
 
 // Put registers a PUT route.
-func (a *App) Put(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPut, path, handlers...)
+func (a *App) Put(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodPut, path, handlers...)
 }
 
 // Delete registers a DELETE route.
-func (a *App) Delete(path string, handlers ...HandlerFunc) {
-	a.Add(MethodDelete, path, handlers...)
+func (a *App) Delete(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodDelete, path, handlers...)
 }
 
 // Patch registers a PATCH route.
-func (a *App) Patch(path string, handlers ...HandlerFunc) {
-	a.Add(MethodPatch, path, handlers...)
+func (a *App) Patch(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodPatch, path, handlers...)
 }
 
 // Head registers a HEAD route.
-func (a *App) Head(path string, handlers ...HandlerFunc) {
-	a.Add(MethodHead, path, handlers...)
+func (a *App) Head(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodHead, path, handlers...)
 }
 
 // Options registers an OPTIONS route.
-func (a *App) Options(path string, handlers ...HandlerFunc) {
-	a.Add(MethodOptions, path, handlers...)
+func (a *App) Options(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodOptions, path, handlers...)
 }
 
 // Connect registers a CONNECT route.
-func (a *App) Connect(path string, handlers ...HandlerFunc) {
-	a.Add(MethodConnect, path, handlers...)
+func (a *App) Connect(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodConnect, path, handlers...)
 }
 
 // Trace registers a TRACE route.
-func (a *App) Trace(path string, handlers ...HandlerFunc) {
-	a.Add(MethodTrace, path, handlers...)
+func (a *App) Trace(path string, handlers ...HandlerFunc) Route {
+	return a.Add(MethodTrace, path, handlers...)
 }
 
 // Match registers the same handler chain for each method.
@@ -814,9 +803,4 @@ func (a *App) Match(methods []string, path string, handlers ...HandlerFunc) {
 // All registers handlers for Zinc's standard method set.
 func (a *App) All(path string, handlers ...HandlerFunc) {
 	a.Match(routeMethods, path, handlers...)
-}
-
-// Any is an alias for All.
-func (a *App) Any(path string, handlers ...HandlerFunc) {
-	a.All(path, handlers...)
 }

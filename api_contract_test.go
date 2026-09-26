@@ -18,20 +18,21 @@ var (
 	_ zinc.HandlerFunc    = func(*zinc.Context) error { return nil }
 	_ zinc.HTTPMiddleware = func(next http.Handler) http.Handler { return next }
 
-	_ func(*zinc.App, string, ...zinc.HandlerFunc)         = (*zinc.App).Get
-	_ func(*zinc.App, string, ...zinc.HandlerFunc)         = (*zinc.App).Post
-	_ func(*zinc.App, string, string, ...zinc.HandlerFunc) = (*zinc.App).Add
-	_ func(*zinc.App, zinc.RouteSpec)                      = (*zinc.App).Handle
-	_ func(*zinc.App, zinc.RouteSpec) error                = (*zinc.App).TryHandle
-	_ func(*zinc.App, string, http.Handler)                = (*zinc.App).HandleHTTP
-	_ func(*zinc.App, ...zinc.HTTPMiddleware)              = (*zinc.App).UseHTTP
+	_ func(*zinc.App, string, ...zinc.HandlerFunc) zinc.Route         = (*zinc.App).Get
+	_ func(*zinc.App, string, ...zinc.HandlerFunc) zinc.Route         = (*zinc.App).Post
+	_ func(*zinc.App, string, string, ...zinc.HandlerFunc) zinc.Route = (*zinc.App).Add
+	_ func(*zinc.App, zinc.RouteSpec) error                           = (*zinc.App).TryHandle
+	_ func(*zinc.App, string, http.Handler) zinc.Route                = (*zinc.App).HandleHTTP
+	_ func(*zinc.App, ...zinc.HTTPMiddleware)                         = (*zinc.App).UseHTTP
+	_ func(zinc.Route, string) zinc.Route                             = zinc.Route.Name
+	_ func(zinc.HTTPMiddleware) zinc.Middleware                       = zinc.FromHTTP
 
-	_ func(*zinc.Group, string, ...zinc.HandlerFunc)         = (*zinc.Group).Get
-	_ func(*zinc.Group, string, ...zinc.HandlerFunc)         = (*zinc.Group).Post
-	_ func(*zinc.Group, string, string, ...zinc.HandlerFunc) = (*zinc.Group).Add
-	_ func(*zinc.Group, zinc.RouteSpec)                      = (*zinc.Group).Handle
-	_ func(*zinc.Group, zinc.RouteSpec) error                = (*zinc.Group).TryHandle
-	_ func(*zinc.Group, string, http.Handler)                = (*zinc.Group).HandleHTTP
+	_ func(*zinc.Group, string, ...zinc.HandlerFunc) zinc.Route         = (*zinc.Group).Get
+	_ func(*zinc.Group, string, ...zinc.HandlerFunc) zinc.Route         = (*zinc.Group).Post
+	_ func(*zinc.Group, string, string, ...zinc.HandlerFunc) zinc.Route = (*zinc.Group).Add
+	_ func(*zinc.Group, zinc.RouteSpec) error                           = (*zinc.Group).TryHandle
+	_ func(*zinc.Group, string, http.Handler) zinc.Route                = (*zinc.Group).HandleHTTP
+	_ func(*zinc.Group, ...zinc.HTTPMiddleware) *zinc.Group             = (*zinc.Group).UseHTTP
 )
 
 func TestPublicAPIContract(t *testing.T) {
@@ -48,12 +49,7 @@ func TestPublicAPIContract(t *testing.T) {
 	}))
 
 	api := app.Group("/api")
-	api.Handle(zinc.RouteSpec{
-		Name:    "api.status",
-		Method:  http.MethodGet,
-		Path:    "/status",
-		Handler: func(c *zinc.Context) error { return c.String("ready") },
-	})
+	api.Add(http.MethodGet, "/status", func(c *zinc.Context) error { return c.String("ready") }).Name("api.status")
 	if err := api.TryHandle(zinc.RouteSpec{
 		Name:    "api.dynamic",
 		Method:  http.MethodPost,

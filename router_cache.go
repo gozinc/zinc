@@ -22,7 +22,7 @@ type routeCacheEntry struct {
 	allowed allowedMethodSet
 }
 
-// RouteCache accelerates repeated concrete dynamic paths. It begins as a
+// routeCache accelerates repeated concrete dynamic paths. It begins as a
 // mutex-protected bounded ring, promotes stable contents to an immutable atomic
 // snapshot, and records later traffic in an overlay that may replace the old
 // snapshot when the working set changes.
@@ -30,7 +30,7 @@ type routeCacheEntry struct {
 // The one-entry hot pointer handles immediate repetition without taking a read
 // lock. All cache contents are derived: misses and eviction affect performance,
 // never the result returned by the router.
-type RouteCache struct {
+type routeCache struct {
 	methodCache  [routeMethodCount]map[string]routeCacheEntry
 	extraCache   map[routeCacheKey]routeCacheEntry
 	overlay      [routeMethodCount]map[string]routeCacheEntry
@@ -90,14 +90,14 @@ const routeCacheFreezeCapacityDenominator = 4
 const routeCacheRebaseSizeNumerator = 1
 const routeCacheRebaseSizeDenominator = 2
 
-// NewRouteCache creates a cache bounded to size concrete method/path entries.
-func NewRouteCache(size int) *RouteCache {
-	return &RouteCache{size: size}
+// newRouteCache creates a cache bounded to size concrete method/path entries.
+func newRouteCache(size int) *routeCache {
+	return &routeCache{size: size}
 }
 
 // getWithMask reads snapshots without locking. Once a snapshot exists, only
 // paths admitted after the freeze require an overlay lock.
-func (rc *RouteCache) getWithMask(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
+func (rc *routeCache) getWithMask(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
 	if rc == nil {
 		return routeCacheEntry{}, false
 	}
@@ -132,7 +132,7 @@ func (rc *RouteCache) getWithMask(key routeCacheKey, mask methodMask) (routeCach
 	return entry, ok
 }
 
-func (rc *RouteCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
+func (rc *routeCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
 	if rc == nil || atomic.LoadUint32(&rc.dirty) != 0 {
 		return routeCacheEntry{}, false
 	}
@@ -145,7 +145,7 @@ func (rc *RouteCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
 // setWithMask inserts into the mutable ring or the post-snapshot overlay. At
 // capacity, next identifies the oldest replaceable slot; this is intentionally
 // bounded bookkeeping rather than a general-purpose LRU.
-func (rc *RouteCache) setWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
+func (rc *routeCache) setWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if rc == nil || rc.size <= 0 || len(key.path)+len(key.method) > routeCacheMaxKeyBytes {
 		return
 	}
@@ -195,7 +195,7 @@ func (rc *RouteCache) setWithMask(key routeCacheKey, mask methodMask, entry rout
 	}
 }
 
-func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
+func (rc *routeCache) setMissWithMask(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if rc == nil || rc.size <= 0 || len(key.path)+len(key.method) > routeCacheMaxKeyBytes {
 		return
 	}
@@ -209,7 +209,7 @@ func (rc *RouteCache) setMissWithMask(key routeCacheKey, mask methodMask, entry 
 
 // recordHit freezes a stable, partially filled cache after enough reuse. Full
 // caches continue adapting instead of freezing a possibly transient workload.
-func (rc *RouteCache) recordHit() {
+func (rc *routeCache) recordHit() {
 	count := atomic.LoadUint32(&rc.count)
 	if count < routeCacheSnapshotMinEntries ||
 		uint64(count)*routeCacheFreezeCapacityDenominator >
@@ -223,7 +223,7 @@ func (rc *RouteCache) recordHit() {
 	rc.freezeReadSnapshot(count)
 }
 
-func (rc *RouteCache) recordOverlayHit(expectedSnapshot *routeCacheReadSnapshot) {
+func (rc *routeCache) recordOverlayHit(expectedSnapshot *routeCacheReadSnapshot) {
 	if rc.snapshot.Load() != expectedSnapshot {
 		return
 	}
@@ -247,7 +247,7 @@ func (rc *RouteCache) recordOverlayHit(expectedSnapshot *routeCacheReadSnapshot)
 	rc.rebaseReadSnapshot(expectedSnapshot, overlayCount, frozenCount)
 }
 
-func (rc *RouteCache) freezeReadSnapshot(expectedCount uint32) {
+func (rc *routeCache) freezeReadSnapshot(expectedCount uint32) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	if rc.snapshot.Load() != nil ||
@@ -269,7 +269,7 @@ func (rc *RouteCache) freezeReadSnapshot(expectedCount uint32) {
 
 // rebaseReadSnapshot promotes a sufficiently large and stable overlay, dropping
 // the previous snapshot as one operation under the write lock.
-func (rc *RouteCache) rebaseReadSnapshot(
+func (rc *routeCache) rebaseReadSnapshot(
 	expectedSnapshot *routeCacheReadSnapshot,
 	expectedOverlayCount,
 	expectedFrozenCount uint32,
@@ -302,7 +302,7 @@ func (rc *RouteCache) rebaseReadSnapshot(
 	rc.hot.Store(nil)
 }
 
-func (rc *RouteCache) getLocked(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
+func (rc *routeCache) getLocked(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		entry, ok := rc.methodCache[slot][key.path]
 		return entry, ok
@@ -320,7 +320,7 @@ func (snapshot *routeCacheReadSnapshot) get(key routeCacheKey, mask methodMask) 
 	return entry, ok
 }
 
-func (rc *RouteCache) getOverlayLocked(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
+func (rc *routeCache) getOverlayLocked(key routeCacheKey, mask methodMask) (routeCacheEntry, bool) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		entry, ok := rc.overlay[slot][key.path]
 		return entry, ok
@@ -329,7 +329,7 @@ func (rc *RouteCache) getOverlayLocked(key routeCacheKey, mask methodMask) (rout
 	return entry, ok
 }
 
-func (rc *RouteCache) setLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
+func (rc *routeCache) setLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		cache := rc.methodCache[slot]
 		if cache == nil {
@@ -345,7 +345,7 @@ func (rc *RouteCache) setLocked(key routeCacheKey, mask methodMask, entry routeC
 	rc.extraCache[key] = entry
 }
 
-func (rc *RouteCache) setOverlayLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
+func (rc *routeCache) setOverlayLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if _, exists := rc.getOverlayLocked(key, mask); exists {
 		rc.storeOverlayLocked(key, mask, entry)
 		return
@@ -376,7 +376,7 @@ func (rc *RouteCache) setOverlayLocked(key routeCacheKey, mask methodMask, entry
 	}
 }
 
-func (rc *RouteCache) storeOverlayLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
+func (rc *routeCache) storeOverlayLocked(key routeCacheKey, mask methodMask, entry routeCacheEntry) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		cache := rc.overlay[slot]
 		if cache == nil {
@@ -392,7 +392,7 @@ func (rc *RouteCache) storeOverlayLocked(key routeCacheKey, mask methodMask, ent
 	rc.extraOverlay[key] = entry
 }
 
-func (rc *RouteCache) deleteLocked(key routeCacheKey, mask methodMask) {
+func (rc *routeCache) deleteLocked(key routeCacheKey, mask methodMask) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		delete(rc.methodCache[slot], key.path)
 		return
@@ -400,7 +400,7 @@ func (rc *RouteCache) deleteLocked(key routeCacheKey, mask methodMask) {
 	delete(rc.extraCache, key)
 }
 
-func (rc *RouteCache) deleteOverlayLocked(key routeCacheKey, mask methodMask) {
+func (rc *routeCache) deleteOverlayLocked(key routeCacheKey, mask methodMask) {
 	if slot := singleBitIndex(mask); slot >= 0 {
 		delete(rc.overlay[slot], key.path)
 		return
@@ -426,7 +426,7 @@ func routeCacheAdmissionShard(key routeCacheKey) int {
 
 // invalidate makes lock-free state unreachable immediately. The next cache
 // operation clears mutable maps under the lock, keeping registration cheap.
-func (rc *RouteCache) invalidate() {
+func (rc *routeCache) invalidate() {
 	if rc == nil {
 		return
 	}
@@ -435,7 +435,7 @@ func (rc *RouteCache) invalidate() {
 	rc.hot.Store(nil)
 }
 
-func (rc *RouteCache) ensureFresh() {
+func (rc *routeCache) ensureFresh() {
 	if rc == nil || atomic.LoadUint32(&rc.dirty) == 0 {
 		return
 	}

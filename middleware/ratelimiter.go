@@ -48,7 +48,7 @@ type RateLimiterConfig struct {
 	// StatusCode is the response code when rate limit is exceeded
 	StatusCode int
 	// LimitReachedHandler is called when rate limit is reached
-	LimitReachedHandler zinc.RouteHandler
+	LimitReachedHandler zinc.HandlerFunc
 }
 
 func (tb *TokenBucket) refill(now time.Time) {

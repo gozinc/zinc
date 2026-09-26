@@ -36,6 +36,9 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | `c.Redirect(code, url)`, `c.Negotiate(status, offers)` | The status moves to `c.Status(...)` | [Responses](#responses) |
 | `c.ClearCookie(names...)`, `c.SetSameSite` | `c.ClearCookie(*http.Cookie)`, `Config.CookieSameSite` | [Responses](#responses) |
 | `zinc.SSEvent`, `zinc.NewContext`, `c.PathParams` | `zinc.Event`; the other two are internal | [Responses](#responses) |
+| `app.Handle(zinc.RouteSpec{Name: ...})` | `app.Get(...).Name(...)`; `TryHandle` keeps `RouteSpec` | [Routing](#routing) |
+| `Any`, `RoutesByMethod`, `RoutesByPrefix`, `NewGroup`, `RouteHandler` | Removed | [Routing](#routing) |
+| `err := app.Static(...)` and the other file helpers | They no longer return an error | [Routing](#routing) |
 
 ## Group middleware order
 
@@ -273,3 +276,31 @@ The status argument moves out of the response helpers and into `c.Status`:
 `ClearCookie` now keeps the path and domain you pass, so it can remove a cookie set with `Path: "/admin"` or a domain. In 0.3 it always cleared at `/` without a domain, and couldn't remove those cookies.
 
 `zinc.NewContext` and `c.PathParams` are internal. A `Context` without an app could not bind or encode JSON safely. Use `app.AcquireContext` in the rare adapter that needs one, and `httptest` against `app.ServeHTTP` in tests.
+
+## Routing
+
+Registration methods return the `Route` they create, so naming a route is one chained call:
+
+```go
+// 0.3
+app.Handle(zinc.RouteSpec{Name: "users.show", Method: zinc.MethodGet, Path: "/users/{id}", Handler: showUser})
+
+// 0.4
+app.Get("/users/{id}", showUser).Name("users.show")
+```
+
+`Handle(RouteSpec)` is removed. `TryHandle(RouteSpec) error` stays for routes from configuration or plugins, and reports every problem, including a duplicate name, as an error.
+
+| 0.3 | 0.4 |
+|---|---|
+| `app.Any(path, h)` | `app.All(path, h)` |
+| `app.RoutesByMethod(m)`, `app.RoutesByPrefix(p)` | Filter `app.Routes()` |
+| `zinc.NewGroup(app, prefix)` | `app.Group(prefix)` |
+| `zinc.RouteHandler` | `zinc.HandlerFunc` |
+| `if err := app.Static(...); err != nil` | `app.Static(...)` |
+
+`Static`, `StaticFS`, `File`, and `FileFS` no longer return an error; `File` and `FileFS` return the `Route`. The only failure they reported, a nil filesystem, now panics at startup like every other registration mistake.
+
+Standard middleware can now run on a group or a single route, not only the whole app: `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)`. See [Zinc and net/http](/guide/http-interoperability/).
+
+The router's internal types are no longer exported: `Router`, `Route` (the old static-route entry), `RouteMap`, `RouteHandlerMap`, and `RouteCache`. `zinc.Route` is now the handle registration returns.

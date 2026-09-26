@@ -18,7 +18,7 @@ func TestRouterDynamicRoutesAndHelpers(t *testing.T) {
 	app.Get("/files/{path...}", func(c *Context) error {
 		return c.String(c.Param("path"))
 	})
-	app.Any("/any", func(c *Context) error {
+	app.All("/any", func(c *Context) error {
 		return c.String(c.Method())
 	})
 
@@ -60,7 +60,7 @@ func TestRouterCaseInsensitiveDynamicRoutes(t *testing.T) {
 		t.Fatalf("allow=%q", allow)
 	}
 
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	handler := func(*Context) error { return nil }
 	mustDo(t, router.Add(MethodGet, "/Users/{id}", handler))
 	if err := router.Add(MethodGet, "/users/{name}", handler); err == nil {
@@ -131,7 +131,7 @@ func TestRouterBraceParamsAndWrappedRequestPathValues(t *testing.T) {
 }
 
 func TestBraceRoutePatternValidationAndMetadata(t *testing.T) {
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	handler := func(*Context) error { return nil }
 
 	mustDo(t, router.AddNamed(MethodGet, "/teams/{teamID}/users/{userID}", "users.show", handler))
@@ -172,7 +172,7 @@ func TestBraceRoutePatternValidationAndMetadata(t *testing.T) {
 }
 
 func TestRouterConflictsAndNormalization(t *testing.T) {
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "users/{id}", func(c *Context) error { return nil }))
 	if err := router.Add(MethodGet, "/users/{id}", func(c *Context) error { return nil }); err == nil {
 		t.Fatal("expected duplicate route error")
@@ -183,7 +183,7 @@ func TestRouterConflictsAndNormalization(t *testing.T) {
 }
 
 func TestRouterRejectsLegacyRoutePatterns(t *testing.T) {
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	handler := func(*Context) error { return nil }
 	patterns := []string{
 		"/users/:id",
@@ -246,7 +246,7 @@ func TestLowercasePathAndHandlerNameBranches(t *testing.T) {
 }
 
 func TestRouteCacheSetUpdateAndEviction(t *testing.T) {
-	cache := NewRouteCache(1)
+	cache := newRouteCache(1)
 
 	key1 := routeCacheKey{method: MethodGet, path: "/one"}
 	key2 := routeCacheKey{method: MethodGet, path: "/two"}
@@ -273,7 +273,7 @@ func TestRouteCacheSetUpdateAndEviction(t *testing.T) {
 }
 
 func TestRouteCachePartitionsStandardAndCustomMethods(t *testing.T) {
-	cache := NewRouteCache(3)
+	cache := newRouteCache(3)
 	keys := []routeCacheKey{
 		{method: MethodGet, path: "/shared"},
 		{method: MethodPost, path: "/shared"},
@@ -292,7 +292,7 @@ func TestRouteCachePartitionsStandardAndCustomMethods(t *testing.T) {
 }
 
 func TestRouteCachePromotesStablePartialCacheAndKeepsOverlayAdaptive(t *testing.T) {
-	cache := NewRouteCache(100)
+	cache := newRouteCache(100)
 	keys := make([]routeCacheKey, routeCacheMinRoutes)
 	for i := range keys {
 		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/stable/%d", i)}
@@ -324,7 +324,7 @@ func TestRouteCachePromotesStablePartialCacheAndKeepsOverlayAdaptive(t *testing.
 
 func TestRouteCachePromotesSmallStableWorkingSet(t *testing.T) {
 	const workingSetSize = 8
-	cache := NewRouteCache(64)
+	cache := newRouteCache(64)
 	phaseA := make([]routeCacheKey, workingSetSize)
 	phaseB := make([]routeCacheKey, workingSetSize)
 	for i := range phaseA {
@@ -363,7 +363,7 @@ func TestRouteCachePromotesSmallStableWorkingSet(t *testing.T) {
 }
 
 func TestRouteCacheRepromotesStableOverlay(t *testing.T) {
-	cache := NewRouteCache(256)
+	cache := newRouteCache(256)
 	phaseA := make([]routeCacheKey, routeCacheMinRoutes)
 	phaseB := make([]routeCacheKey, routeCacheMinRoutes)
 	for i := range phaseA {
@@ -406,7 +406,7 @@ func TestRouteCacheRepromotesStableOverlay(t *testing.T) {
 	}
 }
 
-var benchmarkRouteCacheSink *RouteCache
+var benchmarkRouteCacheSink *routeCache
 
 func BenchmarkRouteCachePromotionAllocation(b *testing.B) {
 	keys := make([]routeCacheKey, routeCacheMinRoutes)
@@ -415,8 +415,8 @@ func BenchmarkRouteCachePromotionAllocation(b *testing.B) {
 		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/stable/%d", i)}
 		entries[i] = routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}}
 	}
-	prepare := func(promote bool) *RouteCache {
-		cache := NewRouteCache(100)
+	prepare := func(promote bool) *routeCache {
+		cache := newRouteCache(100)
 		for i := range keys {
 			cache.set(keys[i], entries[i])
 		}
@@ -444,7 +444,7 @@ func BenchmarkRouteCachePromotionAllocation(b *testing.B) {
 }
 
 func TestRouteCacheDoesNotFreezeAtCapacity(t *testing.T) {
-	cache := NewRouteCache(routeCacheMinRoutes)
+	cache := newRouteCache(routeCacheMinRoutes)
 	keys := make([]routeCacheKey, routeCacheMinRoutes)
 	for i := range keys {
 		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/full/%d", i)}
@@ -463,7 +463,7 @@ func TestRouteCacheDoesNotFreezeAtCapacity(t *testing.T) {
 }
 
 func TestRouteCacheConcurrentSnapshotPromotion(t *testing.T) {
-	cache := NewRouteCache(100)
+	cache := newRouteCache(100)
 	keys := make([]routeCacheKey, routeCacheMinRoutes)
 	for i := range keys {
 		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/concurrent/%d", i)}
@@ -492,7 +492,7 @@ func TestRouteCacheConcurrentSnapshotPromotion(t *testing.T) {
 }
 
 func TestRouteCacheInvalidateClearsLazilyOnNextAccess(t *testing.T) {
-	cache := NewRouteCache(2)
+	cache := newRouteCache(2)
 	key := routeCacheKey{method: MethodGet, path: "/one"}
 	entry := routeCacheEntry{route: &radixRoute{infoIndex: 1}}
 
@@ -510,7 +510,7 @@ func TestRouteCacheInvalidateClearsLazilyOnNextAccess(t *testing.T) {
 }
 
 func TestRouteCacheMissAdmissionProtectsFullCache(t *testing.T) {
-	cache := NewRouteCache(1)
+	cache := newRouteCache(1)
 	hotKey := routeCacheKey{method: MethodGet, path: "/hot"}
 	coldKey := routeCacheKey{method: MethodGet, path: "/cold"}
 	hotEntry := routeCacheEntry{route: &radixRoute{infoIndex: 1}}
@@ -534,7 +534,7 @@ func TestRouteCacheMissAdmissionProtectsFullCache(t *testing.T) {
 }
 
 func TestRouteCacheRingEvictionWrapsWithoutStaleHotEntry(t *testing.T) {
-	cache := NewRouteCache(2)
+	cache := newRouteCache(2)
 	keys := []routeCacheKey{
 		{method: MethodGet, path: "/one"},
 		{method: MethodGet, path: "/two"},
@@ -607,8 +607,8 @@ func TestRadixNodeBranches(t *testing.T) {
 }
 
 func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(2),
+	router := &routeTable{
+		cache:  newRouteCache(2),
 		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/Case", func(*Context) error { return nil }))
@@ -627,8 +627,8 @@ func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 		t.Fatal("expected non-strict trailing slash match")
 	}
 
-	dynamic := &Router{
-		cache: NewRouteCache(2),
+	dynamic := &routeTable{
+		cache: newRouteCache(2),
 	}
 	cacheKey := routeCacheKey{method: MethodGet, path: "/cached"}
 	dynamic.cache.set(cacheKey, routeCacheEntry{route: nil})
@@ -642,7 +642,7 @@ func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 }
 
 func TestRouterAddAndMatchErrorBranches(t *testing.T) {
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	if err := router.Add(MethodGet, "/users"); err == nil || !strings.Contains(err.Error(), "no handler provided") {
 		t.Fatalf("err=%v", err)
 	}
@@ -654,7 +654,7 @@ func TestRouterAddAndMatchErrorBranches(t *testing.T) {
 }
 
 func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "/shared/one", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodPost, "/shared/two", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodGet, "/users/{id}", func(*Context) error { return nil }))
@@ -676,8 +676,8 @@ func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
 }
 
 func TestRouterDispatchIntoCachesMissResults(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(routeCacheMinRoutes + 8),
+	router := &routeTable{
+		cache:  newRouteCache(routeCacheMinRoutes + 8),
 		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
@@ -743,8 +743,8 @@ func TestRouterSupportsMoreThanInlinePathParams(t *testing.T) {
 }
 
 func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(routeCacheMinRoutes + 8),
+	router := &routeTable{
+		cache:  newRouteCache(routeCacheMinRoutes + 8),
 		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
@@ -798,8 +798,8 @@ func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 }
 
 func TestRouterDispatchIntoCachesSmallDynamicRouteSets(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(8),
+	router := &routeTable{
+		cache:  newRouteCache(8),
 		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
@@ -827,8 +827,8 @@ func TestRouterDispatchIntoCachesSmallDynamicRouteSets(t *testing.T) {
 }
 
 func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(8),
+	router := &routeTable{
+		cache:  newRouteCache(8),
 		config: &Config{},
 	}
 	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
@@ -876,8 +876,8 @@ func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
 }
 
 func TestRouterStaticRouteLengthFilter(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(8),
+	router := &routeTable{
+		cache:  newRouteCache(8),
 		config: &Config{},
 	}
 	shortPath := "/fixed"
@@ -906,8 +906,8 @@ func TestRouterStaticRouteLengthFilter(t *testing.T) {
 }
 
 func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
-	router := &Router{
-		cache:  NewRouteCache(routeCacheMinRoutes + 8),
+	router := &routeTable{
+		cache:  newRouteCache(routeCacheMinRoutes + 8),
 		config: &Config{},
 	}
 	for i := 0; i < routeCacheMinRoutes; i++ {
@@ -967,7 +967,7 @@ func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
 func TestRouterSupportsCustomDynamicMethods(t *testing.T) {
 	const methodPurge = "PURGE"
 
-	router := &Router{config: &Config{}}
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(methodPurge, "/items/{id}", func(*Context) error { return nil }))
 
 	ctx := &Context{}
@@ -1004,7 +1004,7 @@ func TestRouterSupportsCustomDynamicMethods(t *testing.T) {
 }
 
 func TestRouterAllowedMethodsCaseInsensitiveStaticIndex(t *testing.T) {
-	router := &Router{
+	router := &routeTable{
 		config:        &Config{CaseSensitive: false},
 		staticAllowed: make(map[string]allowedMethodSet),
 	}
@@ -1052,7 +1052,7 @@ func buildSequentialParamRoute(count int) (string, string, []string, paramRanges
 }
 
 // Exercise the same method-negotiation path used by ServeHTTP.
-func allowedHeaderForTest(r *Router, path string) string {
+func allowedHeaderForTest(r *routeTable, path string) string {
 	_, allowed, _ := r.dispatchInto("UNREGISTERED", path, true, &Context{})
 	return allowed.header(true, true)
 }

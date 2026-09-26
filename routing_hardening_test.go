@@ -67,8 +67,8 @@ func TestMountEscapedAndCaseFoldedRequest(t *testing.T) {
 
 func TestNamedURLSegmentPolicy(t *testing.T) {
 	app := New()
-	app.Handle(RouteSpec{Name: "item", Method: "GET", Path: "/items/{id}", Handler: func(c *Context) error { return c.Send(c.Param("id")) }})
-	app.Handle(RouteSpec{Name: "file", Method: "GET", Path: "/files/{path...}", Handler: func(c *Context) error { return c.Send(c.Param("path")) }})
+	app.Get("/items/{id}", func(c *Context) error { return c.Send(c.Param("id")) }).Name("item")
+	app.Get("/files/{path...}", func(c *Context) error { return c.Send(c.Param("path")) }).Name("file")
 	for _, value := range []string{"", "a/b"} {
 		if _, err := app.URL("item", value); err == nil {
 			t.Fatalf("accepted unsupported segment %q", value)
@@ -88,7 +88,7 @@ func TestNamedURLSegmentPolicy(t *testing.T) {
 }
 
 func TestRouteCacheOversizedKeyBypass(t *testing.T) {
-	cache := NewRouteCache(10)
+	cache := newRouteCache(10)
 	key := routeCacheKey{method: "GET", path: strings.Repeat("x", routeCacheMaxKeyBytes+1)}
 	cache.setWithMask(key, methodMaskFor("GET"), routeCacheEntry{})
 	if _, ok := cache.getWithMask(key, methodMaskFor("GET")); ok {

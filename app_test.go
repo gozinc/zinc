@@ -408,8 +408,8 @@ func TestStaticAndFileRoutes(t *testing.T) {
 	mustDo(t, os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("world"), 0o644))
 
 	app := New()
-	mustDo(t, app.Static("/assets", dir))
-	mustDo(t, app.File("/single", filepath.Join(dir, "hello.txt")))
+	app.Static("/assets", dir)
+	app.File("/single", filepath.Join(dir, "hello.txt"))
 
 	assets := performRequest(t, app, http.MethodGet, "/assets/hello.txt", nil, nil)
 	if assets.Body.String() != "world" {
@@ -426,20 +426,15 @@ func TestNamedRoutesAndURLGeneration(t *testing.T) {
 	app := New()
 	api := app.Group("/api")
 
-	api.Handle(RouteSpec{
-		Name:   "users.show",
-		Method: MethodGet,
-		Path:   "/users/{id}",
-		Handler: func(c *Context) error {
-			info := c.Route()
-			return c.JSON(Map{
-				"name":  info.Name,
-				"path":  info.Path,
-				"param": info.Params[0],
-				"id":    c.Param("id"),
-			})
-		},
-	})
+	api.Get("/users/{id}", func(c *Context) error {
+		info := c.Route()
+		return c.JSON(Map{
+			"name":  info.Name,
+			"path":  info.Path,
+			"param": info.Params[0],
+			"id":    c.Param("id"),
+		})
+	}).Name("users.show")
 
 	route, ok := app.RouteByName("users.show")
 	if !ok {
@@ -467,12 +462,7 @@ func TestNamedRoutesAndURLGeneration(t *testing.T) {
 func TestNamedRouteWildcardAndDuplicateName(t *testing.T) {
 	app := New()
 
-	app.Handle(RouteSpec{
-		Name:    "files.show",
-		Method:  MethodGet,
-		Path:    "/files/{rest...}",
-		Handler: func(c *Context) error { return c.String("ok") },
-	})
+	app.Add(MethodGet, "/files/{rest...}", func(c *Context) error { return c.String("ok") }).Name("files.show")
 
 	url, err := app.URL("files.show", "a/b/c.txt")
 	mustDo(t, err)
@@ -554,12 +544,7 @@ func TestAppRejectsLegacyRoutePatterns(t *testing.T) {
 func TestRouteIntrospectionHelpers(t *testing.T) {
 	app := New()
 	api := app.Group("/api")
-	api.Handle(RouteSpec{
-		Name:    "users.show",
-		Method:  MethodGet,
-		Path:    "/users/{id}",
-		Handler: func(c *Context) error { return c.String("ok") },
-	})
+	api.Add(MethodGet, "/users/{id}", func(c *Context) error { return c.String("ok") }).Name("users.show")
 	app.Post("/submit", func(c *Context) error { return c.String("ok") })
 
 	found, ok := app.FindRoute(MethodGet, "/api/users/17")
@@ -570,14 +555,14 @@ func TestRouteIntrospectionHelpers(t *testing.T) {
 		t.Fatalf("found=%+v", found)
 	}
 
-	getRoutes := app.RoutesByMethod(MethodGet)
+	var getRoutes []RouteInfo
+	for _, route := range app.Routes() {
+		if route.Method == MethodGet {
+			getRoutes = append(getRoutes, route)
+		}
+	}
 	if len(getRoutes) != 1 || getRoutes[0].Name != "users.show" {
 		t.Fatalf("get routes=%v", getRoutes)
-	}
-
-	apiRoutes := app.RoutesByPrefix("/api")
-	if len(apiRoutes) != 1 || apiRoutes[0].Name != "users.show" {
-		t.Fatalf("api routes=%v", apiRoutes)
 	}
 }
 
@@ -597,8 +582,8 @@ func TestMountedRouteIntrospection(t *testing.T) {
 		t.Fatalf("found=%+v", found)
 	}
 
-	routes := app.RoutesByPrefix("/sub")
-	if len(routes) != 1 || !routes[0].Mounted {
+	routes := app.Routes()
+	if len(routes) != 1 || !routes[0].Mounted || routes[0].Path != "/sub" {
 		t.Fatalf("routes=%v", routes)
 	}
 }
@@ -946,7 +931,7 @@ func TestShutdownReleasesConfinedStaticRoots(t *testing.T) {
 	root := t.TempDir()
 	mustDo(t, os.WriteFile(filepath.Join(root, "asset.txt"), []byte("asset"), 0o600))
 	app := New()
-	mustDo(t, app.Static("/assets", root))
+	app.Static("/assets", root)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	mustDo(t, err)
 	defer ln.Close()

@@ -31,7 +31,7 @@ var pathBuilderPool = sync.Pool{
 
 // normalizePath applies the sole unconditional normalization: every registered
 // route begins with '/'. Case and trailing-slash policy are handled separately.
-func (r *Router) normalizePath(path string) string {
+func (r *routeTable) normalizePath(path string) string {
 	if path == "" {
 		return "/"
 	}

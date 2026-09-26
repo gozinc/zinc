@@ -25,7 +25,7 @@ func TestStaticFSHonorsIndexAndBrowse(t *testing.T) {
 	}
 
 	app := New()
-	mustDo(t, app.StaticFS("/assets", fsys, WithStaticBrowse(true), WithStaticIndex("home.html")))
+	app.StaticFS("/assets", fsys, WithStaticBrowse(true), WithStaticIndex("home.html"))
 
 	root := performRequest(t, app, http.MethodGet, "/assets", nil, nil)
 	if root.Code != http.StatusOK {
@@ -61,7 +61,7 @@ func TestStaticFSBrowseDisabledWithoutIndexReturnsNotFound(t *testing.T) {
 	}
 
 	app := New()
-	mustDo(t, app.StaticFS("/assets", fsys))
+	app.StaticFS("/assets", fsys)
 
 	resp := performRequest(t, app, http.MethodGet, "/assets/browse", nil, nil)
 	if resp.Code != http.StatusNotFound {
@@ -75,7 +75,7 @@ func TestStaticFSRejectsTraversal(t *testing.T) {
 	}
 
 	app := New()
-	mustDo(t, app.StaticFS("/assets", fsys, WithStaticBrowse(true)))
+	app.StaticFS("/assets", fsys, WithStaticBrowse(true))
 
 	resp := performRequest(t, app, http.MethodGet, "/assets/%2e%2e/safe.txt", nil, nil)
 	if resp.Code != http.StatusNotFound {
@@ -88,7 +88,7 @@ func TestStaticUsesDirectoryFSAndCustomIndex(t *testing.T) {
 	mustDo(t, os.WriteFile(filepath.Join(dir, "index.htm"), []byte("custom-root"), 0o644))
 
 	app := New()
-	mustDo(t, app.Static("/public", dir, WithStaticIndex("index.htm")))
+	app.Static("/public", dir, WithStaticIndex("index.htm"))
 
 	resp := performRequest(t, app, http.MethodGet, "/public", nil, nil)
 	if resp.Code != http.StatusOK {
@@ -156,7 +156,7 @@ func TestStaticRootLifecycleAndLateDirectory(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "late")
 	app := New()
-	mustDo(t, app.Static("/files", root))
+	app.Static("/files", root)
 	if got := performRequest(t, app, http.MethodGet, "/files/item.txt", nil, nil); got.Code != http.StatusNotFound {
 		t.Fatalf("missing root status=%d", got.Code)
 	}
@@ -166,7 +166,7 @@ func TestStaticRootLifecycleAndLateDirectory(t *testing.T) {
 		t.Fatalf("late root status=%d body=%q", got.Code, got.Body.String())
 	}
 	group := app.Group("/nested")
-	mustDo(t, group.Static("/files", root))
+	group.Static("/files", root)
 	if got := performRequest(t, app, http.MethodGet, "/nested/files/item.txt", nil, nil); got.Code != http.StatusOK {
 		t.Fatalf("group static status=%d", got.Code)
 	}

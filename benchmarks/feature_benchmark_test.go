@@ -571,7 +571,7 @@ func buildGinLargeJSONBindHandler() http.Handler {
 
 func buildZincStaticFileHandler() http.Handler {
 	app := New()
-	mustNoErr(app.Static("/assets", benchmarkStaticRoot))
+	app.Static("/assets", benchmarkStaticRoot)
 	return app
 }
 
