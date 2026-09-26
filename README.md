@@ -101,7 +101,7 @@ A value that doesn't parse is a `400` naming the field, a validation failure is 
 - **Responses:** JSON, text, files, streams, templates, and redirects.
 - **Errors:** JSON error responses by default, short constructors like `zinc.NotFound("…")`, and domain errors that choose their own status. Internal error text never reaches clients.
 - **Middleware:** security, observability, limits, and transport, listed below.
-- **Replaceable parts:** swap the binder, validator, JSON codec, renderer, or error handler through `zinc.Config`.
+- **Replaceable parts:** swap the validator, renderer, error handler, or JSON library, and add body formats, through `zinc.Config`.
 
 ## Still `net/http`
 
@@ -140,7 +140,7 @@ OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middl
 
 ## Performance
 
-In the latest comparison against Gin, Echo, and Chi, Zinc had the lowest median latency in 60 of 77 workloads. Zinc was measured on an Apple M1 Pro at commit `42e11d2`, using the rival samples recorded the day before, so rerun close results side by side before relying on them. The [benchmark report](./BENCHMARKS.md) has the full results, environment, and commands. Results vary by workload and machine, so run the suite against the revision you deploy.
+In the 0.4.0 release run against Gin, Echo, and Chi, Zinc had the lowest median latency in 58 of 77 workloads, with all four frameworks measured together on an Apple M1 Pro. The [benchmark report](./BENCHMARKS.md) has the full results, environment, and commands. Results vary by workload and machine, so run the suite against the revision you deploy.
 
 ## Good to know
 
@@ -149,7 +149,7 @@ In the latest comparison against Gin, Echo, and Chi, Zinc had the lowest median 
 
 ## Project status
 
-Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.3 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.3/) when you upgrade.
+Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.4 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.4/) when you upgrade.
 
 Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 

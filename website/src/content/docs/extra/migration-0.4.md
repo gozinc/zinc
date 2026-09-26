@@ -4,10 +4,6 @@ description: Upgrade a Zinc 0.3 application to 0.4, which reshapes the public AP
 slug: extra/migration-0.4
 ---
 
-:::note[In progress]
-Zinc 0.4 is under development. This guide grows with each change, and it is complete when 0.4.0 is released.
-:::
-
 Zinc 0.4 simplifies the public API and fixes several defaults that could silently leave an application unprotected. Work through the checklist, then read the sections that apply to you.
 
 ## Checklist
@@ -253,7 +249,7 @@ user := zinc.MustValue[*User](c, userKey)  // replaces c.MustGet(userKey).(*User
 | `strconv.Atoi(c.Param("id"))` plus your own 400 | `zinc.Param[int](c, "id")` |
 | `c.QueryOr("page", "1")` | `zinc.QueryOr(c, "page", "1")`, or `zinc.QueryOr(c, "page", 1)` for an `int` |
 | `c.ParamOr("id", "me")` | `c.Param("id")`, falling back yourself when it is empty |
-| `c.GetString(key)`, `c.GetInt(key)`, … | `v, _ := zinc.Value[string](c, key)` |
+| `c.GetString`, `c.GetInt`, `c.GetInt64`, `c.GetFloat64`, `c.GetBool`, `c.GetStringSlice`, `c.GetStringMap`, `c.GetStringMapString`, `c.GetStringMapStringSlice` | `v, _ := zinc.Value[T](c, key)`, such as `zinc.Value[string](c, key)` |
 | `c.MustGet(key)` | `zinc.MustValue[T](c, key)` |
 | `c.PostForm(name)` | `c.FormValue(name)` or `zinc.Form[string](c, name)` |
 | `c.PostFormOr(name, fallback)` | `zinc.FormOr(c, name, fallback)` |
@@ -310,7 +306,7 @@ app.Get("/users/{id}", showUser).Name("users.show")
 
 Standard middleware can now run on a group or a single route, not only the whole app: `group.UseHTTP(mw)` or `zinc.FromHTTP(mw)`. See [Zinc and net/http](/guide/http-interoperability/).
 
-The router's internal types are no longer exported: `Router`, `Route` (the old static-route entry), `RouteMap`, `RouteHandlerMap`, and `RouteCache`. `zinc.Route` is now the handle registration returns.
+The router's internal types are no longer exported: `Router` (with `Router.Find` and `Router.AddNamed`), `Route` (the old static-route entry), `RouteMap`, `RouteHandlerMap`, `RouteCache`, and `NewRouteCache`. `zinc.Route` is now the handle registration returns.
 
 ## Middleware packages
 

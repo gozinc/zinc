@@ -90,7 +90,7 @@ These return the context, so they chain into a body method.
 | `Attachment(path, name...)` | A file as a download |
 | `Inline(path, name...)` | A file for display in the browser |
 | `Stream(contentType, reader)` | Data copied from a reader |
-| `SSE(event)` | Writes and flushes one server-sent event; `WriteTimeout` applies per event |
+| `SSE(event)` | Writes and flushes one server-sent event, a `zinc.Event{Event, ID, Retry, Data}`; `WriteTimeout` applies per event |
 | `Redirect(url)` | A redirect: 302, or the 3xx status set by `Status` |
 | `Accepts(types...)` | The best match for the `Accept` header |
 | `Negotiate(offers)` | The offer that best matches `Accept` |

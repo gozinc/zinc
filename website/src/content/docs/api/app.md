@@ -63,8 +63,15 @@ type RouteSpec struct {
 | `Route(prefix, fn func(*Group), middleware...) *Group` | The same, declared in a nested block |
 | `Use(middleware...)` | Middleware for every request |
 | `UsePrefix(prefix, middleware...)` | Middleware for requests under a prefix, before routing |
-| `UseHTTP(func(http.Handler) http.Handler...)` | Standard middleware around the whole app |
+| `UseHTTP(middleware ...zinc.HTTPMiddleware)` | Standard `func(http.Handler) http.Handler` middleware around the whole app |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree; receives paths without the prefix |
+
+Two functions build middleware from other middleware:
+
+| Function | Returns |
+|---|---|
+| `zinc.Skip(skip func(*Context) bool, mw Middleware) Middleware` | `mw`, except for requests where `skip` reports true |
+| `zinc.FromHTTP(mw HTTPMiddleware) Middleware` | Standard middleware as Zinc middleware, for one route or group |
 
 See [Groups and Middleware](/guide/groups-and-middleware/) for execution order.
 
@@ -72,12 +79,12 @@ See [Groups and Middleware](/guide/groups-and-middleware/) for execution order.
 
 | Method | Serves |
 |---|---|
-| `Static(prefix, dir, opts...) error` | A directory from disk |
-| `StaticFS(prefix, fs.FS, opts...) error` | A directory from any filesystem, such as `embed.FS` |
-| `File(path, file) error` | One file from disk |
-| `FileFS(path, name, fs.FS) error` | One file from a filesystem |
+| `Static(prefix, dir, opts ...StaticOption)` | A directory from disk |
+| `StaticFS(prefix, fs.FS, opts ...StaticOption)` | A directory from any filesystem, such as `embed.FS` |
+| `File(path, file) Route` | One file from disk |
+| `FileFS(path, name, fs.FS) Route` | One file from a filesystem |
 
-Options: `zinc.WithStaticIndex(name)` and `zinc.WithStaticBrowse(bool)`. See [Static Files](/guide/static-files/).
+A nil filesystem panics at registration, like other registration mistakes. Options are `StaticOption` values that adjust a `StaticConfig`: `zinc.WithStaticIndex(name)` and `zinc.WithStaticBrowse(bool)`. See [Static Files](/guide/static-files/).
 
 ## Error routes
 
@@ -122,6 +129,8 @@ type RouteInfo struct {
 `Listen`, `ListenContext`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `ListenContext` in a complete program. `Shutdown` remains for servers started with `Listen` or `Serve`.
 
 ## Adapters
+
+`zinc.Wrap(http.Handler)` and `zinc.WrapFunc(http.HandlerFunc)` turn a standard handler into a Zinc `HandlerFunc`, for routes that mix both.
 
 `AcquireContext(w, r) *Context` and `ReleaseContext(c)` create and recycle a context outside normal dispatch. They exist for adapters and low-level tests; applications do not need them.
 
