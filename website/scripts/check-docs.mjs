@@ -136,7 +136,29 @@ function checkAPI(filename, source) {
   }
 }
 
+// Methods removed from HTTPError in 0.4. They are called on error values,
+// such as zinc.ErrNotFound.WithMessage(...), which the checks above can't see.
+const removedErrorMethods = /\.(WithCause|WithMessage|WithMeta)\(|\bhttpErr\.Meta\b/g;
+
+function checkRemovedErrorMethods(filename, source) {
+  const relative = path.relative(repoRoot, filename);
+  if (isMigrationGuide(relative)) return;
+  for (const match of source.matchAll(removedErrorMethods)) {
+    failures.push(`${relative}: removed API ${match[0].replace(/[.(]/g, "")}`);
+  }
+}
+
+// The homepage and other components show Zinc code too.
+const componentsRoot = path.join(docsRoot, "../../components");
+const components = filesBelow(componentsRoot, (filename) => /\.(astro|ts)$/.test(filename));
+for (const filename of components) {
+  const source = fs.readFileSync(filename, "utf8");
+  checkAPI(filename, source);
+  checkRemovedErrorMethods(filename, source);
+}
+
 for (const [filename, source] of sources) {
+  checkRemovedErrorMethods(filename, source);
   checkLinks(filename, source);
   checkAPI(filename, source);
 }
@@ -146,4 +168,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`Checked ${docs.length} documentation pages: internal links and referenced Zinc APIs are valid.`);
+console.log(`Checked ${docs.length} documentation pages and ${components.length} components: internal links and referenced Zinc APIs are valid.`);

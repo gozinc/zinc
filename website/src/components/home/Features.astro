@@ -77,7 +77,7 @@ app.RouteNotFound("/api/{tail...}", apiNotFound)`,
 app.Post("/users", func(c *zinc.Context) error {
 	var in CreateUser
 	if err := c.Bind().JSON(&in); err != nil {
-		return zinc.ErrBadRequest.WithCause(err)
+		return err // 400, naming the field
 	}
 	return c.Status(zinc.StatusCreated).JSON(in)
 })`,
@@ -98,7 +98,7 @@ app.Post("/users", func(c *zinc.Context) error {
     code: `app.Get("/users/{id}", func(c *zinc.Context) error {
 	user, err := users.Find(c.Param("id"))
 	if err != nil {
-		return zinc.ErrNotFound.WithMessage("user not found")
+		return zinc.NotFound("user not found")
 	}
 	return c.JSON(user)
 })`,
@@ -107,7 +107,7 @@ app.Post("/users", func(c *zinc.Context) error {
     exchange: [
       { dir: "in", text: "GET /users/nope" },
       { dir: "out", text: "404 Not Found" },
-      { dir: "meta", text: "user not found" },
+      { dir: "meta", text: '{"error":{"status":404,"message":"user not found"}}' },
     ],
   },
 ];

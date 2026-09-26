@@ -1,18 +1,60 @@
 ---
 import fs from "node:fs";
 import path from "node:path";
-import { presets, resolve, treeRows, pathKeys, segments, codeLines } from "./router";
-
-const rows = treeRows();
-const initial = presets[0];
-const result = resolve(initial);
-const lit = new Set(result.winner ? pathKeys(result.winner.route.pattern) : [""]);
-const captured = Object.fromEntries(result.winner?.params ?? []);
 
 // The release shown in the hero comes from version.go, so it cannot drift.
 const versionFile = path.resolve(process.cwd(), "../version.go");
 const version = fs.readFileSync(versionFile, "utf8").match(/const Version = "([^"]+)"/)?.[1];
 if (!version) throw new Error(`No Version constant in ${versionFile}`);
+
+// A small, real Zinc handler. The responses below are what Zinc sends for it,
+// captured by running this code; keep them in step if the code changes.
+const source = `app := zinc.New()
+
+app.Get("/users/{id}", func(c *zinc.Context) error {
+	id, err := zinc.Param[int](c, "id")
+	if err != nil {
+		return err // 400, naming the field
+	}
+	user, ok := users[id]
+	if !ok {
+		return zinc.NotFound("user not found")
+	}
+	return c.JSON(user)
+})
+
+app.Listen(":8080")`;
+
+// Each request names the source line that answers it (0-based).
+const exchanges = [
+  { path: "/users/42", status: "200 OK", line: 11, body: `{"id":42,"name":"Ada Lovelace"}` },
+  { path: "/users/7", status: "404 Not Found", line: 9, body: `{"error":{"status":404,"message":"user not found"}}` },
+  {
+    path: "/users/ada",
+    status: "400 Bad Request",
+    line: 5,
+    body: `{"error":{"status":400,"message":"invalid path parameter","fields":{"id":"must be an integer"}}}`,
+  },
+];
+
+// A small Go highlighter, run at build time.
+const keywords = new Set(["func", "return", "if", "err", "nil", "ok", "error"]);
+const tokenize = (line: string): [string, string][] => {
+  const out: [string, string][] = [];
+  const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*")|(\b\d+\b)|([A-Za-z_][A-Za-z0-9_]*)(?=\s*[\[(])|([A-Za-z_][A-Za-z0-9_]*)|(\s+)|(.)/g;
+  for (const m of line.matchAll(re)) {
+    const [text, comment, str, num, call, word, space] = m;
+    if (comment) out.push([text, "cm"]);
+    else if (str) out.push([text, "str"]);
+    else if (num) out.push([text, "num"]);
+    else if (call) out.push([text, keywords.has(call) ? "kw" : "fn"]);
+    else if (word) out.push([text, keywords.has(word) ? "kw" : word === "zinc" || word === "Context" || word === "int" ? "ty" : "id"]);
+    else if (space) out.push([text, "sp"]);
+    else out.push([text, "pn"]);
+  }
+  return out;
+};
+const lines = source.split("\n").map(tokenize);
 ---
 
 <section class="lead">
@@ -37,65 +79,44 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     </button>
   </div>
 
-  <div class="router" data-router>
-    <div class="r-head">
-      <span class="r-title">Router</span>
-      <span class="r-hint" data-hint>Edit the path, or pick an example</span>
+  <div class="demo" data-demo data-exchanges={JSON.stringify(exchanges)}>
+    <div class="d-head">
+      <span class="d-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="d-file">main.go</span>
     </div>
 
-    <label class="r-request">
-      <span class="method">GET</span>
-      <input type="text" value={initial} placeholder="/users/42" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Request path to match" data-path />
-      <span class="caret" aria-hidden="true"></span>
-      <span class="verdict" data-verdict data-ok={result.winner ? "true" : "false"}>{result.winner ? "200" : "404"}</span>
-    </label>
+    <pre class="d-code" aria-label="A Zinc handler"><code>{lines.map((line, i) => (
+      <span class="line" data-line={i}>{line.length ? line.map(([t, c]) => <span class={`t-${c}`}>{t}</span>) : " "}</span>
+    ))}</code></pre>
 
-    <!-- Every preset is laid out invisibly in the same cell, so the ruler and
-         the code below are always as tall as the tallest example. -->
-    <div class="slot">
-      {presets.map((p) => (
-        <ol class="ruler ghost" aria-hidden="true">
-          {segments(resolve(p)).map((g) => <li data-kind={g.kind}><span class="text">{g.text}</span><span class="label">{g.label}</span></li>)}
-        </ol>
-      ))}
-      <ol class="ruler" aria-label="How the path splits into segments" data-ruler>
-        {segments(result).map((g) => (
-          <li data-kind={g.kind}><span class="text">{g.text}</span><span class="label">{g.label}</span></li>
+    <div class="d-term">
+      <div class="d-bar" aria-hidden="true">
+        <span>Terminal</span>
+        <span class="d-steps">{exchanges.map((_, i) => <i data-step={i} data-on={i === 0 ? "" : undefined}></i>)}</span>
+      </div>
+      <!-- Every exchange is laid out invisibly in the same cell, so the
+           terminal is always as tall as the longest response. -->
+      <div class="d-screen">
+        {exchanges.map((x) => (
+          <div class="d-run ghost" aria-hidden="true">
+            <p class="cmd"><span class="prompt">$</span> curl -i localhost:8080{x.path}</p>
+            <p class="status">HTTP/1.1 {x.status}</p>
+            <p class="hdr">Content-Type: application/json; charset=utf-8</p>
+            <p class="body">{x.body}</p>
+          </div>
         ))}
-      </ol>
-    </div>
-
-    <ol class="tree" aria-label="Registered routes as a tree">
-      {rows.map((r) => (
-        <li data-key={r.key} data-kind={r.kind} data-lit={lit.has(r.key) ? "" : undefined} data-name={r.name}>
-          <span class="guide" aria-hidden="true">{r.guide}</span>
-          <span class="seg">{r.seg}</span>
-          <span class="cap" data-cap>{r.name && lit.has(r.key) && captured[r.name] !== undefined ? ` = "${captured[r.name]}"` : ""}</span>
-          {r.handler && <span class="handler">{r.handler}</span>}
-        </li>
-      ))}
-    </ol>
-
-    <div class="slot r-code">
-      {presets.map((p) => (
-        <pre class="code ghost" aria-hidden="true">{codeLines(resolve(p)).map((line) => (
-          <span class="line">{line.map(([t, c]) => <span class={`t-${c}`}>{t}</span>)}</span>
-        ))}</pre>
-      ))}
-      <pre class="code" aria-live="polite" data-code>{codeLines(result).map((line) => (
-        <span class="line">{line.map(([t, c]) => <span class={`t-${c}`}>{t}</span>)}</span>
-      ))}</pre>
-    </div>
-
-    <div class="r-presets" role="group" aria-label="Example paths">
-      {presets.map((p) => <button type="button" data-preset={p} aria-pressed={p === initial ? "true" : "false"}>{p}</button>)}
+        <div class="d-run live" aria-live="polite" data-run data-code={exchanges[0].status.slice(0, 3)}>
+          <p class="cmd"><span class="prompt">$</span> <span data-typed>curl -i localhost:8080{exchanges[0].path}</span><span class="caret" aria-hidden="true"></span></p>
+          <p class="status" data-out>HTTP/1.1 {exchanges[0].status}</p>
+          <p class="hdr" data-out>Content-Type: application/json; charset=utf-8</p>
+          <p class="body" data-out>{exchanges[0].body}</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
 <script>
-  import { resolve, pathKeys, presets, segments, codeLines } from "./router";
-
   document.querySelectorAll<HTMLButtonElement>(".lead .install").forEach((button) => {
     button.addEventListener("click", async () => {
       const label = button.querySelector("[data-copy-label]");
@@ -113,104 +134,70 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     });
   });
 
-  const STEP = 90; // ms between tree levels as a request descends
+  type Exchange = { path: string; status: string; line: number; body: string };
 
-  document.querySelectorAll<HTMLElement>("[data-router]").forEach((root) => {
-    const input = root.querySelector<HTMLInputElement>("[data-path]")!;
-    const verdict = root.querySelector<HTMLElement>("[data-verdict]")!;
-    const ruler = root.querySelector<HTMLElement>("[data-ruler]")!;
-    const code = root.querySelector<HTMLElement>("[data-code]")!;
-    const hint = root.querySelector<HTMLElement>("[data-hint]")!;
-    const nodes = [...root.querySelectorAll<HTMLElement>("li[data-key]")];
-    const presetButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-preset]")];
+  const TYPE = 32; // ms per typed character
+  const LATENCY = 380; // the pause while the request is in flight
+  const REVEAL = 110; // ms between response lines
+  const HOLD = 3400; // how long a finished response stays up
+
+  document.querySelectorAll<HTMLElement>("[data-demo]").forEach((root) => {
+    const exchanges: Exchange[] = JSON.parse(root.dataset.exchanges || "[]");
+    const run = root.querySelector<HTMLElement>("[data-run]")!;
+    const typed = run.querySelector<HTMLElement>("[data-typed]")!;
+    const outputs = [...run.querySelectorAll<HTMLElement>("[data-out]")];
+    const codeLines = [...root.querySelectorAll<HTMLElement>("[data-line]")];
+    const steps = [...root.querySelectorAll<HTMLElement>("[data-step]")];
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const el = (tag: string, cls: string, text = "") => {
-      const e = document.createElement(tag);
-      e.className = cls;
-      e.textContent = text;
-      return e;
-    };
+    const mark = (line: number | null) => codeLines.forEach((el, i) => el.toggleAttribute("data-hit", i === line));
+    mark(exchanges[0]?.line ?? null);
+    if (reduced || exchanges.length === 0) return;
 
-    const render = () => {
-      const result = resolve(input.value);
-      const w = result.winner;
-      const path = w ? pathKeys(w.route.pattern) : [""];
-      const captured = new Map(w?.params ?? []);
-      const lost = new Set(result.others.flatMap((o) => pathKeys(o.route.pattern)));
-
-      for (const n of nodes) {
-        const key = n.dataset.key!;
-        const i = path.indexOf(key);
-        n.style.setProperty("--d", i >= 0 ? `${i * STEP}ms` : "0ms");
-        n.toggleAttribute("data-lit", i >= 0);
-        n.toggleAttribute("data-lost", i < 0 && lost.has(key));
-        n.toggleAttribute("data-win", !!w && key === path[path.length - 1]);
-        const name = n.dataset.name;
-        n.querySelector<HTMLElement>("[data-cap]")!.textContent =
-          i >= 0 && name && captured.has(name) ? ` = "${captured.get(name)}"` : "";
-      }
-
-      verdict.textContent = w ? "200" : "404";
-      verdict.dataset.ok = String(Boolean(w));
-      ruler.replaceChildren(
-        ...segments(result).map((g) => {
-          const li = document.createElement("li");
-          li.dataset.kind = g.kind;
-          li.append(el("span", "text", g.text), el("span", "label", g.label));
-          return li;
-        }),
-      );
-      code.replaceChildren(
-        ...codeLines(result).map((line) => {
-          const span = el("span", "line");
-          span.append(...line.map(([t, c]) => el("span", `t-${c}`, t)));
-          return span;
-        }),
-      );
-      presetButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === input.value)));
-    };
-
-    // Idle demo: type through the examples until someone interacts.
-    let demo = !reduced;
+    let index = 0;
     let timer = 0;
-    const stopDemo = () => {
-      if (!demo) return;
-      demo = false;
-      clearTimeout(timer);
-      root.classList.remove("typing");
-      hint.textContent = "Your turn: edit the path";
-    };
-    const typeOut = (text: string, done: () => void) => {
-      let i = 0;
-      input.value = "";
-      root.classList.add("typing");
-      const tick = () => {
-        if (!demo) return;
-        input.value = text.slice(0, ++i);
-        if (i < text.length) timer = window.setTimeout(tick, 42 + Math.random() * 40);
-        else { root.classList.remove("typing"); render(); timer = window.setTimeout(done, 3200); }
-      };
-      timer = window.setTimeout(tick, 250);
-    };
-    let next = 1;
-    const loop = () => { if (!demo) return; typeOut(presets[next], () => { next = (next + 1) % presets.length; loop(); }); };
+    let visible = true;
+    const wait = (ms: number) => new Promise<void>((done) => (timer = window.setTimeout(done, ms)));
 
-    input.addEventListener("input", () => { stopDemo(); render(); });
-    input.addEventListener("focus", () => input.select());
-    for (const ev of ["pointerdown", "keydown", "focusin"]) root.addEventListener(ev, stopDemo);
-    presetButtons.forEach((b) => b.addEventListener("click", () => { stopDemo(); input.value = b.dataset.preset || "/"; render(); }));
+    const play = async (x: Exchange, i: number) => {
+      steps.forEach((s, n) => s.toggleAttribute("data-on", n === i));
+      run.dataset.code = x.status.slice(0, 3);
+      run.removeAttribute("data-done");
+      outputs.forEach((o) => o.removeAttribute("data-shown"));
+      mark(null);
+      const command = `curl -i localhost:8080${x.path}`;
+      typed.textContent = "";
+      for (const ch of command) {
+        typed.textContent += ch;
+        await wait(TYPE);
+      }
+      await wait(LATENCY);
+      outputs[0].textContent = `HTTP/1.1 ${x.status}`;
+      outputs[2].textContent = x.body;
+      mark(x.line);
+      for (const o of outputs) {
+        o.setAttribute("data-shown", "");
+        await wait(REVEAL);
+      }
+      run.setAttribute("data-done", "");
+    };
 
-    render();
-    if (demo) {
-      hint.textContent = "Playing examples · click to take over";
-      const seen = new IntersectionObserver((entries) => {
-        if (!demo) return seen.disconnect();
-        if (entries[0].isIntersecting) timer = window.setTimeout(loop, 2400);
-        else clearTimeout(timer);
-      });
-      seen.observe(root);
-    }
+    const loop = async () => {
+      while (true) {
+        if (!visible) {
+          await wait(400);
+          continue;
+        }
+        await play(exchanges[index], index);
+        await wait(HOLD);
+        index = (index + 1) % exchanges.length;
+      }
+    };
+
+    // Only animate while the hero is on screen.
+    new IntersectionObserver((entries) => (visible = entries[0].isIntersecting)).observe(root);
+    run.setAttribute("data-animated", "");
+    loop();
   });
 </script>
 
@@ -366,175 +353,204 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     color: var(--z-text);
   }
 
-  /* Route tree: a dark plate, like the code blocks. */
-  .router {
-    --lit: #88c0d0;
-    --guide: #353b44;
+  /* The demo: an editor and a terminal, on the dark plate the code blocks use. */
+  .demo {
     --rule: #1f242a; /* the plate is dark in both themes, so its rules are fixed too */
     background: var(--z-plate);
     border: 1px solid var(--rule);
     border-radius: 10px;
     color: var(--z-plate-ink);
     font-family: var(--sl-font-mono);
+    min-width: 0;
     overflow: hidden;
   }
 
-  .r-head {
+  .d-head {
     align-items: center;
     background: var(--z-plate-bar);
     border-bottom: 1px solid var(--rule);
     display: flex;
-    font-size: 0.72rem;
-    justify-content: space-between;
-    padding: 0.7rem 1.1rem;
+    gap: 0.9rem;
+    padding: 0.65rem 1rem;
   }
 
-  .r-hint {
-    color: var(--z-plate-mute);
-  }
-
-  /* The request bar looks like a field you can type in, because it is one. */
-  .r-request {
-    align-items: center;
-    background: #0a0c0f;
-    border: 1px solid #2c323a;
-    border-radius: 8px;
-    cursor: text;
+  .d-dots {
     display: flex;
-    gap: 0.75rem;
-    margin: 0.9rem 1.1rem 0;
-    padding: 0.55rem 0.55rem 0.55rem 0.8rem;
-    position: relative;
-    transition: border-color 140ms ease, box-shadow 140ms ease;
+    gap: 0.35rem;
   }
 
-  .r-request:hover {
-    border-color: #3a424c;
+  .d-dots i {
+    background: #2a3038;
+    border-radius: 50%;
+    height: 0.55rem;
+    width: 0.55rem;
   }
 
-  .method {
-    color: var(--z-code-kw);
-    font-size: 0.7rem;
-    font-weight: 600;
+  .d-file {
+    color: var(--z-plate-mute);
+    font-size: 0.72rem;
   }
 
-  .r-request input {
+  .d-code {
     background: transparent;
     border: 0;
-    caret-color: var(--lit);
-    color: #eceff4;
-    flex: 1;
-    font: 400 1rem/1.4 var(--sl-font-mono);
-    min-width: 0;
-    outline: none;
-    padding: 0;
-  }
-
-  .r-request input::placeholder {
-    color: #4c5561;
-  }
-
-  .r-request:focus-within {
-    border-color: var(--lit);
-    box-shadow: 0 0 0 3px rgba(136, 192, 208, 0.14);
-  }
-
-  .verdict {
-    border: 1px solid rgba(163, 190, 140, 0.35);
-    border-radius: 5px;
-    color: var(--z-code-str);
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.3rem 0.45rem;
-  }
-
-  .verdict[data-ok="false"] {
-    border-color: rgba(208, 135, 112, 0.4);
-    color: #d08770;
-  }
-
-  /* The path, cut into the segments the router compares. */
-  .ruler {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    list-style: none;
+    border-radius: 0;
+    counter-reset: line;
+    font: var(--z-code-weight) 0.78rem/1.7 var(--sl-font-mono);
     margin: 0;
-    padding: 0.6rem 1.1rem 0.2rem;
+    overflow-x: auto;
+    padding: 0.85rem 0;
   }
 
-  /* Stack the live content on its invisible presets; the cell takes the
-     height of the tallest, at whatever width the panel has. */
-  .slot {
+  .d-code code {
     display: grid;
   }
 
-  .slot > * {
+  .d-code .line {
+    border-left: 2px solid transparent;
+    padding: 0 1rem 0 0.8rem;
+    tab-size: 2;
+    transition: background-color 220ms ease, border-color 220ms ease;
+    white-space: pre;
+  }
+
+  .d-code .line::before {
+    color: #3b434d;
+    content: counter(line);
+    counter-increment: line;
+    display: inline-block;
+    margin-right: 1rem;
+    text-align: right;
+    width: 1.2rem;
+  }
+
+  /* The line that answered the current request. */
+  .d-code .line[data-hit] {
+    background: rgba(136, 192, 208, 0.08);
+    border-left-color: var(--z-code-fn);
+  }
+
+  .d-code :global(.t-id) { color: #d8dee9; }
+  .d-code :global(.t-kw) { color: var(--z-code-kw); }
+  .d-code :global(.t-fn) { color: var(--z-code-fn); }
+  .d-code :global(.t-ty) { color: var(--z-code-type); }
+  .d-code :global(.t-str) { color: var(--z-code-str); }
+  .d-code :global(.t-num) { color: var(--z-code-num); }
+  .d-code :global(.t-pn) { color: #7d889a; }
+  .d-code :global(.t-cm) { color: #6c788e; }
+
+  .d-term {
+    background: #0a0c0f;
+    border-top: 1px solid var(--rule);
+  }
+
+  .d-bar {
+    align-items: center;
+    color: var(--z-plate-mute);
+    display: flex;
+    font-size: 0.68rem;
+    justify-content: space-between;
+    padding: 0.55rem 1rem 0;
+  }
+
+  .d-steps {
+    display: flex;
+    gap: 0.3rem;
+  }
+
+  .d-steps i {
+    background: #2a3038;
+    border-radius: 999px;
+    height: 0.25rem;
+    transition: background-color 200ms ease, width 200ms ease;
+    width: 0.5rem;
+  }
+
+  .d-steps i[data-on] {
+    background: var(--z-code-fn);
+    width: 1rem;
+  }
+
+  .d-screen {
+    display: grid;
+    padding: 0.6rem 1rem 0.95rem;
+  }
+
+  .d-run {
+    font-size: 0.76rem;
     grid-area: 1 / 1;
+    line-height: 1.6;
+    min-width: 0;
+  }
+
+  .d-run p {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   .ghost {
     visibility: hidden;
   }
 
-  .ruler :global(li) {
-    border-top: 2px solid #39414b;
-    display: grid;
-    gap: 0.25rem;
-    margin: 0;
-    min-width: 2.2rem;
-    padding: 0.35rem 0.5rem 0 0;
+  .cmd {
+    color: #eceff4;
   }
 
-  .ruler :global(.text) {
+  .prompt {
+    color: var(--z-plate-mute);
+  }
+
+  .status {
+    font-weight: 600;
+    margin-top: 0.5rem !important;
+  }
+
+  .d-run[data-code^="2"] .status {
+    color: var(--z-code-str);
+  }
+
+  .d-run[data-code^="4"] .status {
+    color: #d08770;
+  }
+
+  .hdr {
+    color: var(--z-plate-mute);
+  }
+
+  .body {
     color: #d8dee9;
-    font-size: 0.78rem;
+    margin-top: 0.35rem !important;
   }
 
-  .ruler :global(.label) {
-    color: #5f6a79;
-    font-size: 0.64rem;
-  }
-
-  .ruler :global(li[data-kind="static"]) {
-    border-color: #7d889a;
-  }
-
-  .ruler :global(li[data-kind="param"]) {
-    border-color: var(--lit);
-  }
-
-  .ruler :global(li[data-kind="param"]) :global(.label) {
-    color: var(--lit);
-  }
-
-  .ruler :global(li[data-kind="catchall"]) {
-    border-color: var(--z-code-num);
-  }
-
-  .ruler :global(li[data-kind="catchall"]) :global(.label) {
-    color: var(--z-code-num);
-  }
-
-  .ruler :global(li[data-kind="none"]) {
-    border-color: rgba(208, 135, 112, 0.55);
-  }
-
-  .ruler :global(li[data-kind="none"]) :global(.text) {
-    color: #9aa4b2;
-  }
-
-  /* A block caret shown while the demo types, since the input is not focused. */
   .caret {
-    display: none;
+    background: var(--z-code-fn);
+    display: inline-block;
+    height: 0.95em;
+    margin-left: 2px;
+    vertical-align: -0.12em;
+    width: 0.45em;
   }
 
-  .typing .caret {
-    animation: blink 900ms steps(1) infinite;
-    background: var(--lit);
-    display: block;
-    height: 1.05rem;
-    width: 0.45rem;
+  /* While animating: the caret blinks until the request completes, and the
+     response lines rise in one after another. */
+  .d-run[data-animated] [data-out] {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  /* A new request clears the old response at once; only the reveal fades. */
+  .d-run[data-animated] [data-out][data-shown] {
+    opacity: 1;
+    transform: none;
+    transition: opacity 260ms ease, transform 260ms ease;
+  }
+
+  .d-run[data-animated] .caret {
+    animation: blink 1s steps(1) infinite;
+  }
+
+  .d-run[data-animated][data-done] .caret {
+    visibility: hidden;
   }
 
   @keyframes blink {
@@ -543,170 +559,40 @@ if (!version) throw new Error(`No Version constant in ${versionFile}`);
     }
   }
 
-  .tree {
-    font-size: 0.8rem;
-    line-height: 1;
-    list-style: none;
-    margin: 0;
-    padding: 0.75rem 0;
-  }
-
-  .tree li {
-    align-items: center;
-    display: flex;
-    margin: 0;
-    padding: 0.36rem 1.1rem;
-    position: relative;
-    white-space: pre;
-  }
-
-  .tree li::before {
-    background: rgba(136, 192, 208, 0.07);
-    content: "";
-    inset: 0;
-    opacity: 0;
-    position: absolute;
-    transition: opacity 240ms ease var(--d, 0ms);
-  }
-
-  .guide {
-    color: var(--guide);
-    transition: color 240ms ease var(--d, 0ms);
-  }
-
-  .seg {
-    color: #7d889a;
-    transition: color 240ms ease var(--d, 0ms);
-  }
-
-  li[data-kind="param"] .seg {
-    color: #6d9aa6;
-  }
-
-  li[data-kind="catchall"] .seg {
-    color: #8f7b99;
-  }
-
-  .cap {
-    color: var(--z-code-str);
-    opacity: 0;
-    transition: opacity 240ms ease var(--d, 0ms);
-  }
-
-  .handler {
-    align-items: center;
-    color: #5f6a79;
-    display: inline-flex;
-    font-size: 0.72rem;
-    gap: 0.5rem;
-    margin-left: auto;
-    padding-left: 1rem;
-    transition: color 240ms ease var(--d, 0ms);
-  }
-
-  /* The request's path through the tree. */
-  li[data-lit] .guide {
-    color: var(--lit);
-  }
-
-  li[data-lit] .seg {
-    color: #eceff4;
-  }
-
-  li[data-lit][data-kind="param"] .seg {
-    color: var(--lit);
-  }
-
-  li[data-lit][data-kind="catchall"] .seg {
-    color: var(--z-code-num);
-  }
-
-  li[data-lit] .cap {
-    opacity: 1;
-  }
-
-  li[data-win]::before {
-    opacity: 1;
-  }
-
-  li[data-win] .handler {
-    color: #eceff4;
-  }
-
-  /* Routes that also matched but lost on precedence. */
-  li[data-lost] .seg {
-    color: #9aa4b2;
-    text-decoration: line-through;
-    text-decoration-color: #5b6470;
-  }
-
-  /* The Go that produces this result. It updates instantly. */
-  .r-code {
-    border-top: 1px solid var(--rule);
-    padding: 0.8rem 1.1rem;
-  }
-
-  .code {
-    align-content: start;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    display: grid;
-    font: var(--z-code-weight) 0.76rem/1.65 var(--sl-font-mono);
-    margin: 0;
-    overflow: visible;
-    padding: 0;
-  }
-
-  .r-code :global(.line) {
-    white-space: pre-wrap;
-  }
-
-  .r-code :global(.t-id) { color: #d8dee9; }
-  .r-code :global(.t-fn) { color: #88c0d0; }
-  .r-code :global(.t-str) { color: #a3be8c; }
-  .r-code :global(.t-pn) { color: #7d889a; }
-  .r-code :global(.t-cm) { color: #6c788e; }
-
-  .r-presets {
-    border-top: 1px solid var(--rule);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    padding: 0.8rem 1.1rem 0.9rem;
-  }
-
-  .r-presets button {
-    background: transparent;
-    border: 1px solid var(--rule);
-    border-radius: 999px;
-    color: var(--z-plate-mute);
-    cursor: pointer;
-    font: 400 0.68rem/1 var(--sl-font-mono);
-    padding: 0.4rem 0.65rem;
-    transition: color 120ms ease, border-color 120ms ease;
-  }
-
-  .r-presets button:hover,
-  .r-presets button[aria-pressed="true"] {
-    border-color: #3a414b;
-    color: var(--z-plate-ink);
-  }
-
   @media (max-width: 60rem) {
     .lead {
       grid-template-columns: minmax(0, 1fr);
     }
   }
 
+  /* On phones, shrink the demo so the longest line and header fit. */
+  @media (max-width: 30rem) {
+    .d-code {
+      font-size: 0.64rem;
+    }
+
+    .d-code .line {
+      padding: 0 0.35rem 0 0.35rem;
+    }
+
+    .d-code .line::before {
+      margin-right: 0.6rem;
+      width: 0.9rem;
+    }
+
+    .d-run {
+      font-size: 0.66rem;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .tree li::before,
-    .guide,
-    .seg,
-    .cap,
-    .handler {
+    .d-code .line,
+    .d-steps i {
       transition: none;
     }
 
+    .caret {
+      display: none;
+    }
   }
 </style>

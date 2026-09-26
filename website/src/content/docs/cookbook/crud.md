@@ -23,7 +23,6 @@ package main
 
 import (
 	"log"
-	"strconv"
 	"sync"
 
 	"github.com/0mjs/zinc"
@@ -70,7 +69,7 @@ func main() {
 			return err // 400 with the failing field
 		}
 		if input.Name == "" {
-			return zinc.BadRequest("name is required")
+			return zinc.UnprocessableEntity("name is required")
 		}
 
 		store.mu.Lock()
@@ -83,9 +82,9 @@ func main() {
 	})
 
 	widgets.Get("/{id}", func(c *zinc.Context) error {
-		id, err := strconv.Atoi(c.Param("id"))
+		id, err := zinc.Param[int](c, "id")
 		if err != nil {
-			return zinc.BadRequest("id must be an integer")
+			return err // 400: {"fields":{"id":"must be an integer"}}
 		}
 
 		store.mu.RLock()
@@ -98,9 +97,9 @@ func main() {
 	})
 
 	widgets.Put("/{id}", func(c *zinc.Context) error {
-		id, err := strconv.Atoi(c.Param("id"))
+		id, err := zinc.Param[int](c, "id")
 		if err != nil {
-			return zinc.BadRequest("id must be an integer")
+			return err // 400: {"fields":{"id":"must be an integer"}}
 		}
 
 		var input WidgetInput
@@ -108,7 +107,7 @@ func main() {
 			return err
 		}
 		if input.Name == "" {
-			return zinc.BadRequest("name is required")
+			return zinc.UnprocessableEntity("name is required")
 		}
 
 		store.mu.Lock()
@@ -124,9 +123,9 @@ func main() {
 	})
 
 	widgets.Delete("/{id}", func(c *zinc.Context) error {
-		id, err := strconv.Atoi(c.Param("id"))
+		id, err := zinc.Param[int](c, "id")
 		if err != nil {
-			return zinc.BadRequest("id must be an integer")
+			return err // 400: {"fields":{"id":"must be an integer"}}
 		}
 
 		store.mu.Lock()
