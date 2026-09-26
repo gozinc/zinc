@@ -85,15 +85,17 @@ First-party middleware lives in `middleware/<name>`, one package per middleware,
 - exposes request state through `Get` and, where useful, `MustGet`
 - depends only on Zinc and the standard library
 
-Middleware that needs a third-party library goes to [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib) instead, so Zinc's own module stays free of dependencies. Each contrib package is its own Go module with its own `go.mod`, tagged with a path prefix (`jwtauth/v0.4.0`), and versioned independently of Zinc. A contrib release states the Zinc versions it supports in its `go.mod` requirement. Name a contrib package so it does not clash with the library it wraps: `jwtauth`, not `jwt`.
+Middleware that needs a third-party library goes to [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib) instead, so Zinc's own module stays free of dependencies. Each contrib package is its own Go module with its own `go.mod`, tagged with a path prefix (`jwtauth/v0.1.0`), and versioned independently of Zinc. A contrib release states the Zinc versions it supports in its `go.mod` requirement. Name a contrib package so it does not clash with the library it wraps: `jwtauth`, not `jwt`.
 
-Until Zinc 0.4.0 is tagged, contrib modules build against a sibling checkout of Zinc through a `replace` directive, so clone both repositories into the same directory:
+Contrib modules require a released version of Zinc. To try a contrib change against unreleased Zinc work, clone both repositories into the same directory and point the module at your checkout for the duration:
 
 ```sh
 git clone https://github.com/0mjs/zinc.git
 git clone https://github.com/0mjs/contrib.git
 cd contrib/jwtauth
+go mod edit -replace=github.com/0mjs/zinc=../../zinc
 go test ./...
+go mod edit -dropreplace=github.com/0mjs/zinc  # before committing
 ```
 
 ## Performance changes
