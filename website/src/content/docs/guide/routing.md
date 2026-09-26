@@ -137,25 +137,27 @@ Zinc answers routing misses with the right status:
 
 The last three are on by default. Turn them off with `DisableMethodNotAllowed`, `DisableAutoOptions`, and `DisableAutoHead` in [`zinc.Config`](/guide/configuration/).
 
-Replace the responses app-wide:
+The default `404` and `405` go through your [error handler](/guide/errors/), so they are JSON error bodies like every other error. Replace them app-wide, for example to serve an HTML page:
 
 ```go
 app.NotFound(func(c *zinc.Context) error {
-	return c.Status(zinc.StatusNotFound).JSON(zinc.Map{"error": "not found"})
+	return c.Status(zinc.StatusNotFound).HTML(notFoundPage)
 })
 
 app.MethodNotAllowed(func(c *zinc.Context) error {
-	return c.Status(zinc.StatusMethodNotAllowed).JSON(zinc.Map{"error": "method not allowed"})
+	return zinc.NewError(zinc.StatusMethodNotAllowed, "this endpoint is read-only")
 })
 ```
 
-Or only below a prefix, for example to keep API misses in JSON while the rest of the site serves HTML:
+Or only below a prefix, for example to keep API misses in JSON while the rest of the site serves that HTML page:
 
 ```go
 app.RouteNotFound("/api/{tail...}", func(c *zinc.Context) error {
-	return c.Status(zinc.StatusNotFound).JSON(zinc.Map{"error": "unknown api route"})
+	return zinc.NotFound("unknown API route")
 })
 ```
+
+A handler that returns an error goes through the error handler; one that writes a response sends it as written.
 
 ## Named routes and URLs
 

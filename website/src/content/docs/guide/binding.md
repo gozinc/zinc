@@ -93,7 +93,7 @@ Return binding errors unchanged. The default handler answers 400 and names the f
 {"error":{"status":400,"message":"invalid query parameter","fields":{"page":"must be an integer"}}}
 ```
 
-Wrapping the error in `zinc.BadRequest(...)` replaces that body with your message and drops the field. An HTTP cause, such as a body over the limit, keeps its status (413). Known JSON syntax and type errors are binding errors; invalid JSON destinations and opaque codec failures remain 500 errors.
+Wrapping the error in `zinc.BadRequest(...)` replaces that body with your message and drops the field. An HTTP cause, such as a body over the limit, keeps its status (413). A malformed body is a binding error, including an error from a [configured decoder](/guide/customization/#body-formats) or a type's own `UnmarshalJSON`, unless that error carries its own status. Passing a destination that can't be decoded into, such as a non-pointer, is a programming error and answers 500.
 
 ## Validation
 

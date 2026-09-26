@@ -56,11 +56,7 @@ app.Post("/teams/{team}/members", func(c *zinc.Context) error {
 })
 ```
 
-`Bind().All` fills `Team` from the path and `Name` and `Email` from the JSON body. When the body is malformed it returns an error, which the handler turns into a `400 Bad Request`.
-
-:::caution[Wrap binding errors]
-Return binding errors as `zinc.ErrBadRequest.Wrap(err)`, as above. A raw binding error is not an HTTP error, so Zinc's default handler answers `500 Internal Server Error` for what is really a client mistake. You can also map binding errors once in a [custom error handler](/guide/errors/#map-binding-errors-to-400).
-:::
+`Bind().All` fills `Team` from the path and `Name` and `Email` from the JSON body. When the request doesn't fit, such as a malformed body or a path value of the wrong type, it returns a `*zinc.BindError`. Return it unchanged: Zinc answers `400 Bad Request` and names the field, without exposing decoder details. See [Binding and validation errors](/guide/errors/#binding-and-validation-errors).
 
 ## Return errors
 
