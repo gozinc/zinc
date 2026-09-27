@@ -15,8 +15,11 @@ const (
 	DefaultWriteTimeout          = 10 * time.Second
 	DefaultIdleTimeout           = 120 * time.Second
 	DefaultShutdownTimeout       = 10 * time.Second
-	DefaultRouteCacheSize        = 0 // the route cache is off unless RouteCacheSize > 0
 	DefaultProxyHeader           = "X-Forwarded-For"
+
+	// Deprecated: Zinc has no route cache since 0.5. Kept so code that
+	// names it still compiles.
+	DefaultRouteCacheSize = 0
 )
 
 // Config holds the application and server configuration. The zero value of
@@ -90,10 +93,9 @@ type Config struct {
 	// Nil means DefaultErrorHandler.
 	ErrorHandler ErrorHandler
 
-	// RouteCacheSize enables a cache of up to this many concrete dynamic paths
-	// (for example 1000). The cache is off by default (0) and when negative:
-	// it helps only when a few exact URLs repeat, and costs every other
-	// request a lookup and an insert. See the configuration guide.
+	// Deprecated: RouteCacheSize is ignored. Zinc 0.5 removed the route
+	// cache: the route tree matches faster than the cache could look a path
+	// up on realistic traffic, and the cache slowed parallel requests.
 	RouteCacheSize int
 }
 

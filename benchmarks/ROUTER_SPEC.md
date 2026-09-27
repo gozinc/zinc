@@ -56,13 +56,13 @@ With `CaseSensitive`, nothing is folded.
 
 ## The route cache
 
-The route cache is invisible: every answer is the same with the cache on (`RouteCacheSize` > 0, the default 1,000), off (`RouteCacheSize: -1`), or tiny. `FuzzRoutingCacheEquivalence`, in the root package, checks this, and `FuzzRouterReference` runs each request twice with each cache setting.
+Zinc has no route cache since 0.5; `RouteCacheSize` is accepted and ignored. v0.4.0's cache was invisible: its answers were the same at every size. The reference keeps it, so `FuzzRouterReference` still runs the v0.4.0 side with the cache at its default, off, or at 2 entries, and runs each request twice.
 
 ## What the fuzz test covers
 
 | Covered | Values |
 |---|---|
-| Config | `StrictRouting`, `CaseSensitive`, `DisableAutoHead`, `DisableAutoOptions`, `DisableMethodNotAllowed`, and cache sizes 1,000, off and 2 |
+| Config | `StrictRouting`, `CaseSensitive`, `DisableAutoHead`, `DisableAutoOptions`, `DisableMethodNotAllowed`, and, for the reference only, cache sizes 1,000, off and 2 |
 | Route tables | Up to 24 routes, from 0 to 4 segments deep |
 | Route segments | Static (including mixed case and non-ASCII), `{param}` and `{name...}` |
 | Route patterns | Sometimes a trailing slash |

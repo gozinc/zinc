@@ -9,8 +9,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -246,333 +244,6 @@ func TestLowercasePathAndHandlerNameBranches(t *testing.T) {
 	}
 }
 
-func TestRouteCacheSetUpdateAndEviction(t *testing.T) {
-	cache := newRouteCache(1)
-
-	key1 := routeCacheKey{method: MethodGet, path: "/one"}
-	key2 := routeCacheKey{method: MethodGet, path: "/two"}
-	route1 := &radixRoute{infoIndex: 1}
-	route1Updated := &radixRoute{infoIndex: 2}
-	route2 := &radixRoute{infoIndex: 3}
-	entry1 := routeCacheEntry{route: route1}
-	entry1Updated := routeCacheEntry{route: route1Updated}
-	entry2 := routeCacheEntry{route: route2}
-
-	cache.set(key1, entry1)
-	cache.set(key1, entry1Updated) // update existing key branch
-	if got, ok := cache.get(key1); !ok || got.route != route1Updated {
-		t.Fatalf("updated entry=%v ok=%v", got, ok)
-	}
-
-	cache.set(key2, entry2) // eviction branch for size=1
-	if _, ok := cache.get(key1); ok {
-		t.Fatal("expected key1 to be evicted")
-	}
-	if got, ok := cache.get(key2); !ok || got.route != route2 {
-		t.Fatalf("entry2=%v ok=%v", got, ok)
-	}
-}
-
-func TestRouteCachePartitionsStandardAndCustomMethods(t *testing.T) {
-	cache := newRouteCache(3)
-	keys := []routeCacheKey{
-		{method: MethodGet, path: "/shared"},
-		{method: MethodPost, path: "/shared"},
-		{method: "PURGE", path: "/shared"},
-	}
-	for i, key := range keys {
-		cache.set(key, routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-
-	for i, key := range keys {
-		entry, ok := cache.get(key)
-		if !ok || entry.route == nil || entry.route.infoIndex != uint32(i+1) {
-			t.Fatalf("key=%+v entry=%+v ok=%v", key, entry, ok)
-		}
-	}
-}
-
-func TestRouteCachePromotesStablePartialCacheAndKeepsOverlayAdaptive(t *testing.T) {
-	cache := newRouteCache(100)
-	keys := make([]routeCacheKey, routeCacheMinRoutes)
-	for i := range keys {
-		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/stable/%d", i)}
-		cache.set(keys[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
-		for _, key := range keys {
-			if _, ok := cache.get(key); !ok {
-				t.Fatalf("stable key missing before promotion: %+v", key)
-			}
-		}
-	}
-	if cache.snapshot.Load() == nil {
-		t.Fatal("expected stable partial cache to promote a read snapshot")
-	}
-
-	overlayKey := routeCacheKey{method: MethodPost, path: "/after-promotion"}
-	overlayEntry := routeCacheEntry{route: &radixRoute{infoIndex: 1000}}
-	cache.set(overlayKey, overlayEntry)
-	if got, ok := cache.get(overlayKey); !ok || got.route != overlayEntry.route {
-		t.Fatalf("overlay entry=%+v ok=%v", got, ok)
-	}
-
-	cache.invalidate()
-	if _, ok := cache.get(keys[0]); ok {
-		t.Fatal("expected invalidation to clear the promoted snapshot")
-	}
-}
-
-func TestRouteCachePromotesSmallStableWorkingSet(t *testing.T) {
-	const workingSetSize = 8
-	cache := newRouteCache(64)
-	phaseA := make([]routeCacheKey, workingSetSize)
-	phaseB := make([]routeCacheKey, workingSetSize)
-	for i := range phaseA {
-		phaseA[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/small-a/%d", i)}
-		phaseB[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/small-b/%d", i)}
-		cache.set(phaseA[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
-		for _, key := range phaseA {
-			if _, ok := cache.get(key); !ok {
-				t.Fatalf("phase A key missing: %+v", key)
-			}
-		}
-	}
-	firstSnapshot := cache.snapshot.Load()
-	if firstSnapshot == nil {
-		t.Fatal("expected small stable working set to promote")
-	}
-
-	for i, key := range phaseB {
-		cache.set(key, routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 101)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
-		for _, key := range phaseB {
-			if _, ok := cache.get(key); !ok {
-				t.Fatalf("phase B key missing: %+v", key)
-			}
-		}
-	}
-	if cache.snapshot.Load() == firstSnapshot {
-		t.Fatal("expected stable small overlay to replace the snapshot")
-	}
-	if _, ok := cache.get(phaseA[0]); ok {
-		t.Fatal("old working set remained after replacement")
-	}
-}
-
-func TestRouteCacheRepromotesStableOverlay(t *testing.T) {
-	cache := newRouteCache(256)
-	phaseA := make([]routeCacheKey, routeCacheMinRoutes)
-	phaseB := make([]routeCacheKey, routeCacheMinRoutes)
-	for i := range phaseA {
-		phaseA[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/phase-a/%d", i)}
-		phaseB[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/phase-b/%d", i)}
-		cache.set(phaseA[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
-		for _, key := range phaseA {
-			cache.get(key)
-		}
-	}
-	firstSnapshot := cache.snapshot.Load()
-	if firstSnapshot == nil {
-		t.Fatal("expected phase A to promote")
-	}
-
-	for i, key := range phaseB {
-		cache.set(key, routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 101)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+1; cycle++ {
-		for _, key := range phaseB {
-			if _, ok := cache.get(key); !ok {
-				t.Fatalf("phase B key missing before re-promotion: %+v", key)
-			}
-		}
-	}
-
-	if snapshot := cache.snapshot.Load(); snapshot == nil || snapshot == firstSnapshot {
-		t.Fatal("expected the stable overlay to replace the original snapshot")
-	}
-	if got := atomic.LoadUint32(&cache.count); got != routeCacheMinRoutes {
-		t.Fatalf("cache count=%d, want %d after re-promotion", got, routeCacheMinRoutes)
-	}
-	if _, ok := cache.get(phaseA[0]); ok {
-		t.Fatal("expected the old phase to be dropped from the cache")
-	}
-	if _, ok := cache.get(phaseB[0]); !ok {
-		t.Fatal("expected the new phase in the replacement snapshot")
-	}
-}
-
-var benchmarkRouteCacheSink *routeCache
-
-func BenchmarkRouteCachePromotionAllocation(b *testing.B) {
-	keys := make([]routeCacheKey, routeCacheMinRoutes)
-	entries := make([]routeCacheEntry, routeCacheMinRoutes)
-	for i := range keys {
-		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/stable/%d", i)}
-		entries[i] = routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}}
-	}
-	prepare := func(promote bool) *routeCache {
-		cache := newRouteCache(100)
-		for i := range keys {
-			cache.set(keys[i], entries[i])
-		}
-		for hit := 1; hit < routeCacheMinRoutes*routeCacheFreezeHitCycles; hit++ {
-			cache.get(keys[0])
-		}
-		if promote {
-			cache.get(keys[0])
-		}
-		return cache
-	}
-
-	b.Run("BeforePromotion", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			benchmarkRouteCacheSink = prepare(false)
-		}
-	})
-	b.Run("Promote", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			benchmarkRouteCacheSink = prepare(true)
-		}
-	})
-}
-
-func TestRouteCacheDoesNotFreezeAtCapacity(t *testing.T) {
-	cache := newRouteCache(routeCacheMinRoutes)
-	keys := make([]routeCacheKey, routeCacheMinRoutes)
-	for i := range keys {
-		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/full/%d", i)}
-		cache.set(keys[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-	for cycle := 0; cycle < routeCacheFreezeHitCycles+2; cycle++ {
-		for _, key := range keys {
-			if _, ok := cache.get(key); !ok {
-				t.Fatalf("full-cache key missing: %+v", key)
-			}
-		}
-	}
-	if cache.snapshot.Load() != nil {
-		t.Fatal("full cache must remain adaptive")
-	}
-}
-
-func TestRouteCacheConcurrentSnapshotPromotion(t *testing.T) {
-	cache := newRouteCache(100)
-	keys := make([]routeCacheKey, routeCacheMinRoutes)
-	for i := range keys {
-		keys[i] = routeCacheKey{method: MethodGet, path: fmt.Sprintf("/concurrent/%d", i)}
-		cache.set(keys[i], routeCacheEntry{route: &radixRoute{infoIndex: uint32(i + 1)}})
-	}
-
-	var workers sync.WaitGroup
-	for worker := 0; worker < 8; worker++ {
-		workers.Add(1)
-		go func(offset int) {
-			defer workers.Done()
-			for i := 0; i < len(keys)*4; i++ {
-				key := keys[(i+offset)%len(keys)]
-				if _, ok := cache.get(key); !ok {
-					t.Errorf("stable key missing during promotion: %+v", key)
-					return
-				}
-			}
-		}(worker)
-	}
-	workers.Wait()
-
-	if cache.snapshot.Load() == nil {
-		t.Fatal("expected concurrent hits to promote a read snapshot")
-	}
-}
-
-func TestRouteCacheInvalidateClearsLazilyOnNextAccess(t *testing.T) {
-	cache := newRouteCache(2)
-	key := routeCacheKey{method: MethodGet, path: "/one"}
-	entry := routeCacheEntry{route: &radixRoute{infoIndex: 1}}
-
-	cache.set(key, entry)
-	cache.invalidate()
-
-	if _, ok := cache.get(key); ok {
-		t.Fatal("expected first cache access after invalidation to clear stale entries")
-	}
-
-	cache.set(key, entry)
-	if got, ok := cache.get(key); !ok || got.route == nil || got.route.infoIndex != 1 {
-		t.Fatalf("entry=%+v ok=%v", got, ok)
-	}
-}
-
-func TestRouteCacheMissAdmissionProtectsFullCache(t *testing.T) {
-	cache := newRouteCache(1)
-	hotKey := routeCacheKey{method: MethodGet, path: "/hot"}
-	coldKey := routeCacheKey{method: MethodGet, path: "/cold"}
-	hotEntry := routeCacheEntry{route: &radixRoute{infoIndex: 1}}
-	coldEntry := routeCacheEntry{route: &radixRoute{infoIndex: 2}}
-
-	cache.setMiss(hotKey, hotEntry)
-	for i := 1; i < routeCacheAdmissionInterval; i++ {
-		cache.setMiss(coldKey, coldEntry)
-		if got, ok := cache.get(hotKey); !ok || got.route != hotEntry.route {
-			t.Fatalf("attempt %d evicted protected hot entry: got=%+v ok=%v", i, got, ok)
-		}
-	}
-
-	cache.setMiss(coldKey, coldEntry)
-	if _, ok := cache.get(hotKey); ok {
-		t.Fatal("expected admitted cold entry to evict hot entry")
-	}
-	if got, ok := cache.get(coldKey); !ok || got.route != coldEntry.route {
-		t.Fatalf("admitted entry=%+v ok=%v", got, ok)
-	}
-}
-
-func TestRouteCacheRingEvictionWrapsWithoutStaleHotEntry(t *testing.T) {
-	cache := newRouteCache(2)
-	keys := []routeCacheKey{
-		{method: MethodGet, path: "/one"},
-		{method: MethodGet, path: "/two"},
-		{method: MethodGet, path: "/three"},
-		{method: MethodGet, path: "/four"},
-	}
-	entries := []routeCacheEntry{
-		{route: &radixRoute{infoIndex: 1}},
-		{route: &radixRoute{infoIndex: 2}},
-		{route: &radixRoute{infoIndex: 3}},
-		{route: &radixRoute{infoIndex: 4}},
-	}
-
-	cache.set(keys[0], entries[0])
-	cache.set(keys[1], entries[1])
-	cache.set(keys[2], entries[2])
-	if _, ok := cache.get(keys[0]); ok {
-		t.Fatal("expected first ring entry to be evicted")
-	}
-	if got, ok := cache.get(keys[1]); !ok || got.route != entries[1].route {
-		t.Fatalf("second entry=%+v ok=%v", got, ok)
-	}
-
-	cache.set(keys[3], entries[3])
-	if _, ok := cache.get(keys[1]); ok {
-		t.Fatal("expected hot entry to be evicted after ring wrap")
-	}
-	if _, ok := cache.getHot(keys[1]); ok {
-		t.Fatal("expected evicted hot entry to be cleared")
-	}
-	for i := 2; i < len(keys); i++ {
-		if got, ok := cache.get(keys[i]); !ok || got.route != entries[i].route {
-			t.Fatalf("entry %d=%+v ok=%v", i, got, ok)
-		}
-	}
-}
-
 func TestRadixNodeBranches(t *testing.T) {
 	router := &routeTable{config: &Config{CaseSensitive: true}}
 	mustDo(t, router.Add(MethodGet, "/foo", func(*Context) error { return nil }))
@@ -608,11 +279,8 @@ func TestRadixNodeBranches(t *testing.T) {
 	}
 }
 
-func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(2),
-		config: &Config{},
-	}
+func TestRouterFindIntoBranches(t *testing.T) {
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "/Case", func(*Context) error { return nil }))
 	mustDo(t, router.Add(MethodGet, "/trim", func(*Context) error { return nil }))
 
@@ -629,7 +297,7 @@ func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 		t.Fatal("expected non-strict trailing slash match")
 	}
 
-	empty := &routeTable{cache: newRouteCache(2)}
+	empty := &routeTable{}
 	if handler := empty.findInto(MethodGet, "/missing", &Context{}); handler != nil {
 		t.Fatalf("handler=%v", handler)
 	}
@@ -670,15 +338,9 @@ func TestRouterAllowedMethodsSharedPathIndex(t *testing.T) {
 	}
 }
 
-func TestRouterDispatchIntoCachesMissResults(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(routeCacheMinRoutes + 8),
-		config: &Config{},
-	}
-	for i := 0; i < routeCacheMinRoutes; i++ {
-		path := fmt.Sprintf("/bulk/%d", i)
-		mustDo(t, router.Add(MethodGet, path, func(*Context) error { return nil }))
-	}
+// A 405 must not outlive the registration that fixes it.
+func TestRouterDispatchIntoMissThenAdd(t *testing.T) {
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(MethodPost, "/only-post", func(*Context) error { return nil }))
 
 	handled, allowed, err := router.dispatchInto(MethodPut, "/only-post", true, &Context{})
@@ -692,18 +354,6 @@ func TestRouterDispatchIntoCachesMissResults(t *testing.T) {
 		t.Fatalf("allowed=%v", allowed)
 	}
 
-	key := routeCacheKey{method: MethodPut, path: "/only-post"}
-	entry, ok := router.cache.get(key)
-	if !ok {
-		t.Fatal("expected dispatch miss to be cached")
-	}
-	if entry.route != nil {
-		t.Fatalf("cached route=%v", entry.route)
-	}
-	if entry.allowed.mask != methodMaskPost || len(entry.allowed.extra) != 0 {
-		t.Fatalf("cached allowed=%v", entry.allowed)
-	}
-
 	mustDo(t, router.Add(MethodPut, "/only-post", func(*Context) error { return nil }))
 
 	handled, allowed, err = router.dispatchInto(MethodPut, "/only-post", true, &Context{})
@@ -715,11 +365,6 @@ func TestRouterDispatchIntoCachesMissResults(t *testing.T) {
 	}
 	if !allowed.empty() {
 		t.Fatalf("allowed=%v", allowed)
-	}
-
-	entry, ok = router.cache.get(key)
-	if ok {
-		t.Fatalf("expected stale miss cache entry to clear on first access, got=%+v", entry)
 	}
 }
 
@@ -737,15 +382,8 @@ func TestRouterSupportsMoreThanInlinePathParams(t *testing.T) {
 	}
 }
 
-func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(routeCacheMinRoutes + 8),
-		config: &Config{},
-	}
-	for i := 0; i < routeCacheMinRoutes; i++ {
-		path := fmt.Sprintf("/bulk/%d", i)
-		mustDo(t, router.Add(MethodGet, path, func(*Context) error { return nil }))
-	}
+func TestRouterDispatchIntoManyParams(t *testing.T) {
+	router := &routeTable{config: &Config{}}
 
 	pattern, path, names, _ := buildSequentialParamRoute(10)
 	mustDo(t, router.Add(MethodGet, pattern, func(*Context) error { return nil }))
@@ -771,15 +409,11 @@ func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 		t.Fatalf("path params not expanded: len=%d last=%+v", len(ctx.pathParams), ctx.pathParams[9])
 	}
 
-	key := routeCacheKey{method: MethodGet, path: path}
-	if entry, ok := router.cache.get(key); !ok || entry.route == nil {
-		t.Fatalf("expected cached hit entry, got=%+v ok=%v", entry, ok)
-	}
-
+	// A second dispatch reuses the route's parameter names.
 	ctxCached := &Context{}
 	handled, allowed, err = router.dispatchInto(MethodGet, path, false, ctxCached)
 	if err != nil {
-		t.Fatalf("cached err=%v", err)
+		t.Fatalf("again err=%v", err)
 	}
 	if !handled {
 		t.Fatal("expected cached dispatch to handle the request")
@@ -788,44 +422,13 @@ func TestRouterDispatchIntoCachesManyParams(t *testing.T) {
 		t.Fatalf("cached allowed=%v", allowed)
 	}
 	if got := ctxCached.Param(names[9]); got != "10" {
-		t.Fatalf("cached param10=%q", got)
+		t.Fatalf("again param10=%q", got)
 	}
 }
 
-func TestRouterDispatchIntoCachesSmallDynamicRouteSets(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(8),
-		config: &Config{},
-	}
-	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
-
-	ctx := &Context{}
-	handled, allowed, err := router.dispatchInto(MethodGet, "/items/42", false, ctx)
-	if err != nil {
-		t.Fatalf("err=%v", err)
-	}
-	if !handled {
-		t.Fatal("expected dynamic route to handle the request")
-	}
-	if !allowed.empty() {
-		t.Fatalf("allowed=%v", allowed)
-	}
-
-	key := routeCacheKey{method: MethodGet, path: "/items/42"}
-	entry, ok := router.cache.get(key)
-	if !ok {
-		t.Fatal("expected small dynamic route set to populate the dispatch cache")
-	}
-	if entry.route == nil {
-		t.Fatalf("cached entry=%+v", entry)
-	}
-}
-
-func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(8),
-		config: &Config{},
-	}
+// A static route added over a parameter route wins from then on.
+func TestRouterDispatchIntoStaticAddedOverParam(t *testing.T) {
+	router := &routeTable{config: &Config{}}
 	mustDo(t, router.Add(MethodGet, "/items/{id}", func(*Context) error { return nil }))
 
 	ctxParam := &Context{}
@@ -843,16 +446,7 @@ func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
 		t.Fatalf("route index=%d", ctxParam.routeIndex)
 	}
 
-	key := routeCacheKey{method: MethodGet, path: "/items/new"}
-	entry, ok := router.cache.get(key)
-	if !ok || entry.route == nil || entry.route.infoIndex != 0 {
-		t.Fatalf("cached entry=%+v ok=%v", entry, ok)
-	}
-
 	mustDo(t, router.Add(MethodGet, "/items/new", func(*Context) error { return nil }))
-	if entry, ok := router.cache.get(key); ok {
-		t.Fatalf("expected stale cached hit to clear on first access after Add, got=%+v", entry)
-	}
 
 	ctxStatic := &Context{}
 	handled, allowed, err = router.dispatchInto(MethodGet, "/items/new", false, ctxStatic)
@@ -871,10 +465,7 @@ func TestRouterDispatchIntoRefreshesCachedDynamicHitAfterAdd(t *testing.T) {
 }
 
 func TestRouterStaticRouteLengthFilter(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(8),
-		config: &Config{},
-	}
+	router := &routeTable{config: &Config{}}
 	shortPath := "/fixed"
 	longPath := "/" + strings.Repeat("x", 140)
 	mustDo(t, router.Add(MethodGet, shortPath, func(*Context) error { return nil }))
@@ -900,15 +491,9 @@ func TestRouterStaticRouteLengthFilter(t *testing.T) {
 	}
 }
 
-func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
-	router := &routeTable{
-		cache:  newRouteCache(routeCacheMinRoutes + 8),
-		config: &Config{},
-	}
-	for i := 0; i < routeCacheMinRoutes; i++ {
-		path := fmt.Sprintf("/bulk/%d", i)
-		mustDo(t, router.Add(MethodGet, path, func(*Context) error { return nil }))
-	}
+// Two requests for the same route must not share parameter values.
+func TestRouterDispatchIntoManyParamsIsolation(t *testing.T) {
+	router := &routeTable{config: &Config{}}
 
 	pattern, pathShort, names, _ := buildSequentialParamRoute(10)
 	var pathLong strings.Builder
@@ -943,18 +528,18 @@ func TestRouterDispatchIntoCachedManyParamsIsolation(t *testing.T) {
 		t.Fatalf("long param10=%q", got)
 	}
 
-	shortCachedCtx := &Context{}
-	handled, _, err = router.dispatchInto(MethodGet, pathShort, false, shortCachedCtx)
+	shortAgainCtx := &Context{}
+	handled, _, err = router.dispatchInto(MethodGet, pathShort, false, shortAgainCtx)
 	if err != nil {
-		t.Fatalf("cached err=%v", err)
+		t.Fatalf("again err=%v", err)
 	}
 	if !handled {
-		t.Fatal("expected cached short path to match")
+		t.Fatal("expected short path to match again")
 	}
-	if got := shortCachedCtx.Param(names[8]); got != "9" {
-		t.Fatalf("cached param9=%q", got)
+	if got := shortAgainCtx.Param(names[8]); got != "9" {
+		t.Fatalf("again param9=%q", got)
 	}
-	if got := shortCachedCtx.Param(names[9]); got != "10" {
+	if got := shortAgainCtx.Param(names[9]); got != "10" {
 		t.Fatalf("cached param10=%q", got)
 	}
 }

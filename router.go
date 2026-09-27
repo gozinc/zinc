@@ -23,7 +23,6 @@ type routeMap map[string]map[string]*radixRoute
 // middleware, and appends stable metadata before serving begins. routeTable
 // mutation is not safe concurrently with request dispatch.
 type routeTable struct {
-	cache  *routeCache
 	config *Config
 	// routes aliases the standard-method maps in staticRoutes and owns custom
 	// methods. They hold exact spellings only: the registered path and, unless
@@ -32,7 +31,7 @@ type routeTable struct {
 	namedRoutes  map[string]uint32
 	staticRoutes [routeMethodCount]map[string]*radixRoute
 	tree         *radixNode
-	// Metadata is append-only; routes and cache entries retain stable indexes into it.
+	// Metadata is append-only; routes retain stable indexes into it.
 	routeInfos []routeMeta
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
@@ -56,7 +55,7 @@ func (r *routeTable) add(method, path, name string, handlers ...HandlerFunc) err
 
 // register validates first, then records the route in the tree (and a static
 // route's exact spellings in the maps), and returns its metadata index. A failed registration
-// must not consume a metadata index or invalidate caches.
+// must not consume a metadata index.
 func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc) (uint32, error) {
 	if len(handlers) == 0 {
 		return 0, fmt.Errorf("no handler provided for %s %s", method, path)
@@ -111,7 +110,6 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	}
 	r.routeInfos = append(r.routeInfos, info)
 	r.recordNamedRoute(name, infoIndex)
-	r.invalidateCache()
 	return infoIndex, nil
 }
 
@@ -185,12 +183,6 @@ func (r *routeTable) recordNamedRoute(name string, index uint32) {
 		r.namedRoutes = make(map[string]uint32)
 	}
 	r.namedRoutes[name] = index
-}
-
-func (r *routeTable) invalidateCache() {
-	if r.cache != nil {
-		r.cache.invalidate()
-	}
 }
 
 // Routes returns copies of registered route metadata in registration order.
@@ -273,10 +265,6 @@ func remapFoldedParams(values *paramRanges, count int, original, folded string) 
 // ordinary not-found dispatch leaves it off.
 func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
 	return r.dispatchTree(method, path, needAllowed, ctx)
-}
-
-func (r *routeTable) dispatchCacheEnabled() bool {
-	return r.cache != nil
 }
 
 type allowedMethodSet struct {
