@@ -68,10 +68,59 @@ func (m *nodeMethods) addAllowed(static, dynamic *allowedMethodSet, captured int
 	}
 }
 
+// treeArena hands out the tree's nodes, method tables and routes from
+// chunks, so registering a route costs a few allocations per chunk instead
+// of several per route. The tree lives as long as the app, so nothing in a
+// chunk is ever freed early. A nil arena allocates each one on its own.
+type treeArena struct {
+	nodes   arenaChunk[radixNode]
+	methods arenaChunk[nodeMethods]
+	routes  arenaChunk[radixRoute]
+}
+
+// arenaChunkMax bounds a chunk, so a small app wastes little.
+const arenaChunkMax = 64
+
+type arenaChunk[T any] struct {
+	free []T
+	size int
+}
+
+func (c *arenaChunk[T]) alloc() *T {
+	if len(c.free) == 0 {
+		c.size = min(max(c.size*2, 4), arenaChunkMax)
+		c.free = make([]T, c.size)
+	}
+	v := &c.free[0]
+	c.free = c.free[1:]
+	return v
+}
+
+func (a *treeArena) node() *radixNode {
+	if a == nil {
+		return new(radixNode)
+	}
+	return a.nodes.alloc()
+}
+
+func (a *treeArena) methodTable() *nodeMethods {
+	if a == nil {
+		return new(nodeMethods)
+	}
+	return a.methods.alloc()
+}
+
+func (a *treeArena) route() *radixRoute {
+	if a == nil {
+		return new(radixRoute)
+	}
+	return a.routes.alloc()
+}
+
 // nodeFor walks the static, parameter and catch-all edges of a validated
 // pattern, creating them as needed, and returns the terminal node. Static
 // labels are lowercased when routing is case-insensitive.
-func (n *radixNode) nodeFor(path string, caseInsensitive bool) *radixNode {
+func (n *radixNode) nodeFor(a *treeArena, path string, caseInsensitive bool) *radixNode {
 	current := n
 	staticStart := 0
 	for i := 0; i < len(path); i++ {
@@ -79,19 +128,19 @@ func (n *radixNode) nodeFor(path string, caseInsensitive bool) *radixNode {
 			continue
 		}
 		if i > staticStart {
-			current = current.addStaticPath(foldLiteral(path[staticStart:i], caseInsensitive))
+			current = current.addStaticPath(a, foldLiteral(path[staticStart:i], caseInsensitive))
 		}
 		end := i + 1 + indexByte(path[i+1:], '}')
 		if rawName := path[i+1 : end]; len(rawName) > 3 && rawName[len(rawName)-3:] == "..." {
-			current = current.addCatchAllChild()
+			current = current.addCatchAllChild(a)
 		} else {
-			current = current.addParamChild()
+			current = current.addParamChild(a)
 		}
 		staticStart = end + 1
 		i = end
 	}
 	if staticStart < len(path) {
-		current = current.addStaticPath(foldLiteral(path[staticStart:], caseInsensitive))
+		current = current.addStaticPath(a, foldLiteral(path[staticStart:], caseInsensitive))
 	}
 	return current
 }
