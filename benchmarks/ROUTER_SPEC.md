@@ -15,6 +15,9 @@ The fuzz test's reference is v0.4.0 with these changes applied, each marked in `
 
 1. **`Allow` lists every method of a static path (P4).** v0.4.0 indexed only static paths that have more than one accepted spelling. So with `GET /v1/` (spellings `/v1/` and `/v1`) and `DELETE /v1` (one spelling), `OPTIONS /v1` answered `Allow: GET, HEAD, OPTIONS`, leaving out DELETE even though `DELETE /v1` was served. Found by `FuzzRouterReference` when the index was made complete.
 
+2. **`Allow` merges every spelling of a static path (P5).** v0.4.0 looked up the path's spellings in order (as sent, without its trailing slash, then lowercased) and returned the first one that had any methods. With `POST /Users/users` and `DELETE /users/users/`, `GET /Users/users` answered `Allow: POST, OPTIONS`, leaving out DELETE, though `DELETE /Users/users` was served. Found by `FuzzRouterReference` when static routes moved into the route tree.
+3. **Custom methods are listed in `Allow` in sorted order (P5).** v0.4.0 had no single rule: sorted for some static paths, registration order for others, and tree-creation order for parameter routes. Standard methods keep their fixed order. The fuzz test doesn't generate custom methods; `TestAllowSortsCustomMethods` covers this.
+
 ## Patterns
 
 - A pattern is a path of `/`-separated segments. A pattern that doesn't start with `/` gets one.

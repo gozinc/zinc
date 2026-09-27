@@ -12,6 +12,10 @@
 //     registered for GET as /v1/ (two spellings) and for DELETE as /v1 (one)
 //     answered OPTIONS and 405 with Allow: GET, HEAD, OPTIONS, leaving out
 //     DELETE, though DELETE /v1 was served.
+//  2. Allow merges the methods of every spelling of a static path (0.5 P5).
+//     v0.4.0 returned the first spelling that had any, so with POST /Users/users
+//     and DELETE /users/users/, GET /Users/users answered Allow: POST, OPTIONS,
+//     leaving out DELETE, though DELETE /Users/users was served.
 //
 // Otherwise, regenerate them from the v0.4.0 module:
 //
