@@ -80,14 +80,15 @@ func (a *App) FileFS(path, file string, filesystem fs.FS) Route {
 // newStaticHandler limits methods before resolving paths so unsupported
 // requests never touch the filesystem. Misses and failures are returned to the
 // application's error handler, like any other route.
-func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, *http.Request) error {
-	return func(c *Context, r *http.Request) error {
+func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, string) error {
+	return func(c *Context, requestPath string) error {
+		r := c.Request()
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			c.SetHeader(HeaderAllow, "GET, HEAD")
 			return ErrMethodNotAllowed
 		}
 
-		name, err := staticPathName(r.URL.Path)
+		name, err := staticPathName(requestPath)
 		if err != nil {
 			return ErrNotFound
 		}
