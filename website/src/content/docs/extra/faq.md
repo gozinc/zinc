@@ -33,7 +33,7 @@ Yes. Standard handlers can serve routes through `HandleHTTP` or own subtrees thr
 
 ## How fast is it?
 
-For 0.5.0, Zinc had the lowest median latency in 64 of 92 scenarios against Gin and Echo, and 36 of 66 routing scenarios against the bare routers BunRouter and Chi, all measured together on 27 September 2026. Every request pool holds 10,000 distinct paths, so no result comes from a cache. Common string-response routes use 16 B and one allocation per request. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
+For 0.5.0, Zinc had the lowest median latency in 62 of 92 scenarios against Gin and Echo, and 36 of 66 routing scenarios against the bare routers BunRouter and Chi, all measured together on 27 September 2026. Every request pool holds 10,000 distinct paths, so no result comes from a cache. Common string-response routes use 16 B and one allocation per request. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
 
 ## Does Zinc have dependencies?
 
