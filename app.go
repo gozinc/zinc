@@ -182,7 +182,7 @@ type mountedHandler struct {
 	handler    http.Handler
 	// native serves the mount as a Zinc handler, so its failures reach the
 	// application's error handler. Static directories use it.
-	native func(*Context, *http.Request) error
+	native func(c *Context, path string) error
 	chain  []HandlerFunc
 	info   routeMeta
 }
@@ -517,8 +517,9 @@ func (a *App) mount(prefix string, h http.Handler, middleware []HandlerFunc) {
 	a.addMount(mountedHandler{handler: h}, prefix, Wrap(h), middleware)
 }
 
-// mountNative mounts a Zinc handler that receives the prefix-stripped request.
-func (a *App) mountNative(prefix string, serve func(*Context, *http.Request) error, middleware []HandlerFunc) {
+// mountNative mounts a Zinc handler that receives the request path below the
+// prefix; an empty path means the prefix itself.
+func (a *App) mountNative(prefix string, serve func(c *Context, path string) error, middleware []HandlerFunc) {
 	a.addMount(mountedHandler{native: serve}, prefix, func(c *Context) error { return nil }, middleware)
 }
 
