@@ -9,6 +9,7 @@ Accept a file from a multipart form and save it under a server-controlled name. 
 package main
 
 import (
+	"crypto/rand"
 	"log"
 	"path/filepath"
 
@@ -24,14 +25,16 @@ func main() {
 			return zinc.NewError(zinc.StatusBadRequest).Wrap(err)
 		}
 
-		name := filepath.Base(file.Filename)
+		// Never use the client's filename as a path: pick your own.
+		name := rand.Text() + filepath.Ext(file.Filename)
 		if err := c.SaveFile(file, filepath.Join("uploads", name)); err != nil {
 			return err
 		}
 
 		return c.Status(zinc.StatusCreated).JSON(zinc.Map{
-			"name": name,
-			"size": file.Size,
+			"name":     name,
+			"original": file.Filename,
+			"size":     file.Size,
 		})
 	})
 
@@ -39,7 +42,7 @@ func main() {
 }
 ```
 
-`SaveFile` creates missing parent directories.
+`rand.Text` gives each upload a random name, so two uploads called `report.pdf` never overwrite each other and a crafted filename can't reach another directory. `SaveFile` creates `uploads/` if it doesn't exist.
 
 :::danger[Uploads are untrusted input]
 Validate size, extension, detected content type, and authorization before keeping an uploaded file. A client-provided filename or content type is not a trustworthy content check.

@@ -23,13 +23,11 @@ For limits and timeouts, `0` means the default and a negative value turns the li
 | `DisableAutoHead` | `false` | Automatic `HEAD` is on: `HEAD` is answered by the matching `GET` route, without a body. Set `true` to turn it off. |
 | `DisableAutoOptions` | `false` | Automatic `OPTIONS` is on: it is answered with `204` and an `Allow` header. Set `true` to turn it off. |
 | `DisableMethodNotAllowed` | `false` | When the path exists for other methods, Zinc returns `405` with `Allow`. Set `true` to return `404` instead. |
-| `RouteCacheSize` | ignored | Deprecated. See [no route cache](#no-route-cache). |
+| `RouteCacheSize` | ignored | Does nothing since 0.5. See below. |
 
-### No route cache
-
-Zinc 0.4 could remember the result of matching each concrete path, such as `/users/42`. Zinc 0.5 removes that cache: every request walks the route tree. With the cache on, realistic traffic with IDs in its URLs ran 1.5–3× slower, and parallel traffic 5–14× slower. It won only when a few exact URLs repeated on one core.
-
-`RouteCacheSize` still compiles, so upgrading needs no change, but it's ignored. You can delete it from your config.
+:::note[RouteCacheSize]
+Zinc 0.5 removed the route cache, because matching without it is faster on real traffic. `RouteCacheSize` still compiles, so upgrading needs no change. You can delete it from your config whenever it suits you.
+:::
 
 ## Server
 
@@ -65,6 +63,12 @@ It returns `nil` after a clean shutdown. If requests are still running when `Shu
 | Field | Default | Effect |
 |---|---|---|
 | `BodyLimit` | `4 MB` | Largest body that binding and form parsing read. Larger bodies get `413`. `-1` for no limit. |
+
+## Cookies
+
+| Field | Default | Effect |
+|---|---|---|
+| `CookieSameSite` | not set | `SameSite` mode for cookies written with `c.SetCookie` and `c.ClearCookie` that don't set one themselves, for example `http.SameSiteLaxMode`. |
 
 ## Proxies
 

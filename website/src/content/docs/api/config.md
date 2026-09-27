@@ -27,6 +27,7 @@ app := zinc.New(zinc.Config{
 | `IdleTimeout` | `time.Duration` | `120s` | Keep-alive idle timeout; `-1` for none |
 | `ShutdownTimeout` | `time.Duration` | `10s` | How long `ListenContext` drains requests; `-1` waits indefinitely |
 | `ServerHeader` | `string` | none | `Server` response header, when set |
+| `CookieSameSite` | `http.SameSite` | not set | `SameSite` for cookies from `SetCookie` and `ClearCookie` that don't set one |
 | `ProxyHeader` | `string` | `"X-Forwarded-For"` | Header read by `c.IP()` |
 | `TrustedProxies` | `[]string` | none | IPs and CIDR ranges allowed to set `ProxyHeader` |
 | `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text |

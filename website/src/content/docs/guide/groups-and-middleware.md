@@ -68,7 +68,7 @@ func requireAPIKey(c *zinc.Context) error {
 }
 ```
 
-Everything after this middleware is skipped. Middleware that already ran still finishes its "after" code and sees the returned error. The built-in [Request Logger](/middleware/request-logger/) sends that error through your error handler before logging, so it records the `401`. [Custom Middleware](/cookbook/middleware/) shows how your own middleware can do the same.
+Everything after this middleware is skipped. Middleware that already ran still finishes its "after" code and sees the returned error. The built-in [Request Logger](/middleware/logger/) sends that error through your error handler before logging, so it records the `401`. [Custom Middleware](/cookbook/middleware/) shows how your own middleware can do the same.
 
 ## Configurable middleware
 

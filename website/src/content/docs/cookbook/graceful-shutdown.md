@@ -3,7 +3,7 @@ title: Graceful Shutdown
 description: Stop accepting traffic and allow in-flight Zinc requests to finish.
 ---
 
-When a deployment stops your process, it sends `SIGTERM`. This program stops accepting new connections, lets in-flight requests finish for up to ten seconds, then exits. Clients never see a dropped request.
+When a deployment stops your process, it sends `SIGTERM`. This program stops accepting new connections, lets in-flight requests finish for up to ten seconds, then exits. Requests that finish in time are never cut off.
 
 ```go
 package main

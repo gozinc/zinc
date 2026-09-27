@@ -23,7 +23,7 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 | `Add`, `Match`, `All` | Routes for custom or multiple methods |
 | `TryHandle(spec) error` | A route from configuration, returning problems as errors |
 | `UseHTTP(middleware...) *Group` | Standard `func(http.Handler) http.Handler` middleware for this group, through `zinc.FromHTTP` |
-| `HandleHTTP(pattern, http.Handler)` | A standard handler below the prefix |
+| `HandleHTTP(pattern, http.Handler) Route` | A standard handler below the prefix |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree below the prefix |
 | `Static`, `StaticFS`, `File`, `FileFS` | Files below the prefix |
 | `RouteNotFound(pattern, handlers...)` | A `404` handler below the prefix |

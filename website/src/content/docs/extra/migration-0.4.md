@@ -29,7 +29,7 @@ Zinc 0.4 simplifies the public API and fixes several defaults that could silentl
 | A custom JSON codec whose decode errors answered 500 | Decoder errors answer 400 unless they carry a status | [Body formats](#body-formats) |
 | `zinc.DefaultConfig`, `zinc.NewWithConfig` | Removed: pass a `Config` literal to `zinc.New` | [Configuration](#configuration) |
 | `AutoHead`, `AutoOptions`, `HandleMethodNotAllowed` | Renamed and inverted: `DisableAutoHead` and friends | [Configuration](#configuration) |
-| `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1` | [Configuration](#configuration) |
+| `RouteCacheSize: 0` to turn the cache off | `0` now means the default; use `-1`. Since 0.5 the field is ignored: there is no route cache | [Configuration](#configuration) |
 | A goroutine calling `Listen` plus `Shutdown` on a signal | `ListenContext` does both | [Graceful shutdown](#graceful-shutdown) |
 | `zinc.GetVersion()`, `zinc.GetVersionHeader()` | Removed: use `zinc.Version` | [Configuration](#configuration) |
 | `c.GetString`, `c.GetInt`, `c.MustGet`, and the other typed getters | Replaced by `zinc.Value[T]` and `zinc.MustValue[T]` | [Request values](#request-values) |
@@ -214,7 +214,7 @@ The three switches that default to on are renamed and inverted, so that leaving 
 | `AutoOptions: false` | `DisableAutoOptions: true` |
 | `HandleMethodNotAllowed: false` | `DisableMethodNotAllowed: true` |
 
-For limits and timeouts, `0` now always means the default, and a negative value turns the limit off. **Check any code that set `RouteCacheSize: 0` to disable the cache; it now gets the default cache. Use `-1`.** The same applies to `BodyLimit`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and the new `ShutdownTimeout`.
+For limits and timeouts, `0` now always means the default, and a negative value turns the limit off. **Check any code that set `RouteCacheSize: 0` to disable the cache; it now gets the default cache. Use `-1`.** (Since 0.5 there is no route cache, and `RouteCacheSize` is ignored.) The same applies to `BodyLimit`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and the new `ShutdownTimeout`.
 
 `zinc.GetVersion()` and `zinc.GetVersionHeader()` are removed. Use the `zinc.Version` constant.
 

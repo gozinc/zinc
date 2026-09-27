@@ -19,9 +19,7 @@ import (
 
 func main() {
 	app := zinc.New()
-	app.Use(zinc.Skip(func(c *zinc.Context) bool {
-		return c.Path() == "/events"
-	}, timeout.New(timeout.Config{Timeout: 3 * time.Second})))
+	app.Use(timeout.New(timeout.Config{Timeout: 3 * time.Second}))
 
 	app.Get("/report", func(c *zinc.Context) error {
 		select {
@@ -40,5 +38,11 @@ Reduce the middleware timeout below two seconds to see Zinc return the default
 `503 Service Unavailable` timeout error.
 
 :::caution[Long-lived connections]
-Do not apply short deadlines to WebSockets, server-sent events, or intentionally long-lived streams. Skip those routes or use a separate group.
+Don't put short deadlines on WebSockets, server-sent events or other long-lived streams. Skip those routes, or register them outside the group that uses the timeout:
+
+```go
+app.Use(zinc.Skip(func(c *zinc.Context) bool {
+	return c.Path() == "/events"
+}, timeout.New(timeout.Config{Timeout: 3 * time.Second})))
+```
 :::
