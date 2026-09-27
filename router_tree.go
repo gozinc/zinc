@@ -293,7 +293,10 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 	} else {
 		routes = r.routes[method]
 	}
-	if len(routes) != 0 {
+	// The length masks rule out most probes that can't match: dynamic hits
+	// skip hashing the path.
+	if len(routes) != 0 && (slot < 0 || r.hasStaticRouteLength(slot, mask, len(originalPath)) ||
+		(path != originalPath && r.hasStaticRouteLength(slot, mask, len(path)))) {
 		if route := lookupStaticRouteExact(routes, originalPath, path); route != nil {
 			ctx.setRouteIndex(route.infoIndex)
 			return true, allowedMethodSet{}, route.handler(ctx)
