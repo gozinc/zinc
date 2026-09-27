@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	benchmarkNotFoundResponse         = "NOT_FOUND"
-	benchmarkMethodNotAllowedResponse = "METHOD_NOT_ALLOWED"
+	benchmarkNotFoundResponse = "NOT_FOUND"
 )
 
 func focusedFrameworkCases(zinc, chiCase, echoCase, ginCase func() http.Handler) []benchmarkCase {
@@ -31,6 +30,11 @@ func focusedFrameworkCases(zinc, chiCase, echoCase, ginCase func() http.Handler)
 	}
 }
 
+// withBunRouter adds BunRouter to a routing scenario's cases.
+func withBunRouter(cases []benchmarkCase, bun func() http.Handler) []benchmarkCase {
+	return append(cases, benchmarkCase{name: "BunRouter", build: bun})
+}
+
 func runServeHTTPBenchmarksWithProof(
 	b *testing.B,
 	method,
@@ -38,6 +42,7 @@ func runServeHTTPBenchmarksWithProof(
 	cases []benchmarkCase,
 	prove func(*testing.B, string, http.Handler),
 ) {
+	proveCases(b, cases, 1, func(int) *http.Request { return httptest.NewRequest(method, target, nil) })
 	for _, bc := range cases {
 		b.Run(bc.name, func(b *testing.B) {
 			handler := bc.build()
@@ -53,6 +58,27 @@ func runServeHTTPBenchmarksWithProof(
 			for i := 0; i < b.N; i++ {
 				rw.reset()
 				handler.ServeHTTP(rw, req)
+			}
+			benchmarkSinkInt = rw.status + rw.bytes
+		})
+	}
+}
+
+// runPoolBenchmarksWithProof is runServeHTTPBenchmarksWithProof over a pool:
+// prove checks each framework's exact answer on a canonical request, and the
+// timed loop cycles through requests.
+func runPoolBenchmarksWithProof(b *testing.B, requests []*http.Request, cases []benchmarkCase, prove func(*testing.B, string, http.Handler)) {
+	proveCases(b, cases, len(requests), func(i int) *http.Request { return requests[i] })
+	for _, bc := range cases {
+		b.Run(bc.name, func(b *testing.B) {
+			handler := bc.build()
+			prove(b, bc.name, handler)
+			rw := newDiscardResponseWriter()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				rw.reset()
+				handler.ServeHTTP(rw, requests[i%len(requests)])
 			}
 			benchmarkSinkInt = rw.status + rw.bytes
 		})
@@ -106,13 +132,20 @@ func trimBenchmarkWildcard(value string) string {
 	return strings.TrimPrefix(value, "/")
 }
 
+// The routing scenarios use one normalised miss response per framework, so
+// they measure the lookup rather than each framework's default error body:
+// a 404 writes benchmarkNotFoundResponse as text, and a 405 writes the status
+// and the Allow header with no body. Each framework sets Allow itself before
+// its 405 handler runs; Chi's default 405 handler is already this response,
+// and a custom Chi handler couldn't see the allowed methods, so Chi keeps it.
+
 func newZincErrorBenchmarkApp() *App {
 	app := New()
 	app.NotFound(func(c *Context) error {
 		return c.Status(http.StatusNotFound).String(benchmarkNotFoundResponse)
 	})
 	app.MethodNotAllowed(func(c *Context) error {
-		return c.Status(http.StatusMethodNotAllowed).String(benchmarkMethodNotAllowedResponse)
+		return c.Status(http.StatusMethodNotAllowed).NoContent()
 	})
 	return app
 }
@@ -120,12 +153,9 @@ func newZincErrorBenchmarkApp() *App {
 func newChiErrorBenchmarkRouter() chi.Router {
 	r := chi.NewRouter()
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, benchmarkNotFoundResponse)
-	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_, _ = io.WriteString(w, benchmarkMethodNotAllowedResponse)
 	})
 	return r
 }
@@ -135,7 +165,7 @@ func newEchoErrorBenchmarkApp() *echo.Echo {
 	e.HTTPErrorHandler = func(c *echo.Context, err error) {
 		switch {
 		case errors.Is(err, echo.ErrMethodNotAllowed):
-			_ = c.String(http.StatusMethodNotAllowed, benchmarkMethodNotAllowedResponse)
+			_ = c.NoContent(http.StatusMethodNotAllowed)
 		case errors.Is(err, echo.ErrNotFound):
 			_ = c.String(http.StatusNotFound, benchmarkNotFoundResponse)
 		default:
@@ -151,7 +181,9 @@ func newGinErrorBenchmarkRouter() *gin.Engine {
 		c.String(http.StatusNotFound, benchmarkNotFoundResponse)
 	})
 	r.NoMethod(func(c *gin.Context) {
-		c.String(http.StatusMethodNotAllowed, benchmarkMethodNotAllowedResponse)
+		// Gin writes its own body unless the handler has written.
+		c.Status(http.StatusMethodNotAllowed)
+		c.Writer.WriteHeaderNow()
 	})
 	return r
 }
@@ -169,7 +201,7 @@ func buildChiMultiParamHandler(pattern string, paramNames []string) http.Handler
 	r := chi.NewRouter()
 	r.Get(pattern, func(w http.ResponseWriter, req *http.Request) {
 		scenarioParamScoreChi(paramNames, req)
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -194,7 +226,7 @@ func buildGinMultiParamHandler(pattern string, paramNames []string) http.Handler
 
 func param5Cases() []benchmarkCase {
 	paramNames := []string{"org", "repo", "issue", "comment", "reaction"}
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		func() http.Handler {
 			return buildZincMultiParamHandler("/orgs/{org}/repos/{repo}/issues/{issue}/comments/{comment}/reactions/{reaction}", paramNames)
 		},
@@ -207,12 +239,14 @@ func param5Cases() []benchmarkCase {
 		func() http.Handler {
 			return buildGinMultiParamHandler("/orgs/:org/repos/:repo/issues/:issue/comments/:comment/reactions/:reaction", paramNames)
 		},
-	)
+	), func() http.Handler {
+		return buildBunRouterMultiParamHandler("/orgs/:org/repos/:repo/issues/:issue/comments/:comment/reactions/:reaction", paramNames)
+	})
 }
 
 func param10Cases() []benchmarkCase {
 	paramNames := []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"}
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		func() http.Handler {
 			return buildZincMultiParamHandler("/v1/{p1}/a/{p2}/b/{p3}/c/{p4}/d/{p5}/e/{p6}/f/{p7}/g/{p8}/h/{p9}/i/{p10}", paramNames)
 		},
@@ -225,7 +259,9 @@ func param10Cases() []benchmarkCase {
 		func() http.Handler {
 			return buildGinMultiParamHandler("/v1/:p1/a/:p2/b/:p3/c/:p4/d/:p5/e/:p6/f/:p7/g/:p8/h/:p9/i/:p10", paramNames)
 		},
-	)
+	), func() http.Handler {
+		return buildBunRouterMultiParamHandler("/v1/:p1/a/:p2/b/:p3/c/:p4/d/:p5/e/:p6/f/:p7/g/:p8/h/:p9/i/:p10", paramNames)
+	})
 }
 
 func buildZincNestedGroupHandler() http.Handler {
@@ -272,34 +308,34 @@ func buildChiNestedGroupHandler() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.WriteString(w, benchmarkOKResponse)
+				writeText(w, benchmarkOKResponse)
 			})
 			r.Route("/teams", func(r chi.Router) {
 				r.Get("/status/health", func(w http.ResponseWriter, r *http.Request) {
-					_, _ = io.WriteString(w, benchmarkOKResponse)
+					writeText(w, benchmarkOKResponse)
 				})
 				r.Get("/{teamID}", func(w http.ResponseWriter, r *http.Request) {
-					_, _ = io.WriteString(w, benchmarkOKResponse)
+					writeText(w, benchmarkOKResponse)
 				})
 				r.Route("/{teamID}/users", func(r chi.Router) {
 					r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-						_, _ = io.WriteString(w, benchmarkOKResponse)
+						writeText(w, benchmarkOKResponse)
 					})
 					r.Get("/{userID}", func(w http.ResponseWriter, req *http.Request) {
 						benchmarkSinkString = chi.URLParam(req, "teamID") + "|" + chi.URLParam(req, "userID")
-						_, _ = io.WriteString(w, benchmarkOKResponse)
+						writeText(w, benchmarkOKResponse)
 					})
 					r.Get("/{userID}/preferences", func(w http.ResponseWriter, r *http.Request) {
-						_, _ = io.WriteString(w, benchmarkOKResponse)
+						writeText(w, benchmarkOKResponse)
 					})
 				})
 			})
 			r.Route("/projects", func(r chi.Router) {
 				r.Get("/{projectId}/builds", func(w http.ResponseWriter, r *http.Request) {
-					_, _ = io.WriteString(w, benchmarkOKResponse)
+					writeText(w, benchmarkOKResponse)
 				})
 				r.Get("/{projectId}/builds/{number}", func(w http.ResponseWriter, r *http.Request) {
-					_, _ = io.WriteString(w, benchmarkOKResponse)
+					writeText(w, benchmarkOKResponse)
 				})
 			})
 		})
@@ -386,12 +422,12 @@ func buildGinNestedGroupHandler() http.Handler {
 }
 
 func nestedGroupCases() []benchmarkCase {
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		buildZincNestedGroupHandler,
 		buildChiNestedGroupHandler,
 		buildEchoNestedGroupHandler,
 		buildGinNestedGroupHandler,
-	)
+	), buildBunRouterNestedGroupHandler)
 }
 
 func buildZincWildcardHandler() http.Handler {
@@ -407,7 +443,7 @@ func buildChiWildcardHandler() http.Handler {
 	r := newChiErrorBenchmarkRouter()
 	r.Get("/files/*", func(w http.ResponseWriter, req *http.Request) {
 		benchmarkSinkString = trimBenchmarkWildcard(chi.URLParam(req, "*"))
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }
@@ -431,18 +467,21 @@ func buildGinWildcardHandler() http.Handler {
 }
 
 func wildcardCases() []benchmarkCase {
-	return focusedFrameworkCases(
+	return withBunRouter(focusedFrameworkCases(
 		buildZincWildcardHandler,
 		buildChiWildcardHandler,
 		buildEchoWildcardHandler,
 		buildGinWildcardHandler,
-	)
+	), buildBunRouterWildcardHandler)
 }
 
 func BenchmarkParam5(b *testing.B) {
 	target := "/orgs/openai/repos/zinc/issues/42/comments/7/reactions/heart"
 	want := stringLengthSum("openai", "zinc", "42", "7", "heart")
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, param5Cases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 20, func(i int) string {
+		return "/orgs/" + poolValue("org", i) + "/repos/zinc/issues/" + poolID(i) + "/comments/7/reactions/heart"
+	})
+	runPoolBenchmarksWithProof(b, pool, param5Cases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponseAndSinkInt(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse, want)
 	})
 }
@@ -450,7 +489,10 @@ func BenchmarkParam5(b *testing.B) {
 func BenchmarkParam10(b *testing.B) {
 	target := "/v1/1/a/2/b/3/c/4/d/5/e/6/f/7/g/8/h/9/i/10"
 	want := stringLengthSum("1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, param10Cases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 21, func(i int) string {
+		return "/v1/" + poolID(i) + "/a/2/b/3/c/4/d/5/e/6/f/7/g/8/h/9/i/" + poolID(poolSize-i)
+	})
+	runPoolBenchmarksWithProof(b, pool, param10Cases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponseAndSinkInt(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse, want)
 	})
 }
@@ -469,35 +511,40 @@ func BenchmarkNestedGroupStatic(b *testing.B) {
 
 func BenchmarkNestedGroupParam(b *testing.B) {
 	target := "/api/v1/teams/42/users/7"
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, nestedGroupCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 22, func(i int) string { return "/api/v1" + poolTeamUser(i) })
+	runPoolBenchmarksWithProof(b, pool, nestedGroupCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponseAndSinkString(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse, "42|7")
 	})
 }
 
 func BenchmarkNestedGroupNotFound(b *testing.B) {
 	target := "/api/v1/teams/42/users/7/missing"
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, nestedGroupCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 23, func(i int) string { return "/api/v1" + poolTeamUser(i) + "/missing" })
+	runPoolBenchmarksWithProof(b, pool, nestedGroupCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, target, http.StatusNotFound, benchmarkNotFoundResponse)
 	})
 }
 
 func BenchmarkNestedGroupMethodMismatch(b *testing.B) {
 	target := "/api/v1/teams/42/users/7/preferences"
-	runServeHTTPBenchmarksWithProof(b, http.MethodPost, target, nestedGroupCases(), func(b *testing.B, _ string, handler http.Handler) {
-		proveResponse(b, handler, http.MethodPost, target, http.StatusMethodNotAllowed, benchmarkMethodNotAllowedResponse)
+	pool := poolRequests(http.MethodPost, poolSize, 24, func(i int) string { return "/api/v1" + poolTeamUser(i) + "/preferences" })
+	runPoolBenchmarksWithProof(b, pool, withoutBunRouter(nestedGroupCases()), func(b *testing.B, _ string, handler http.Handler) {
+		proveResponse(b, handler, http.MethodPost, target, http.StatusMethodNotAllowed, "")
 	})
 }
 
 func BenchmarkWildcardTail(b *testing.B) {
 	target := "/files/css/app/main.css"
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, wildcardCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 25, func(i int) string { return "/files/" + poolTail(i) })
+	runPoolBenchmarksWithProof(b, pool, wildcardCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponseAndSinkString(b, handler, http.MethodGet, target, http.StatusOK, benchmarkOKResponse, "css/app/main.css")
 	})
 }
 
 func BenchmarkWildcardTailNotFound(b *testing.B) {
 	target := "/assets/css/app/main.css"
-	runServeHTTPBenchmarksWithProof(b, http.MethodGet, target, wildcardCases(), func(b *testing.B, _ string, handler http.Handler) {
+	pool := poolRequests(http.MethodGet, poolSize, 26, func(i int) string { return "/assets/" + poolTail(i) })
+	runPoolBenchmarksWithProof(b, pool, wildcardCases(), func(b *testing.B, _ string, handler http.Handler) {
 		proveResponse(b, handler, http.MethodGet, target, http.StatusNotFound, benchmarkNotFoundResponse)
 	})
 }

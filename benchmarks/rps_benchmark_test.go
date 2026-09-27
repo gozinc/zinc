@@ -50,7 +50,7 @@ func buildZincRPSHandler() http.Handler {
 func buildChiRPSHandler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/rps", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, benchmarkOKResponse)
+		writeText(w, benchmarkOKResponse)
 	})
 	return r
 }

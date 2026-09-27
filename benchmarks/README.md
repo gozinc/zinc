@@ -9,6 +9,17 @@ make bench-record RELEASE=0.5.0 NOTE="baseline"
 make bench-dash
 ```
 
+## Suite v2
+
+The 0.5 suite has 92 head-to-head scenarios. It was rebuilt so no framework's result is flattered, Zinc's included. The audit behind it is `audits/2026-09-26/suite-v2-audit.md` (local).
+
+- **Request pools.** Parameter, 404, 405 and wildcard scenarios cycle through 10,000 distinct paths, ten times Zinc's route cache. In the 0.4 suite almost every scenario repeated one URL, so every one of Zinc's lookups was a cache hit. The pools are built before timing, are deterministic, and are identical for every framework. `CacheBestCase/*` keeps three one-URL requests, labelled as the cache's best case.
+- **Proofs.** Before timing, every scenario checks that its frameworks agree on status, body (decoded if JSON), media type, `Allow` and the parameters they read. A framework can't look faster by doing less.
+- **Equal work.** Gin's binding validator is off, since Zinc and Echo validate only when asked. Echo binds the query on POST explicitly. Chi and BunRouter set `Content-Type` as the others do.
+- **Normalised misses.** Routing scenarios answer a 404 with the same text and a 405 with the status and `Allow` for every framework. `NotFound` and `StaticFileNotFound` keep each framework's default response.
+- **BunRouter** runs the routing scenarios. It answers a wrong method on a route with a parameter followed by more segments with 404 rather than 405, so it sits out those 405 scenarios.
+- **New scenarios:** `ScenarioRouteSetTraffic` (Zipf-weighted routes with distinct parameters), a 1,024-route `Services1024` corpus, and `ParallelRouteSetTraffic`.
+
 ## Two scoreboards
 
 Zinc is scored against two groups separately:
