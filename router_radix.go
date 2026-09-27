@@ -39,6 +39,9 @@ type radixNode struct {
 	children      []*radixNode
 	paramChild    *radixNode
 	catchAllChild *radixNode
+	// methods holds a terminal's routes by method in the route tree
+	// (router_tree.go); per-method trees use route instead.
+	methods *nodeMethods
 }
 
 type paramRange struct {
@@ -250,6 +253,7 @@ func (n *radixNode) addStaticPath(path string) *radixNode {
 			children:      child.children,
 			paramChild:    child.paramChild,
 			catchAllChild: child.catchAllChild,
+			methods:       child.methods,
 		}
 		child.prefix = child.prefix[:common]
 		child.route = nil
@@ -258,6 +262,7 @@ func (n *radixNode) addStaticPath(path string) *radixNode {
 		child.children = nil
 		child.paramChild = nil
 		child.catchAllChild = nil
+		child.methods = nil
 		child.addStaticChild(existing)
 		if common == len(remaining) {
 			return child

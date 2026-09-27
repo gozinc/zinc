@@ -46,7 +46,15 @@ type routeTable struct {
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
 	staticLongMethods methodMask
+	// tree holds every route, static and parameterized, for every method
+	// (router_tree.go). While P5 proves it, it's filled alongside the maps
+	// and per-method trees above, and useRouteTree selects which dispatches.
+	tree *radixNode
 }
+
+// useRouteTree selects the route tree for dispatch. Tests switch it to
+// compare the tree with the maps and per-method trees it replaces.
+var useRouteTree = true
 
 // Add registers handlers for method and path.
 func (r *routeTable) Add(method, path string, handlers ...HandlerFunc) error {
@@ -108,6 +116,10 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	infoIndex := uint32(len(r.routeInfos))
 	info := newRouteMeta(method, registeredPath, name, finalHandler, paramNames.slice(), false)
 	mask := methodMaskFor(method)
+
+	if err := r.addToTree(method, mask, path, isDynamic, newRadixRoute(precomposed, infoIndex, paramNames)); err != nil {
+		return 0, err
+	}
 
 	if !isDynamic {
 		if r.routes == nil {
@@ -304,6 +316,9 @@ func (r *routeTable) routeMetaAt(index uint32) routeMeta {
 // original path because parameter ranges must always index the caller's input,
 // even when matching a normalized or case-folded candidate.
 func (r *routeTable) findInto(method, path string, ctx *Context) HandlerFunc {
+	if useRouteTree {
+		return r.findTree(method, path, ctx)
+	}
 	originalPath := path
 	strictRouting := r.config != nil && r.config.StrictRouting
 	caseSensitive := r.config != nil && r.config.CaseSensitive
@@ -405,6 +420,9 @@ func remapFoldedParams(values *paramRanges, count int, original, folded string) 
 // fallback, then alternate methods. A cache entry may represent a hit or a
 // known miss, but cache state never determines routing correctness.
 func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
+	if useRouteTree {
+		return r.dispatchTree(method, path, needAllowed, ctx)
+	}
 	originalPath := path
 	strictRouting := r.config != nil && r.config.StrictRouting
 	caseSensitive := r.config != nil && r.config.CaseSensitive
@@ -982,7 +1000,7 @@ func (s allowedMethodSet) header(autoHead, autoOptions bool) string {
 	if len(s.extra) == 0 {
 		return allowHeader(s.mask)
 	}
-	return buildAllowHeaderWithExtra(s.mask, s.extra)
+	return buildAllowHeaderWithExtra(s.mask, sortedExtra(s.extra))
 }
 
 func methodMaskFor(method string) methodMask {
@@ -1048,4 +1066,43 @@ func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
 		builder.WriteString(method)
 	}
 	return builder.String()
+}
+
+// addToTree records route in the route tree. A static route registered with
+// a trailing slash is also reachable without it unless routing is strict, as
+// its map spellings made it before.
+func (r *routeTable) addToTree(method string, mask methodMask, path string, isDynamic bool, route *radixRoute) error {
+	if r.tree == nil {
+		r.tree = &radixNode{kind: radixRoot}
+	}
+	strictRouting := r.config != nil && r.config.StrictRouting
+	caseInsensitive := r.config != nil && !r.config.CaseSensitive
+	paths := [2]string{path}
+	count := 1
+	if !isDynamic && !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
+		paths[1] = path[:len(path)-1]
+		count = 2
+	}
+	slot := singleBitIndex(mask)
+	// Create every spelling's node first: creating one can split a node
+	// another spelling returned. Then look them up again (which creates
+	// nothing) and check them all before recording any, so a conflict leaves
+	// no trace of the route in the tree.
+	var nodes [2]*radixNode
+	for i := 0; i < count; i++ {
+		r.tree.nodeFor(paths[i], caseInsensitive)
+	}
+	for i := 0; i < count; i++ {
+		nodes[i] = r.tree.nodeFor(paths[i], caseInsensitive)
+		if nodes[i].methods != nil && nodes[i].methods.get(slot, method) != nil {
+			return fmt.Errorf("route already registered for %s", path)
+		}
+	}
+	for i := 0; i < count; i++ {
+		if nodes[i].methods == nil {
+			nodes[i].methods = &nodeMethods{}
+		}
+		nodes[i].methods.set(slot, method, route)
+	}
+	return nil
 }

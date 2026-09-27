@@ -1073,3 +1073,20 @@ func TestAllowListsEveryStaticMethod(t *testing.T) {
 		}
 	}
 }
+
+// Custom methods are listed in Allow in sorted order, after the standard
+// methods (deliberate change 3 in benchmarks/ROUTER_SPEC.md).
+func TestAllowSortsCustomMethods(t *testing.T) {
+	app := New()
+	for _, method := range []string{"PURGE", "LINK", "GET", "BAN"} {
+		app.Add(method, "/items/{id}", func(c *Context) error { return nil })
+		app.Add(method, "/static", func(c *Context) error { return nil })
+	}
+	for _, target := range []string{"/items/1", "/static"} {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest(MethodPut, target, nil))
+		if got, want := rec.Header().Get(HeaderAllow), "GET, HEAD, OPTIONS, BAN, LINK, PURGE"; got != want {
+			t.Errorf("%s: Allow = %q, want %q", target, got, want)
+		}
+	}
+}
