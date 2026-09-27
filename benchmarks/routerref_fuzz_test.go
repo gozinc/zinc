@@ -218,7 +218,9 @@ func (g *fuzzGen) request(routes []fuzzRoute) (method, target string) {
 func buildReferencePair(t *testing.T, s fuzzSpec) (cur, ref http.Handler, routes []fuzzRoute) {
 	c := s.config
 	curApp := New(Config{StrictRouting: c.strict, CaseSensitive: c.caseSensitive, DisableAutoHead: c.noHead,
-		DisableAutoOptions: c.noOptions, DisableMethodNotAllowed: c.noMethodNotAllowed, RouteCacheSize: c.cacheSize})
+		DisableAutoOptions: c.noOptions, DisableMethodNotAllowed: c.noMethodNotAllowed})
+	// The reference keeps v0.4.0's route cache, sized by the fuzz, so its
+	// answers with and without the cache are checked against the tree too.
 	refApp := zinc040.New(zinc040.Config{StrictRouting: c.strict, CaseSensitive: c.caseSensitive, DisableAutoHead: c.noHead,
 		DisableAutoOptions: c.noOptions, DisableMethodNotAllowed: c.noMethodNotAllowed, RouteCacheSize: c.cacheSize})
 	for i, r := range s.routes {

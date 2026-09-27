@@ -233,16 +233,10 @@ func New(config ...Config) *App {
 	cfg.TrustedProxies = append([]string(nil), cfg.TrustedProxies...)
 	trusted := compileTrustedProxies(cfg.TrustedProxies)
 
-	var cache *routeCache
-	if cfg.RouteCacheSize > 0 {
-		cache = newRouteCache(cfg.RouteCacheSize)
-	}
-
 	app := &App{
 		config:         cfg,
 		trustedProxies: trusted,
 		router: &routeTable{
-			cache:  cache,
 			config: &cfg,
 		},
 		middleware:       make([]HandlerFunc, 0),
@@ -267,7 +261,6 @@ func normalizeConfig(cfg Config) Config {
 	cfg.WriteTimeout = orDefault(cfg.WriteTimeout, DefaultWriteTimeout)
 	cfg.IdleTimeout = orDefault(cfg.IdleTimeout, DefaultIdleTimeout)
 	cfg.ShutdownTimeout = orDefault(cfg.ShutdownTimeout, DefaultShutdownTimeout)
-	cfg.RouteCacheSize = orDefault(cfg.RouteCacheSize, DefaultRouteCacheSize)
 	if cfg.ProxyHeader == "" {
 		cfg.ProxyHeader = DefaultProxyHeader
 	}
