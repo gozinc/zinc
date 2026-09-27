@@ -8,34 +8,30 @@ import (
 	"testing"
 )
 
-func TestRoutingFoldContractsWithAndWithoutCache(t *testing.T) {
-	for _, size := range []int{-1, 1000} { // -1 disables the cache
-		cfg := Config{}
-		cfg.RouteCacheSize = size
-		app := New(cfg)
-		app.Get("/users/new", func(c *Context) error { return c.Send("static") })
-		app.Get("/users/{id}", func(c *Context) error { return c.Send(c.Param("id")) })
-		app.Get("/users/new/{part}", func(c *Context) error { return c.Send("literal:" + c.Param("part")) })
-		app.Get("/users/{id}/{part}", func(c *Context) error { return c.Send("parameter:" + c.Param("part")) })
-		app.Get("/k/new", func(c *Context) error { return c.Send("unicode-static") })
-		app.Get("/k/{id}/{part}/{third}", func(c *Context) error { return c.Send(c.Param("id") + "|" + c.Param("part") + "|" + c.Param("third")) })
-		for i := 0; i < 80; i++ {
-			app.Get(fmt.Sprintf("/r%d/{id}", i), func(c *Context) error { return c.Send(c.Param("id")) })
-		}
-		for pass := 0; pass < 4; pass++ {
-			for _, tt := range []struct{ path, want string }{{"/users/NEW", "static"}, {"/users/NEW/ABC", "literal:ABC"}, {"/K/NEW", "unicode-static"}, {"/K/ABC/İ/XKZ", "ABC|İ|XKZ"}, {"/K/ABC/İ/XKZ/", "ABC|İ|XKZ"}} {
-				w := httptest.NewRecorder()
-				app.ServeHTTP(w, httptest.NewRequest("GET", tt.path, nil))
-				if w.Body.String() != tt.want {
-					t.Fatalf("cache=%d path=%s got=%q want=%q", size, tt.path, w.Body.String(), tt.want)
-				}
-				handler, c := app.router.Find("GET", tt.path)
-				if handler == nil {
-					t.Fatal("Find missed route")
-				}
-				if strings.Contains(tt.want, "|") && c.Param("id")+"|"+c.Param("part")+"|"+c.Param("third") != tt.want {
-					t.Fatalf("Find corrupted params: %q %q %q", c.Param("id"), c.Param("part"), c.Param("third"))
-				}
+func TestRoutingFoldContracts(t *testing.T) {
+	app := New()
+	app.Get("/users/new", func(c *Context) error { return c.Send("static") })
+	app.Get("/users/{id}", func(c *Context) error { return c.Send(c.Param("id")) })
+	app.Get("/users/new/{part}", func(c *Context) error { return c.Send("literal:" + c.Param("part")) })
+	app.Get("/users/{id}/{part}", func(c *Context) error { return c.Send("parameter:" + c.Param("part")) })
+	app.Get("/k/new", func(c *Context) error { return c.Send("unicode-static") })
+	app.Get("/k/{id}/{part}/{third}", func(c *Context) error { return c.Send(c.Param("id") + "|" + c.Param("part") + "|" + c.Param("third")) })
+	for i := 0; i < 80; i++ {
+		app.Get(fmt.Sprintf("/r%d/{id}", i), func(c *Context) error { return c.Send(c.Param("id")) })
+	}
+	for pass := 0; pass < 4; pass++ {
+		for _, tt := range []struct{ path, want string }{{"/users/NEW", "static"}, {"/users/NEW/ABC", "literal:ABC"}, {"/K/NEW", "unicode-static"}, {"/K/ABC/İ/XKZ", "ABC|İ|XKZ"}, {"/K/ABC/İ/XKZ/", "ABC|İ|XKZ"}} {
+			w := httptest.NewRecorder()
+			app.ServeHTTP(w, httptest.NewRequest("GET", tt.path, nil))
+			if w.Body.String() != tt.want {
+				t.Fatalf("path=%s got=%q want=%q", tt.path, w.Body.String(), tt.want)
+			}
+			handler, c := app.router.Find("GET", tt.path)
+			if handler == nil {
+				t.Fatal("Find missed route")
+			}
+			if strings.Contains(tt.want, "|") && c.Param("id")+"|"+c.Param("part")+"|"+c.Param("third") != tt.want {
+				t.Fatalf("Find corrupted params: %q %q %q", c.Param("id"), c.Param("part"), c.Param("third"))
 			}
 		}
 	}
@@ -84,14 +80,5 @@ func TestNamedURLSegmentPolicy(t *testing.T) {
 		if w.Code != 200 || w.Body.String() != tt.value {
 			t.Fatalf("%s: %d %q", path, w.Code, w.Body.String())
 		}
-	}
-}
-
-func TestRouteCacheOversizedKeyBypass(t *testing.T) {
-	cache := newRouteCache(10)
-	key := routeCacheKey{method: "GET", path: strings.Repeat("x", routeCacheMaxKeyBytes+1)}
-	cache.setWithMask(key, methodMaskFor("GET"), routeCacheEntry{})
-	if _, ok := cache.getWithMask(key, methodMaskFor("GET")); ok {
-		t.Fatal("oversized request retained")
 	}
 }

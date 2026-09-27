@@ -152,27 +152,6 @@ func (p paramRanges) at(index int) paramRange {
 	return p.extra[index-len(p.inline)]
 }
 
-func (p *paramRanges) cloneFrom(other *paramRanges, count int) {
-	p.inline = other.inline
-	extraCount := count - len(p.inline)
-	if extraCount <= 0 {
-		p.extra = nil
-		return
-	}
-	if cap(p.extra) < extraCount {
-		p.extra = make([]paramRange, extraCount)
-	} else {
-		p.extra = p.extra[:extraCount]
-	}
-	copy(p.extra, other.extra[:extraCount])
-}
-
-func cloneParamRangesForCache(values paramRanges, count int) paramRanges {
-	var cloned paramRanges
-	cloned.cloneFrom(&values, count)
-	return cloned
-}
-
 // addStaticPath inserts a literal into the compressed tree. When an existing
 // prefix partially overlaps the new path, the common prefix becomes the parent:
 // inserting "/teams" beside "/terms" turns "/te" into their shared node.

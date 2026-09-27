@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -61,24 +60,6 @@ func buildZincDiagnosticRouterApp(cfg Config) *App {
 	return app
 }
 
-func buildZincRouteCacheBenchmarkApp() *App {
-	return buildZincRouteCacheBenchmarkAppWithSize(64)
-}
-
-func buildZincRouteCacheBenchmarkAppWithSize(cacheSize int) *App {
-	cfg := Config{}
-	cfg.RouteCacheSize = cacheSize
-	app := New(cfg)
-	for i := 0; i < 64; i++ {
-		path := "/cache/" + strconv.Itoa(i) + "/items/{id}"
-		app.Get(path, func(c *Context) error {
-			benchmarkSinkString = c.Param("id")
-			return c.String(benchmarkOKResponse)
-		})
-	}
-	return app
-}
-
 func buildZincCaseInsensitiveBenchmarkApp() *App {
 	cfg := Config{}
 	cfg.CaseSensitive = false
@@ -93,7 +74,6 @@ func buildZincCaseInsensitiveBenchmarkApp() *App {
 func buildZincStrictRoutingBenchmarkApp() *App {
 	cfg := Config{}
 	cfg.StrictRouting = true
-	cfg.RouteCacheSize = -1 // disabled
 	app := New(cfg)
 	app.Get("/teams/{teamId}", func(c *Context) error {
 		return c.String(benchmarkOKResponse)
@@ -114,14 +94,6 @@ func buildZincMountBenchmarkApp() *App {
 		}
 	}))
 	return app
-}
-
-func buildZincColdCacheTargets(count int) []string {
-	targets := make([]string, count)
-	for i := 0; i < count; i++ {
-		targets[i] = "/cache/" + strconv.Itoa(i%64) + "/items/" + strconv.Itoa(1000+i)
-	}
-	return targets
 }
 
 func BenchmarkZincRouterStatic(b *testing.B) {
@@ -166,56 +138,6 @@ func BenchmarkZincRouterMethodMismatch(b *testing.B) {
 		rw.reset()
 		handler.ServeHTTP(rw, req)
 		benchmarkSinkString = rw.Header().Get(HeaderAllow)
-	}
-}
-
-func BenchmarkZincRouterCacheHitParam(b *testing.B) {
-	handler := buildZincRouteCacheBenchmarkApp()
-	target := "/cache/63/items/999"
-	proveResponseAndSinkString(b, handler, MethodGet, target, http.StatusOK, benchmarkOKResponse, "999")
-	runZincServeHTTPBenchmark(b, handler, httptest.NewRequest(MethodGet, target, nil))
-}
-
-func BenchmarkZincRouterCacheColdParam(b *testing.B) {
-	handler := buildZincRouteCacheBenchmarkApp()
-	targets := buildZincColdCacheTargets(256)
-	requests := buildRequests(MethodGet, targets)
-
-	proveResponseAndSinkString(b, handler, MethodGet, targets[0], http.StatusOK, benchmarkOKResponse, "1000")
-	runZincServeHTTPRequestSetBenchmark(b, handler, requests)
-}
-
-func BenchmarkZincRouterCacheWorkloads(b *testing.B) {
-	workloads := []struct {
-		name  string
-		count int
-	}{
-		{name: "Hot", count: 1},
-		{name: "WorkingSet", count: 32},
-		{name: "Unique", count: 4096},
-	}
-	cacheSizes := []struct {
-		name string
-		size int
-	}{
-		{name: "CacheEnabled", size: 64},
-		{name: "CacheDisabled", size: 0},
-	}
-
-	for _, workload := range workloads {
-		workload := workload
-		b.Run(workload.name, func(b *testing.B) {
-			targets := buildZincColdCacheTargets(workload.count)
-			requests := buildRequests(MethodGet, targets)
-			for _, cache := range cacheSizes {
-				cache := cache
-				b.Run(cache.name, func(b *testing.B) {
-					handler := buildZincRouteCacheBenchmarkAppWithSize(cache.size)
-					proveResponseAndSinkString(b, handler, MethodGet, targets[0], http.StatusOK, benchmarkOKResponse, "1000")
-					runZincServeHTTPRequestSetBenchmark(b, handler, requests)
-				})
-			}
-		})
 	}
 }
 

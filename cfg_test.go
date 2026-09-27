@@ -42,14 +42,10 @@ func TestZeroValueConfigKeepsDefaults(t *testing.T) {
 					t.Errorf("%s: %d allow=%q, want %d allow=%q", tc.method, rec.Code, rec.Header().Get(HeaderAllow), tc.status, tc.allow)
 				}
 			}
-			// Since 0.5 the route cache is off unless RouteCacheSize > 0.
-			if app.router.cache != nil {
-				t.Error("route cache enabled by a zero RouteCacheSize")
-			}
 			cfg := app.config
 			if cfg.BodyLimit != DefaultBodyLimit || cfg.ReadTimeout != DefaultReadTimeout ||
 				cfg.WriteTimeout != DefaultWriteTimeout || cfg.IdleTimeout != DefaultIdleTimeout ||
-				cfg.ShutdownTimeout != DefaultShutdownTimeout || cfg.RouteCacheSize != DefaultRouteCacheSize ||
+				cfg.ShutdownTimeout != DefaultShutdownTimeout ||
 				cfg.ProxyHeader != DefaultProxyHeader {
 				t.Errorf("defaults not applied: %+v", cfg)
 			}
@@ -62,7 +58,6 @@ func TestDisableFlagsAndNegativeLimits(t *testing.T) {
 		DisableAutoHead:         true,
 		DisableAutoOptions:      true,
 		DisableMethodNotAllowed: true,
-		RouteCacheSize:          -1,
 		BodyLimit:               -1,
 		ReadTimeout:             -1,
 		WriteTimeout:            -1,
@@ -75,9 +70,6 @@ func TestDisableFlagsAndNegativeLimits(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s with auto features disabled: %d, want 404", method, rec.Code)
 		}
-	}
-	if app.router.cache != nil {
-		t.Error("RouteCacheSize -1 should disable the cache")
 	}
 
 	srv := app.newServer()
