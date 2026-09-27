@@ -49,7 +49,11 @@ func (r *routeTable) normalizePath(path string) string {
 }
 
 // rejectLegacyRoutePattern reports the removed :name and *name grammar with an
-// actionable replacement while allowing literal punctuation inside segments.
+// actionable replacement. It rejects any ':' or '*' in a pattern, not only at
+// a segment's start: 0.3 began a parameter at a colon anywhere in a segment,
+// so "/v1/users:batch" meant a parameter named batch, and accepting it as a
+// literal would turn an upgraded route into a silent 404. Other punctuation
+// ('.', '-', '~', ...) is literal.
 func rejectLegacyRoutePattern(path string) error {
 	if !strings.ContainsAny(path, ":*") {
 		return nil

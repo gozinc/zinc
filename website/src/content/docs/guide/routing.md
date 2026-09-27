@@ -83,6 +83,17 @@ catch-all = "{" identifier "...}"   ; final segment only
 
 An identifier contains letters, digits, and underscores, and cannot start with a digit. A parameter must fill a whole segment, and each name can appear only once per pattern.
 
+A literal can contain any character except `{`, `}`, `:` and `*`. The colon and asterisk are reserved because Zinc 0.3 used them for parameters anywhere in a segment. Rejecting them turns an old pattern into a startup error rather than a literal route that never matches. So a Google-style route such as `/v1/users:batch` can't be registered. Match the segment with a parameter instead and check its value:
+
+```go
+app.Post("/v1/{resource}", func(c *zinc.Context) error {
+	if c.Param("resource") != "users:batch" {
+		return zinc.ErrNotFound
+	}
+	return batchCreateUsers(c)
+})
+```
+
 Some `net/http` pattern features are intentionally not supported: method or host prefixes inside ordinary route paths, the `{$}` end marker, and `ServeMux`'s overlap resolution. `HandleHTTP("GET /users/{id}", h)` accepts a method prefix because the method is split off before matching.
 
 ### Invalid patterns fail at startup
@@ -92,6 +103,7 @@ Bad patterns panic when they are registered, so a mistake stops the program at b
 ```text
 /users/:id             use /users/{id}
 /files/*path           use /files/{path...}
+/v1/users:batch        ':' and '*' are reserved in patterns
 /users/prefix-{id}     a parameter must fill a whole segment
 /files/{path...}/meta  a catch-all must be last
 /users/{id}/{id}       parameter names must be unique
