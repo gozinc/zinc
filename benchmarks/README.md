@@ -13,7 +13,7 @@ make bench-dash
 
 The 0.5 suite has 92 head-to-head scenarios. It was rebuilt so no framework's result is flattered, Zinc's included. The audit behind it is `audits/2026-09-26/suite-v2-audit.md` (local).
 
-- **Request pools.** Parameter, 404, 405 and wildcard scenarios cycle through 10,000 distinct paths, ten times Zinc's route cache. In the 0.4 suite almost every scenario repeated one URL, so every one of Zinc's lookups was a cache hit. The pools are built before timing, are deterministic, and are identical for every framework. `CacheBestCase/*` keeps three one-URL requests, labelled as the cache's best case.
+- **Request pools.** Parameter, 404, 405 and wildcard scenarios cycle through 10,000 distinct paths. In the 0.4 suite almost every scenario repeated one URL, so every one of Zinc's lookups was a hit in its route cache, which 0.5 removed. The pools are built before timing, are deterministic, and are identical for every framework. `CacheBestCase/*` keeps three one-URL requests, labelled as the cache's best case.
 - **Proofs.** Before timing, every scenario checks that its frameworks agree on status, body (decoded if JSON), media type, `Allow` and the parameters they read. A framework can't look faster by doing less.
 - **Equal work.** Gin's binding validator is off, since Zinc and Echo validate only when asked. Echo binds the query on POST explicitly. Chi and BunRouter set `Content-Type` as the others do.
 - **Normalised misses.** Routing scenarios answer a 404 with the same text and a 405 with the status and `Allow` for every framework. `NotFound` and `StaticFileNotFound` keep each framework's default response.
@@ -31,7 +31,7 @@ Each scoreboard shows two numbers: how many scenarios Zinc is fastest in, and th
 
 ## Checking a change
 
-Rivals don't change between Zinc commits, so a change only needs Zinc remeasured. `bench-zinc` runs the Zinc case of all 77 scenarios, plus the Zinc-only `BenchmarkAPI04*` benchmarks, in about three minutes, and reuses the rival samples from the pinned baseline. The record keeps the source run's ID and is labelled as a mixed-date comparison.
+Rivals don't change between Zinc commits, so a change only needs Zinc remeasured. `bench-zinc` runs the Zinc case of all 92 scenarios, plus the Zinc-only `BenchmarkAPI04*` benchmarks, in about three minutes, and reuses the rival samples from the pinned baseline. The record keeps the source run's ID and is labelled as a mixed-date comparison.
 
 ```sh
 make bench-zinc RELEASE=0.4.0 NOTE="router: cache promotion at 8"
@@ -49,6 +49,14 @@ make bench-ab SCENARIOS=LargeRouteSetParam,API04ParamInt
 ```
 
 `bench-ab` checks out the baseline commit in the user cache directory (`zincbench/ab/` under `os.UserCacheDir`, outside the repository), then measures that tree and the working tree in alternating rounds. It reports "slower" or "faster" only when the interquartile ranges of the two sample sets don't overlap. The baseline commit must contain any Zinc-only benchmark you name.
+
+## Publishing a run
+
+```sh
+make bench-report RUN=latest
+```
+
+`bench-report` writes `BENCHMARKS.md` from a recorded run: both scoreboards with every framework's wins and distance, every scenario's medians in each table, and every scenario Zinc loses. The report is generated, never edited by hand, and the homepage reads its figures from it.
 
 ## Profiling a scenario
 

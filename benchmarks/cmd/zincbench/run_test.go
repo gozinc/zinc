@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -111,5 +113,21 @@ func TestABCheckoutsLiveOutsideTheRepository(t *testing.T) {
 	other := &Store{root: filepath.Join(root, "other")}
 	if otherDir, _ := other.abRoot(); otherDir == dir {
 		t.Fatal("two repositories share an ab checkout directory")
+	}
+}
+
+func TestRivalVersionsReadsEveryRival(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "benchmarks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mod := "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.12.0\n\tgithub.com/go-chi/chi/v5 v5.3.2\n\tgithub.com/labstack/echo/v5 v5.3.1\n\tgithub.com/uptrace/bunrouter v1.0.23\n)\n"
+	if err := os.WriteFile(filepath.Join(root, "benchmarks", "go.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := (&Store{root: root}).rivalVersions()
+	want := map[string]string{"Gin": "v1.12.0", "Chi": "v5.3.2", "Echo": "v5.3.1", "BunRouter": "v1.0.23"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rivalVersions() = %v, want %v", got, want)
 	}
 }
