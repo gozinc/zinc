@@ -90,7 +90,7 @@ func abPatterns(names []string) []string {
 		if name == "" {
 			continue
 		}
-		if strings.HasPrefix(name, "API04") {
+		if zincOnlyBenchmark(name) {
 			patterns = append(patterns, "^Benchmark"+name+"$")
 			continue
 		}
@@ -207,4 +207,11 @@ func shortCommit(commit string) string {
 		return commit[:7]
 	}
 	return commit
+}
+
+// zincOnlyBenchmark reports whether name is one of the Zinc-only
+// micro-benchmarks (API04* from 0.4, P5* from 0.5), which have no framework
+// sub-benchmarks.
+func zincOnlyBenchmark(name string) bool {
+	return strings.HasPrefix(name, "API04") || strings.HasPrefix(name, "P5")
 }

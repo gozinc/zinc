@@ -3,6 +3,8 @@
 
 package zinc
 
+import "sync/atomic"
+
 // These small adapters exist only to arrange test data and invoke production
 // primitives. Routing and method-negotiation algorithms remain in production.
 func (c *Context) setParam(key, value string) {
@@ -20,6 +22,33 @@ func (rc *routeCache) set(key routeCacheKey, entry routeCacheEntry) {
 func (rc *routeCache) setMiss(key routeCacheKey, entry routeCacheEntry) {
 	rc.setMissWithMask(key, methodMaskFor(key.method), entry)
 }
+
+// routeCacheMinRoutes sizes the route-cache tests' working sets.
+const routeCacheMinRoutes = 64
+
+func (rc *routeCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
+	if rc == nil || atomic.LoadUint32(&rc.dirty) != 0 {
+		return routeCacheEntry{}, false
+	}
+	if hot := rc.hot.Load(); hot != nil && hot.key == key {
+		return hot.entry, true
+	}
+	return routeCacheEntry{}, false
+}
+
+// methodRoute is this node's route for the method, if it takes captured
+// parameters.
+func (n *radixNode) methodRoute(slot int, method string, captured int) *radixRoute {
+	if n.methods == nil {
+		return nil
+	}
+	route := n.methods.get(slot, method)
+	if route == nil || int(route.paramCount) != captured {
+		return nil
+	}
+	return route
+}
+
 func bindData(ptr any, data map[string][]string, tag string) error {
 	val, plan, err := bindTargetPlan(ptr)
 	if err != nil {

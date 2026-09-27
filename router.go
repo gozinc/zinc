@@ -7,42 +7,33 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"sort"
 	"strings"
 	"unicode/utf8"
 )
 
-// routeMap indexes static routes by method and normalized path.
-type routeMap map[string]map[string]*routeEntry
+// routeMap indexes static routes by method and exact spelling. Its values are
+// the same route objects the tree holds.
+type routeMap map[string]map[string]*radixRoute
 
-// routeEntry is the internal dispatch record for a registered static path.
-type routeEntry struct {
-	handler   HandlerFunc
-	infoIndex uint32
-}
-
-// routeTable matches exact paths through per-method maps and parameterized paths
-// through compressed, per-method radix trees. Static lookup always runs first;
-// cache and tree traversal are paid only when an exact route does not match.
+// routeTable matches every route through one compressed radix tree (tree,
+// router_tree.go) whose terminals carry a method table. Exact-spelling static
+// hits take a map probe first, which beats walking the tree's shared prefixes.
 //
-// Registration derives accepted case and trailing-slash variants, composes
-// route middleware, and appends stable metadata before serving begins. routeTable
+// Registration derives the trailing-slash spelling, composes route
+// middleware, and appends stable metadata before serving begins. routeTable
 // mutation is not safe concurrently with request dispatch.
 type routeTable struct {
 	cache  *routeCache
 	config *Config
-	// routes aliases the standard-method maps in staticRoutes and owns custom methods.
-	routes          routeMap
-	namedRoutes     map[string]uint32
-	staticRoutes    [routeMethodCount]map[string]*routeEntry
-	staticAllowed   map[string]allowedMethodSet
-	hasCustomStatic bool
-	// Per-method trees keep leaves unambiguous and avoid a method branch during matching.
-	dynamicRoots [routeMethodCount]*radixNode
-	dynamicTrees dynamicMethodTrees
+	// routes aliases the standard-method maps in staticRoutes and owns custom
+	// methods. They hold exact spellings only: the registered path and, unless
+	// routing is strict, the path without its trailing slash.
+	routes       routeMap
+	namedRoutes  map[string]uint32
+	staticRoutes [routeMethodCount]map[string]*radixRoute
+	tree         *radixNode
 	// Metadata is append-only; routes and cache entries retain stable indexes into it.
-	routeInfos        []routeMeta
-	dynamicRouteCount int
+	routeInfos []routeMeta
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
 	staticLongMethods methodMask
@@ -63,8 +54,8 @@ func (r *routeTable) add(method, path, name string, handlers ...HandlerFunc) err
 	return err
 }
 
-// register validates first, then publishes either a static map entry or a
-// radix leaf, and returns the route's metadata index. A failed registration
+// register validates first, then records the route in the tree (and a static
+// route's exact spellings in the maps), and returns its metadata index. A failed registration
 // must not consume a metadata index or invalidate caches.
 func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc) (uint32, error) {
 	if len(handlers) == 0 {
@@ -109,89 +100,43 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	info := newRouteMeta(method, registeredPath, name, finalHandler, paramNames.slice(), false)
 	mask := methodMaskFor(method)
 
-	if !isDynamic {
-		if r.routes == nil {
-			r.routes = make(map[string]map[string]*routeEntry)
-		}
-		if mask == 0 {
-			r.hasCustomStatic = true
-		}
-		methodRoutes := r.staticRoutesFor(method, mask)
-		if methodRoutes == nil {
-			methodRoutes = make(map[string]*routeEntry)
-			if slot := singleBitIndex(mask); slot >= 0 {
-				r.staticRoutes[slot] = methodRoutes
-			}
-			r.routes[method] = methodRoutes
-		}
-		strictRouting := r.config != nil && r.config.StrictRouting
-		caseSensitive := r.config == nil || r.config.CaseSensitive
-		if staticRouteHasSingleCandidate(path, strictRouting, caseSensitive) {
-			if methodRoutes[path] != nil {
-				return 0, fmt.Errorf("route already registered for %s", path)
-			}
-			route := &routeEntry{
-				handler:   precomposed,
-				infoIndex: infoIndex,
-			}
-			methodRoutes[path] = route
-			r.recordStaticRouteLength(mask, path)
-			// Index every static path, so a miss in staticAllowed is final and
-			// 404s and 405s never scan the static maps.
-			if r.staticAllowed == nil {
-				r.staticAllowed = make(map[string]allowedMethodSet)
-			}
-			r.staticAllowed[path] = addAllowedMethod(r.staticAllowed[path], method, mask)
-			r.routeInfos = append(r.routeInfos, info)
-			r.recordNamedRoute(name, infoIndex)
-			r.invalidateCache()
-			return infoIndex, nil
-		}
-		routeCandidates, routeCandidateCount := staticRouteCandidates(path, strictRouting, caseSensitive)
-		for i := 0; i < routeCandidateCount; i++ {
-			if methodRoutes[routeCandidates[i]] != nil {
-				return 0, fmt.Errorf("route already registered for %s", path)
-			}
-		}
-		route := &routeEntry{
-			handler:   precomposed,
-			infoIndex: infoIndex,
-		}
-		if r.staticAllowed == nil {
-			r.staticAllowed = make(map[string]allowedMethodSet, routeCandidateCount)
-		}
-		// Store accepted spellings up front; request dispatch remains a direct map lookup.
-		for i := 0; i < routeCandidateCount; i++ {
-			candidate := routeCandidates[i]
-			methodRoutes[candidate] = route
-			r.recordStaticRouteLength(mask, candidate)
-			r.staticAllowed[candidate] = addAllowedMethod(r.staticAllowed[candidate], method, mask)
-		}
-		r.routeInfos = append(r.routeInfos, info)
-		r.recordNamedRoute(name, infoIndex)
-		r.invalidateCache()
-		return infoIndex, nil
-	}
-
+	// The tree checks for conflicts and records the route; it is the only
+	// place a registration can fail from here on.
 	route := newRadixRoute(precomposed, infoIndex, paramNames)
-	tree := r.ensureDynamicTree(method, mask)
-	// Publish metadata only after the tree accepts the route, preserving stable indexes on failure.
-	err = tree.addBrace(path, route, r.config != nil && !r.config.CaseSensitive)
-	if err != nil {
+	if err := r.addToTree(method, mask, path, isDynamic, route); err != nil {
 		return 0, err
+	}
+	if !isDynamic {
+		r.addStaticSpellings(method, mask, path, route)
 	}
 	r.routeInfos = append(r.routeInfos, info)
 	r.recordNamedRoute(name, infoIndex)
-	r.dynamicRouteCount++
 	r.invalidateCache()
 	return infoIndex, nil
 }
 
-func (r *routeTable) staticRoutesFor(method string, mask methodMask) map[string]*routeEntry {
-	if slot := singleBitIndex(mask); slot >= 0 {
-		return r.staticRoutes[slot]
+// addStaticSpellings records a static route's exact spellings for the map
+// fast path: the registered path and, unless routing is strict, the path
+// without its trailing slash. Case-folded spellings are left to the tree.
+func (r *routeTable) addStaticSpellings(method string, mask methodMask, path string, entry *radixRoute) {
+	if r.routes == nil {
+		r.routes = make(routeMap)
 	}
-	return r.routes[method]
+	methodRoutes := r.routes[method]
+	if methodRoutes == nil {
+		methodRoutes = make(map[string]*radixRoute)
+		if slot := singleBitIndex(mask); slot >= 0 {
+			r.staticRoutes[slot] = methodRoutes
+		}
+		r.routes[method] = methodRoutes
+	}
+	methodRoutes[path] = entry
+	r.recordStaticRouteLength(mask, path)
+	strictRouting := r.config != nil && r.config.StrictRouting
+	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
+		methodRoutes[path[:len(path)-1]] = entry
+		r.recordStaticRouteLength(mask, path[:len(path)-1])
+	}
 }
 
 func (r *routeTable) recordStaticRouteLength(mask methodMask, path string) {
@@ -268,22 +213,6 @@ func (r *routeTable) routeMetaByName(name string) (routeMeta, bool) {
 	return r.routeMetaAt(index), true
 }
 
-type dynamicMethodTree struct {
-	method string
-	root   *radixNode
-}
-
-type dynamicMethodTrees []dynamicMethodTree
-
-func (trees dynamicMethodTrees) get(method string) *radixNode {
-	for i := range trees {
-		if trees[i].method == method {
-			return trees[i].root
-		}
-	}
-	return nil
-}
-
 // Find resolves a route without invoking it and returns a standalone Context
 // containing route metadata and parameters. Request dispatch reuses a pooled
 // Context instead and calls dispatchInto directly.
@@ -300,67 +229,9 @@ func (r *routeTable) routeMetaAt(index uint32) routeMeta {
 	return r.routeInfos[index]
 }
 
-// findInto is the non-executing lookup path used by Find. It preserves the
-// original path because parameter ranges must always index the caller's input,
-// even when matching a normalized or case-folded candidate.
+// findInto is the non-executing lookup used by Find (router_tree.go).
 func (r *routeTable) findInto(method, path string, ctx *Context) HandlerFunc {
-	originalPath := path
-	strictRouting := r.config != nil && r.config.StrictRouting
-	caseSensitive := r.config != nil && r.config.CaseSensitive
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-	// Static routes are the common case and must not pay radix or cache overhead.
-	if routes, ok := r.routes[method]; ok {
-		if route := lookupStaticRouteExact(routes, originalPath, path); route != nil {
-			ctx.setRoute(r.routeMetaAt(route.infoIndex))
-			return route.handler
-		}
-	}
-	if !caseSensitive {
-		if routes, ok := r.routes[method]; ok {
-			if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
-				ctx.setRoute(r.routeMetaAt(route.infoIndex))
-				return route.handler
-			}
-		}
-	}
-	if caseSensitive {
-		if handler := r.findDynamicInto(method, path, ctx); handler != nil || path == originalPath {
-			return handler
-		}
-		return r.findDynamicInto(method, originalPath, ctx)
-	}
-	if lower, changed := lowercasePath(path); changed {
-		if handler := r.findFoldedInto(method, originalPath, lower, ctx); handler != nil {
-			return handler
-		}
-	} else if handler := r.findDynamicInto(method, path, ctx); handler != nil {
-		return handler
-	}
-	if path != originalPath {
-		if lower, changed := lowercasePath(originalPath); changed {
-			return r.findFoldedInto(method, originalPath, lower, ctx)
-		}
-		return r.findDynamicInto(method, originalPath, ctx)
-	}
-	return nil
-}
-
-// findFoldedInto keeps Find's parameters in the original spelling. Cache ranges
-// for the folded lookup stay untouched; Context receives an independent copy.
-func (r *routeTable) findFoldedInto(method, original, folded string, ctx *Context) HandlerFunc {
-	handler := r.findDynamicInto(method, folded, ctx)
-	if handler == nil {
-		return nil
-	}
-	var ranges paramRanges
-	for i := 0; i < ctx.paramCount; i++ {
-		ranges.set(i, paramRange{start: uint32(ctx.pathParams[i].start), end: uint32(ctx.pathParams[i].end)})
-	}
-	remapFoldedParams(&ranges, ctx.paramCount, original, folded)
-	ctx.applyRouteParams(original, ctx.paramRoute, ranges)
-	return handler
+	return r.findTree(method, path, ctx)
 }
 
 // Unicode lowercasing can change byte widths (for example K to k). Walk both
@@ -397,222 +268,15 @@ func remapFoldedParams(values *paramRanges, count int, original, folded string) 
 	}
 }
 
-// dispatchInto resolves and invokes a route. needAllowed controls the more
-// expensive alternate-method search required for 405 and automatic OPTIONS;
-// ordinary not-found dispatch leaves it disabled.
-//
-// The lookup order is static (including case folds), cached result, dynamic tree, case-folded
-// fallback, then alternate methods. A cache entry may represent a hit or a
-// known miss, but cache state never determines routing correctness.
+// dispatchInto resolves and invokes a route (router_tree.go). needAllowed
+// asks for the methods that match on a miss, for 405 and automatic OPTIONS;
+// ordinary not-found dispatch leaves it off.
 func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
-	originalPath := path
-	strictRouting := r.config != nil && r.config.StrictRouting
-	caseSensitive := r.config != nil && r.config.CaseSensitive
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-	mask := methodMaskFor(method)
-	slot := singleBitIndex(mask)
-	var routes map[string]*routeEntry
-	if slot >= 0 {
-		routes = r.staticRoutes[slot]
-	} else {
-		routes = r.routes[method]
-	}
-	staticLengthPossible := true
-	if routes != nil && r.dynamicRouteCount != 0 && slot >= 0 {
-		// The bitset can only skip impossible map probes; it never establishes a match.
-		staticLengthPossible = r.hasStaticRouteLength(slot, mask, len(originalPath))
-		if !staticLengthPossible && path != originalPath {
-			staticLengthPossible = r.hasStaticRouteLength(slot, mask, len(path))
-		}
-	}
-	if routes != nil && staticLengthPossible {
-		if route := lookupStaticRouteExact(routes, originalPath, path); route != nil {
-			ctx.setRouteIndex(route.infoIndex)
-			return true, allowedMethodSet{}, route.handler(ctx)
-		}
-	}
-	// Case-folded static routes precede parameters just like exact static routes.
-	// ASCII folding preserves byte length, so an impossible static length also
-	// rules out a folded static match. Unicode folding can change width and must
-	// still be checked.
-	if routes != nil && !caseSensitive {
-		lookupFolded := staticLengthPossible
-		if !lookupFolded {
-			for i := 0; i < len(path); i++ {
-				if path[i] >= utf8.RuneSelf {
-					lookupFolded = true
-					break
-				}
-			}
-		}
-		if lookupFolded {
-			if route := lookupStaticRouteLower(routes, originalPath, path); route != nil {
-				ctx.setRouteIndex(route.infoIndex)
-				return true, allowedMethodSet{}, route.handler(ctx)
-			}
-		}
-	}
-
-	dispatchCacheEnabled := r.dispatchCacheEnabled()
-	var key routeCacheKey
-	if dispatchCacheEnabled {
-		key = routeCacheKey{method: method, path: originalPath}
-	}
-	if dispatchCacheEnabled && routes != nil {
-		if entry, ok := r.cache.getHot(key); ok && entry.route == nil {
-			return false, entry.allowed, nil
-		}
-	}
-	if dispatchCacheEnabled {
-		if entry, ok := r.cache.getWithMask(key, mask); ok {
-			if entry.route == nil {
-				return false, entry.allowed, nil
-			}
-			ctx.applyRouteParams(originalPath, entry.route, entry.values)
-			ctx.setRouteIndex(entry.route.infoIndex)
-			return true, allowedMethodSet{}, entry.route.handler(ctx)
-		}
-	}
-	// Capture offsets into the request path; materializing parameter strings would allocate.
-	captured := ctx.paramRangesScratch()
-	// Normalize before traversing so literal edges inside parameterized routes
-	// keep precedence over wildcard siblings regardless of request spelling.
-	matchedPath := path
-	if !caseSensitive {
-		matchedPath, _ = lowercasePath(path)
-	}
-	entry := r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
-	if path != originalPath && entry.route == nil && entry.allowed.empty() {
-		matchedPath = originalPath
-		if !caseSensitive {
-			matchedPath, _ = lowercasePath(originalPath)
-		}
-		entry = r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
-	}
-	if entry.route != nil && matchedPath != originalPath {
-		remapFoldedParams(&entry.values, int(entry.route.paramCount), originalPath, matchedPath)
-	}
-	if needAllowed && entry.route == nil {
-		entry.allowed.merge(r.lookupStaticAllowedMethods(originalPath, path, caseSensitive))
-	}
-	if dispatchCacheEnabled {
-		if entry.route != nil {
-			// Context scratch storage is request-owned; cached ranges require an independent copy.
-			entry.values = cloneParamRangesForCache(entry.values, int(entry.route.paramCount))
-		}
-		r.cache.setMissWithMask(routeCacheKey{method: method, path: originalPath}, mask, entry)
-	}
-	if entry.route == nil {
-		return false, entry.allowed, nil
-	}
-	ctx.applyRouteParams(originalPath, entry.route, entry.values)
-	ctx.setRouteIndex(entry.route.infoIndex)
-	return true, allowedMethodSet{}, entry.route.handler(ctx)
-}
-
-// findDynamicInto resolves one concrete path against one method tree. Cached
-// parameter ranges are copied into the Context; uncached ranges use its scratch
-// storage and are cloned only when the result enters the cache.
-func (r *routeTable) findDynamicInto(method, path string, ctx *Context) HandlerFunc {
-	mask := methodMaskFor(method)
-	cacheEnabled := r.dynamicCacheEnabled()
-	if cacheEnabled {
-		key := routeCacheKey{method: method, path: path}
-		if entry, ok := r.cache.getWithMask(key, mask); ok {
-			if entry.route == nil {
-				return nil
-			}
-			ctx.applyRouteParams(path, entry.route, entry.values)
-			ctx.setRoute(r.routeMetaAt(entry.route.infoIndex))
-			return entry.route.handler
-		}
-	}
-	root := r.dynamicTree(method, mask)
-	if root == nil {
-		return nil
-	}
-	captured := ctx.paramRangesScratch()
-	if captured == nil {
-		captured = &paramRanges{}
-	}
-	matched := lookupDynamicRoute(root, path, captured)
-	if matched == nil {
-		return nil
-	}
-	ctx.applyRouteParams(path, matched, *captured)
-	ctx.setRoute(r.routeMetaAt(matched.infoIndex))
-	if cacheEnabled {
-		entry := routeCacheEntry{
-			route:  matched,
-			values: cloneParamRangesForCache(*captured, int(matched.paramCount)),
-		}
-		key := routeCacheKey{method: method, path: path}
-		r.cache.setMissWithMask(key, mask, entry)
-	}
-	return matched.handler
-}
-
-func (r *routeTable) dynamicCacheEnabled() bool {
-	// Small trees are cheaper to walk than to synchronize through the cache.
-	return r.cache != nil && r.dynamicRouteCount >= routeCacheMinRoutes
+	return r.dispatchTree(method, path, needAllowed, ctx)
 }
 
 func (r *routeTable) dispatchCacheEnabled() bool {
 	return r.cache != nil
-}
-
-// lookupDynamicDispatch returns the same shape stored by RouteCache so the
-// caller can cache positive matches and method-aware misses without adapting it.
-func (r *routeTable) lookupDynamicDispatch(method string, mask methodMask, path string, needAllowed bool, captured *paramRanges) routeCacheEntry {
-	if r.dynamicRouteCount == 0 {
-		return routeCacheEntry{}
-	}
-	if captured == nil {
-		captured = &paramRanges{}
-	}
-	if root := r.dynamicTree(method, mask); root != nil {
-		if route := lookupDynamicRoute(root, path, captured); route != nil {
-			return routeCacheEntry{
-				route:  route,
-				values: *captured,
-			}
-		}
-	}
-	if !needAllowed {
-		return routeCacheEntry{}
-	}
-	return routeCacheEntry{allowed: r.lookupAllowedInDynamicTrees(path, method)}
-}
-
-func (r *routeTable) dynamicTree(method string, mask methodMask) *radixNode {
-	if slot := singleBitIndex(mask); slot >= 0 {
-		return r.dynamicRoots[slot]
-	}
-	return r.dynamicTrees.get(method)
-}
-
-func (r *routeTable) ensureDynamicTree(method string, mask methodMask) *radixNode {
-	if slot := singleBitIndex(mask); slot >= 0 {
-		if r.dynamicRoots[slot] == nil {
-			r.dynamicRoots[slot] = &radixNode{kind: radixRoot}
-		}
-		return r.dynamicRoots[slot]
-	}
-	if root := r.dynamicTrees.get(method); root != nil {
-		return root
-	}
-	root := &radixNode{kind: radixRoot}
-	r.dynamicTrees = append(r.dynamicTrees, dynamicMethodTree{method: method, root: root})
-	return root
-}
-
-func lookupDynamicRoute(root *radixNode, path string, captured *paramRanges) *radixRoute {
-	if root == nil {
-		return nil
-	}
-	return root.lookup(path, 0, captured, 0)
 }
 
 type allowedMethodSet struct {
@@ -661,73 +325,7 @@ func init() {
 	}
 }
 
-func (r *routeTable) lookupAllowedInDynamicTrees(path, excludeMethod string) allowedMethodSet {
-	if !r.hasAlternateDynamicMethods(excludeMethod) {
-		return allowedMethodSet{}
-	}
-	return r.lookupAllowedInDynamicRoots(path, excludeMethod)
-}
-
-func (r *routeTable) hasAlternateDynamicMethods(excludeMethod string) bool {
-	for slot, root := range r.dynamicRoots {
-		if root == nil {
-			continue
-		}
-		if routeMethods[slot] != excludeMethod {
-			return true
-		}
-	}
-	for i := range r.dynamicTrees {
-		tree := r.dynamicTrees[i]
-		if tree.root != nil && tree.method != excludeMethod {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *routeTable) lookupAllowedInDynamicRoots(path, excludeMethod string) allowedMethodSet {
-	var allowed allowedMethodSet
-	for slot, root := range r.dynamicRoots {
-		if root == nil {
-			continue
-		}
-		method := routeMethods[slot]
-		if method == excludeMethod {
-			continue
-		}
-		if root.matchesPath(path, 0) {
-			allowed.addMethod(method)
-		}
-	}
-	for i := range r.dynamicTrees {
-		tree := r.dynamicTrees[i]
-		if tree.method == excludeMethod || tree.root == nil {
-			continue
-		}
-		if tree.root.matchesPath(path, 0) {
-			allowed.addMethod(tree.method)
-		}
-	}
-	return allowed
-}
-
-func (r *routeTable) lookupStaticAllowedMethods(originalPath, path string, caseSensitive bool) allowedMethodSet {
-	if len(r.staticAllowed) != 0 {
-		if allowed := lookupStaticAllowed(r.staticAllowed, originalPath, path, caseSensitive); !allowed.empty() {
-			return allowed
-		}
-	}
-	// staticAllowed holds every static path, so a miss there is final. Apps
-	// with static routes on custom methods keep the scan, which orders those
-	// methods as before.
-	if !r.hasCustomStatic {
-		return allowedMethodSet{}
-	}
-	return r.lookupStaticAllowedByScan(originalPath, path, caseSensitive)
-}
-
-func lookupStaticRouteExact(methodRoutes map[string]*routeEntry, originalPath, path string) *routeEntry {
+func lookupStaticRouteExact(methodRoutes map[string]*radixRoute, originalPath, path string) *radixRoute {
 	if len(methodRoutes) == 0 {
 		return nil
 	}
@@ -740,164 +338,6 @@ func lookupStaticRouteExact(methodRoutes map[string]*routeEntry, originalPath, p
 		}
 	}
 	return nil
-}
-
-func lookupStaticRouteLower(methodRoutes map[string]*routeEntry, originalPath, path string) *routeEntry {
-	if len(methodRoutes) == 0 {
-		return nil
-	}
-	if lower, changed := lowercasePath(originalPath); changed {
-		if route := methodRoutes[lower]; route != nil {
-			return route
-		}
-	}
-	if path != originalPath {
-		if lower, changed := lowercasePath(path); changed {
-			if route := methodRoutes[lower]; route != nil {
-				return route
-			}
-		}
-	}
-	return nil
-}
-
-func lookupStaticAllowed(staticAllowed map[string]allowedMethodSet, originalPath, path string, caseSensitive bool) allowedMethodSet {
-	if len(staticAllowed) == 0 {
-		return allowedMethodSet{}
-	}
-	if allowed := staticAllowed[originalPath]; !allowed.empty() {
-		return allowed
-	}
-	if path != originalPath {
-		if allowed := staticAllowed[path]; !allowed.empty() {
-			return allowed
-		}
-	}
-	if caseSensitive {
-		return allowedMethodSet{}
-	}
-	if lower, changed := lowercasePath(originalPath); changed {
-		if allowed := staticAllowed[lower]; !allowed.empty() {
-			return allowed
-		}
-	}
-	if path != originalPath {
-		if lower, changed := lowercasePath(path); changed {
-			if allowed := staticAllowed[lower]; !allowed.empty() {
-				return allowed
-			}
-		}
-	}
-	return allowedMethodSet{}
-}
-
-// lookupStaticAllowedByScan is the fallback for routes that have a single
-// registration candidate and therefore do not need entries in staticAllowed.
-func (r *routeTable) lookupStaticAllowedByScan(originalPath, path string, caseSensitive bool) allowedMethodSet {
-	if len(r.routes) == 0 {
-		return allowedMethodSet{}
-	}
-	var allowed allowedMethodSet
-	for slot, method := range routeMethods {
-		routes := r.staticRoutes[slot]
-		if len(routes) == 0 {
-			continue
-		}
-		if lookupStaticRouteExact(routes, originalPath, path) != nil {
-			allowed.mask |= methodMaskFor(method)
-			continue
-		}
-		if !caseSensitive && lookupStaticRouteLower(routes, originalPath, path) != nil {
-			allowed.mask |= methodMaskFor(method)
-		}
-	}
-	if !r.hasCustomStatic {
-		return allowed
-	}
-	var custom []string
-	for method := range r.routes {
-		if methodMaskFor(method) == 0 {
-			custom = append(custom, method)
-		}
-	}
-	if len(custom) == 0 {
-		return allowed
-	}
-	sort.Strings(custom)
-	for _, method := range custom {
-		routes := r.routes[method]
-		if len(routes) == 0 {
-			continue
-		}
-		if lookupStaticRouteExact(routes, originalPath, path) != nil {
-			allowed.addMethod(method)
-			continue
-		}
-		if !caseSensitive && lookupStaticRouteLower(routes, originalPath, path) != nil {
-			allowed.addMethod(method)
-		}
-	}
-	return allowed
-}
-
-// staticRouteCandidates expands configuration-dependent spellings during
-// registration. Four slots cover original, slash-normalized, case-folded, and
-// case-folded-plus-normalized forms without allocating a temporary slice.
-func staticRouteCandidates(path string, strictRouting, caseSensitive bool) ([4]string, int) {
-	var candidates [4]string
-	count := 0
-	addCandidate := func(candidate string) {
-		if candidate == "" {
-			return
-		}
-		for i := 0; i < count; i++ {
-			if candidates[i] == candidate {
-				return
-			}
-		}
-		candidates[count] = candidate
-		count++
-	}
-
-	addCandidate(path)
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		addCandidate(path[:len(path)-1])
-	}
-	if caseSensitive {
-		return candidates, count
-	}
-	if lower, changed := lowercasePath(path); changed {
-		addCandidate(lower)
-		if !strictRouting && len(lower) > 1 && lower[len(lower)-1] == '/' {
-			addCandidate(lower[:len(lower)-1])
-		}
-	}
-	return candidates, count
-}
-
-func staticRouteHasSingleCandidate(path string, strictRouting, caseSensitive bool) bool {
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		return false
-	}
-	if caseSensitive {
-		return true
-	}
-	for i := 0; i < len(path); i++ {
-		c := path[i]
-		if (c >= 'A' && c <= 'Z') || c >= 0x80 {
-			return false
-		}
-	}
-	return true
-}
-
-func addAllowedMethod(allowed allowedMethodSet, method string, mask methodMask) allowedMethodSet {
-	if mask != 0 {
-		allowed.mask |= mask
-		return allowed
-	}
-	allowed.addMethod(method)
-	return allowed
 }
 
 func singleBitIndex(mask methodMask) int {
@@ -960,7 +400,7 @@ func (s allowedMethodSet) header(autoHead, autoOptions bool) string {
 	if len(s.extra) == 0 {
 		return allowHeader(s.mask)
 	}
-	return buildAllowHeaderWithExtra(s.mask, s.extra)
+	return buildAllowHeaderWithExtra(s.mask, sortedExtra(s.extra))
 }
 
 func methodMaskFor(method string) methodMask {
@@ -1026,4 +466,43 @@ func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
 		builder.WriteString(method)
 	}
 	return builder.String()
+}
+
+// addToTree records route in the route tree. A static route registered with
+// a trailing slash is also reachable without it unless routing is strict, as
+// its map spellings made it before.
+func (r *routeTable) addToTree(method string, mask methodMask, path string, isDynamic bool, route *radixRoute) error {
+	if r.tree == nil {
+		r.tree = &radixNode{kind: radixRoot}
+	}
+	strictRouting := r.config != nil && r.config.StrictRouting
+	caseInsensitive := r.config != nil && !r.config.CaseSensitive
+	paths := [2]string{path}
+	count := 1
+	if !isDynamic && !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
+		paths[1] = path[:len(path)-1]
+		count = 2
+	}
+	slot := singleBitIndex(mask)
+	// Create every spelling's node first: creating one can split a node
+	// another spelling returned. Then look them up again (which creates
+	// nothing) and check them all before recording any, so a conflict leaves
+	// no trace of the route in the tree.
+	var nodes [2]*radixNode
+	for i := 0; i < count; i++ {
+		r.tree.nodeFor(paths[i], caseInsensitive)
+	}
+	for i := 0; i < count; i++ {
+		nodes[i] = r.tree.nodeFor(paths[i], caseInsensitive)
+		if nodes[i].methods != nil && nodes[i].methods.get(slot, method) != nil {
+			return fmt.Errorf("route already registered for %s", path)
+		}
+	}
+	for i := 0; i < count; i++ {
+		if nodes[i].methods == nil {
+			nodes[i].methods = &nodeMethods{}
+		}
+		nodes[i].methods.set(slot, method, route)
+	}
+	return nil
 }
