@@ -31,6 +31,7 @@ type routeTable struct {
 	namedRoutes  map[string]uint32
 	staticRoutes [routeMethodCount]map[string]*radixRoute
 	tree         *radixNode
+	arena        treeArena
 	// Metadata is append-only; routes retain stable indexes into it.
 	routeInfos []routeMeta
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
@@ -101,7 +102,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 
 	// The tree checks for conflicts and records the route; it is the only
 	// place a registration can fail from here on.
-	route := newRadixRoute(precomposed, infoIndex, paramNames)
+	route := newRadixRoute(&r.arena, precomposed, infoIndex, paramNames)
 	if err := r.addToTree(method, mask, path, isDynamic, route); err != nil {
 		return 0, err
 	}
@@ -461,7 +462,8 @@ func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
 // its map spellings made it before.
 func (r *routeTable) addToTree(method string, mask methodMask, path string, isDynamic bool, route *radixRoute) error {
 	if r.tree == nil {
-		r.tree = &radixNode{kind: radixRoot}
+		r.tree = r.arena.node()
+		r.tree.kind = radixRoot
 	}
 	strictRouting := r.config != nil && r.config.StrictRouting
 	caseInsensitive := r.config != nil && !r.config.CaseSensitive
@@ -478,17 +480,17 @@ func (r *routeTable) addToTree(method string, mask methodMask, path string, isDy
 	// no trace of the route in the tree.
 	var nodes [2]*radixNode
 	for i := 0; i < count; i++ {
-		r.tree.nodeFor(paths[i], caseInsensitive)
+		r.tree.nodeFor(&r.arena, paths[i], caseInsensitive)
 	}
 	for i := 0; i < count; i++ {
-		nodes[i] = r.tree.nodeFor(paths[i], caseInsensitive)
+		nodes[i] = r.tree.nodeFor(&r.arena, paths[i], caseInsensitive)
 		if nodes[i].methods != nil && nodes[i].methods.get(slot, method) != nil {
 			return fmt.Errorf("route already registered for %s", path)
 		}
 	}
 	for i := 0; i < count; i++ {
 		if nodes[i].methods == nil {
-			nodes[i].methods = &nodeMethods{}
+			nodes[i].methods = r.arena.methodTable()
 		}
 		nodes[i].methods.set(slot, method, route)
 	}

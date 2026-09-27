@@ -71,11 +71,10 @@ func nextSlash(path string) int {
 	return strings.IndexByte(path, '/')
 }
 
-func newRadixRoute(handler HandlerFunc, infoIndex uint32, names collectedRouteParams) *radixRoute {
-	route := &radixRoute{
-		handler:   handler,
-		infoIndex: infoIndex,
-	}
+func newRadixRoute(a *treeArena, handler HandlerFunc, infoIndex uint32, names collectedRouteParams) *radixRoute {
+	route := a.route()
+	route.handler = handler
+	route.infoIndex = infoIndex
 	count := names.count
 	route.paramCount = uint16(count)
 	inlineCount := count
@@ -155,13 +154,14 @@ func (p paramRanges) at(index int) paramRange {
 // addStaticPath inserts a literal into the compressed tree. When an existing
 // prefix partially overlaps the new path, the common prefix becomes the parent:
 // inserting "/teams" beside "/terms" turns "/te" into their shared node.
-func (n *radixNode) addStaticPath(path string) *radixNode {
+func (n *radixNode) addStaticPath(a *treeArena, path string) *radixNode {
 	current := n
 	remaining := path
 	for len(remaining) > 0 {
 		idx := current.staticChildIndex(remaining[0])
 		if idx < 0 {
-			child := &radixNode{kind: radixStatic, prefix: remaining}
+			child := a.node()
+			child.kind, child.prefix = radixStatic, remaining
 			current.addStaticChild(child)
 			return child
 		}
@@ -172,7 +172,8 @@ func (n *radixNode) addStaticPath(path string) *radixNode {
 			remaining = remaining[common:]
 			continue
 		}
-		existing := &radixNode{
+		existing := a.node()
+		*existing = radixNode{
 			kind:          radixStatic,
 			prefix:        child.prefix[common:],
 			indices:       child.indices,
@@ -193,27 +194,30 @@ func (n *radixNode) addStaticPath(path string) *radixNode {
 		if common == len(remaining) {
 			return child
 		}
-		inserted := &radixNode{kind: radixStatic, prefix: remaining[common:]}
+		inserted := a.node()
+		inserted.kind, inserted.prefix = radixStatic, remaining[common:]
 		child.addStaticChild(inserted)
 		return inserted
 	}
 	return current
 }
 
-func (n *radixNode) addParamChild() *radixNode {
+func (n *radixNode) addParamChild(a *treeArena) *radixNode {
 	if n.paramChild != nil {
 		return n.paramChild
 	}
-	child := &radixNode{kind: radixParam}
+	child := a.node()
+	child.kind = radixParam
 	n.paramChild = child
 	return child
 }
 
-func (n *radixNode) addCatchAllChild() *radixNode {
+func (n *radixNode) addCatchAllChild(a *treeArena) *radixNode {
 	if n.catchAllChild != nil {
 		return n.catchAllChild
 	}
-	child := &radixNode{kind: radixCatchAll}
+	child := a.node()
+	child.kind = radixCatchAll
 	n.catchAllChild = child
 	return child
 }

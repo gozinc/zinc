@@ -253,11 +253,11 @@ func TestRadixNodeBranches(t *testing.T) {
 	}
 
 	paramHolder := &radixNode{}
-	if first, second := paramHolder.addParamChild(), paramHolder.addParamChild(); first != second {
+	if first, second := paramHolder.addParamChild(nil), paramHolder.addParamChild(nil); first != second {
 		t.Fatal("param child should be reused")
 	}
 	catchAllHolder := &radixNode{}
-	if first, second := catchAllHolder.addCatchAllChild(), catchAllHolder.addCatchAllChild(); first != second {
+	if first, second := catchAllHolder.addCatchAllChild(nil), catchAllHolder.addCatchAllChild(nil); first != second {
 		t.Fatal("catch-all child should be reused")
 	}
 
