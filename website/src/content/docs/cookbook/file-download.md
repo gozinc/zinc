@@ -46,5 +46,7 @@ Put a CSV such as `exports/monthly.csv` beside the app, then request it:
 curl -OJ http://localhost:8080/reports/monthly
 ```
 
-`Download` sets an attachment disposition. `Inline` asks the browser to display
-supported content. Use `c.File` when no content-disposition header is needed.
+`Attachment` tells the browser to save the file under the name you give. `Inline` asks it to
+display the file instead, when it can. Use `c.File` when you don't need either.
+
+The `/manual` route expects a PDF at `public/manual.pdf`.

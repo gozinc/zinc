@@ -111,7 +111,7 @@ A zero `Rate` or `Capacity` now uses the defaults of 10 tokens a second and a bu
 
 ## Request bodies
 
-`Config.BodyLimit`, 4 MiB by default, now applies to URL-encoded forms, multipart forms, and file uploads as well as JSON, XML, YAML, TOML, and raw bodies. Larger requests get `413 Request Entity Too Large`. If you accept big uploads, raise the application budget, and use the [Body Limit](/middleware/body-limit/) middleware to keep other routes lower:
+`Config.BodyLimit`, 4 MiB by default, now applies to URL-encoded forms, multipart forms, and file uploads as well as JSON, XML, YAML, TOML, and raw bodies. Larger requests get `413 Request Entity Too Large`. If you accept big uploads, raise the application budget, and use the [Body Limit](/middleware/bodylimit/) middleware to keep other routes lower:
 
 ```go
 cfg := zinc.DefaultConfig

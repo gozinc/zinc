@@ -3,13 +3,7 @@ title: SQLite CRUD API
 description: A compact API example with request binding, route params, and JSON responses.
 ---
 
-This recipe is the simplest "real API" example in the cookbook:
-
-- SQLite storage
-- request binding
-- route params
-- JSON responses
-- create, list, update, and delete flows
+A to-do API that stores its data in SQLite: create, list, complete and delete to-dos, with JSON in and out. It's the [CRUD recipe](/cookbook/crud/) backed by a real database.
 
 ## Setup
 
@@ -18,6 +12,8 @@ go mod init zinc-sqlite
 go get github.com/0mjs/zinc
 go get github.com/mattn/go-sqlite3
 ```
+
+`go-sqlite3` uses cgo, so you need a C compiler, such as Xcode's command line tools on macOS or `gcc` on Linux.
 
 ## Application
 
@@ -28,8 +24,8 @@ import (
 	"database/sql"
 	"log"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/0mjs/zinc"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Todo struct {
@@ -90,7 +86,7 @@ func main() {
 			return err // 400 with the failing field
 		}
 		if input.Title == "" {
-			return zinc.BadRequest("title is required")
+			return zinc.UnprocessableEntity("title is required")
 		}
 
 		result, err := db.Exec("insert into todos(title, done) values(?, 0)", input.Title)
@@ -107,30 +103,32 @@ func main() {
 	})
 
 	app.Patch("/todos/{id}/done", func(c *zinc.Context) error {
-		id := c.Param("id")
-		if id == "" {
-			return zinc.BadRequest("id is required")
+		id, err := zinc.Param[int](c, "id")
+		if err != nil {
+			return err // 400 when the id isn't a number
 		}
-
-		_, err := db.Exec("update todos set done = 1 where id = ?", id)
+		result, err := db.Exec("update todos set done = 1 where id = ?", id)
 		if err != nil {
 			return err
 		}
-
+		if n, _ := result.RowsAffected(); n == 0 {
+			return zinc.NotFound("todo not found")
+		}
 		return c.NoContent()
 	})
 
 	app.Delete("/todos/{id}", func(c *zinc.Context) error {
-		id := c.Param("id")
-		if id == "" {
-			return zinc.BadRequest("id is required")
-		}
-
-		_, err := db.Exec("delete from todos where id = ?", id)
+		id, err := zinc.Param[int](c, "id")
 		if err != nil {
 			return err
 		}
-
+		result, err := db.Exec("delete from todos where id = ?", id)
+		if err != nil {
+			return err
+		}
+		if n, _ := result.RowsAffected(); n == 0 {
+			return zinc.NotFound("todo not found")
+		}
 		return c.NoContent()
 	})
 
@@ -149,13 +147,3 @@ curl http://localhost:8080/todos
 curl -X PATCH http://localhost:8080/todos/1/done
 curl -X DELETE http://localhost:8080/todos/1
 ```
-
-## Why this recipe matters
-
-This is the most direct example of Zinc as an API framework:
-
-- bind request input
-- validate what you need
-- use route params
-- return JSON and status codes
-- keep the handler flow explicit
