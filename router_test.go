@@ -6,6 +6,7 @@ package zinc
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
@@ -1055,4 +1056,20 @@ func buildSequentialParamRoute(count int) (string, string, []string, paramRanges
 func allowedHeaderForTest(r *routeTable, path string) string {
 	_, allowed, _ := r.dispatchInto("UNREGISTERED", path, true, &Context{})
 	return allowed.header(true, true)
+}
+
+// Allow must list every method a static path answers, including routes with a
+// single accepted spelling next to routes with several (GET /v1/ also answers
+// /v1). v0.4.0 dropped DELETE here; FuzzRouterReference found it.
+func TestAllowListsEveryStaticMethod(t *testing.T) {
+	app := New()
+	app.Get("/v1/", func(c *Context) error { return c.String("get") })
+	app.Delete("/v1", func(c *Context) error { return c.String("delete") })
+	for _, method := range []string{MethodOptions, MethodPut} {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest(method, "/v1", nil))
+		if got, want := rec.Header().Get(HeaderAllow), "GET, HEAD, DELETE, OPTIONS"; got != want {
+			t.Errorf("%s /v1: Allow = %q, want %q", method, got, want)
+		}
+	}
 }

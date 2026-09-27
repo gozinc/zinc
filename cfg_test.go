@@ -42,8 +42,9 @@ func TestZeroValueConfigKeepsDefaults(t *testing.T) {
 					t.Errorf("%s: %d allow=%q, want %d allow=%q", tc.method, rec.Code, rec.Header().Get(HeaderAllow), tc.status, tc.allow)
 				}
 			}
-			if app.router.cache == nil {
-				t.Error("route cache disabled by a zero RouteCacheSize")
+			// Since 0.5 the route cache is off unless RouteCacheSize > 0.
+			if app.router.cache != nil {
+				t.Error("route cache enabled by a zero RouteCacheSize")
 			}
 			cfg := app.config
 			if cfg.BodyLimit != DefaultBodyLimit || cfg.ReadTimeout != DefaultReadTimeout ||

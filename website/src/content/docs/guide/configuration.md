@@ -23,7 +23,13 @@ For limits and timeouts, `0` means the default and a negative value turns the li
 | `DisableAutoHead` | `false` | Automatic `HEAD` is on: `HEAD` is answered by the matching `GET` route, without a body. Set `true` to turn it off. |
 | `DisableAutoOptions` | `false` | Automatic `OPTIONS` is on: it is answered with `204` and an `Allow` header. Set `true` to turn it off. |
 | `DisableMethodNotAllowed` | `false` | When the path exists for other methods, Zinc returns `405` with `Allow`. Set `true` to return `404` instead. |
-| `RouteCacheSize` | `1000` | Number of concrete dynamic paths cached for faster matching. `-1` disables the cache. |
+| `RouteCacheSize` | `0` (off) | Caches up to this many concrete dynamic paths, for example `1000`. Off by default: see [the route cache](#the-route-cache). |
+
+### The route cache
+
+Zinc can remember the result of matching each concrete path, such as `/users/42`. That only pays off when a small set of exact URLs repeats: a cache hit is barely faster than walking the route tree, and every miss costs a lookup and an insert. Real traffic with IDs in its URLs mostly misses. On the benchmark suite, turning the cache off made parameter routes about 50% faster, 404s about 34% faster, and parallel traffic many times faster. It was slower only when a single URL repeated.
+
+So the cache is off by default. Turn it on with `RouteCacheSize: 1000` (or another size) only if your traffic is dominated by a few exact dynamic URLs, and measure the difference.
 
 ## Server
 
