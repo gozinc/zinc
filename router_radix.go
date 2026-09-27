@@ -324,10 +324,14 @@ func (n *radixNode) staticChildIndex(b byte) int {
 // then catch-all. A failed static branch may therefore fall back to a wildcard
 // sibling. offset always refers to the original path, while path is the
 // unconsumed suffix used by the current node.
-func (n *radixNode) lookup(path string, offset int, values *paramRanges, captured int) *radixRoute {
+func (n *radixNode) lookup(path string, offset int, values *paramRanges, captured int, fold bool) *radixRoute {
 	switch n.kind {
 	case radixStatic:
-		if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
+		if fold {
+			if !hasFoldedPrefix(path, n.prefix) {
+				return nil
+			}
+		} else if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
 			return nil
 		}
 		offset += len(n.prefix)
@@ -364,22 +368,26 @@ func (n *radixNode) lookup(path string, offset int, values *paramRanges, capture
 			return matched
 		}
 		if n.catchAllChild != nil {
-			return n.catchAllChild.lookup(path, offset, values, captured)
+			return n.catchAllChild.lookup(path, offset, values, captured, fold)
 		}
 		return nil
 	}
-	if idx := n.staticChildIndex(path[0]); idx >= 0 {
-		if matched := n.children[idx].lookup(path, offset, values, captured); matched != nil {
+	first := path[0]
+	if fold {
+		first = foldByte(first)
+	}
+	if idx := n.staticChildIndex(first); idx >= 0 {
+		if matched := n.children[idx].lookup(path, offset, values, captured, fold); matched != nil {
 			return matched
 		}
 	}
 	if n.paramChild != nil {
-		if matched := n.paramChild.lookup(path, offset, values, captured); matched != nil {
+		if matched := n.paramChild.lookup(path, offset, values, captured, fold); matched != nil {
 			return matched
 		}
 	}
 	if n.catchAllChild != nil {
-		if matched := n.catchAllChild.lookup(path, offset, values, captured); matched != nil {
+		if matched := n.catchAllChild.lookup(path, offset, values, captured, fold); matched != nil {
 			return matched
 		}
 	}
@@ -388,10 +396,14 @@ func (n *radixNode) lookup(path string, offset int, values *paramRanges, capture
 
 // matchesPath mirrors lookup without recording parameter ranges. Method
 // negotiation uses it to discover whether another method owns the same shape.
-func (n *radixNode) matchesPath(path string, captured int) bool {
+func (n *radixNode) matchesPath(path string, captured int, fold bool) bool {
 	switch n.kind {
 	case radixStatic:
-		if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
+		if fold {
+			if !hasFoldedPrefix(path, n.prefix) {
+				return false
+			}
+		} else if len(path) < len(n.prefix) || path[:len(n.prefix)] != n.prefix {
 			return false
 		}
 		path = path[len(n.prefix):]
@@ -414,15 +426,19 @@ func (n *radixNode) matchesPath(path string, captured int) bool {
 		if n.hasPathRoute(captured) {
 			return true
 		}
-		return n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured)
+		return n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured, fold)
 	}
-	if idx := n.staticChildIndex(path[0]); idx >= 0 && n.children[idx].matchesPath(path, captured) {
+	first := path[0]
+	if fold {
+		first = foldByte(first)
+	}
+	if idx := n.staticChildIndex(first); idx >= 0 && n.children[idx].matchesPath(path, captured, fold) {
 		return true
 	}
-	if n.paramChild != nil && n.paramChild.matchesPath(path, captured) {
+	if n.paramChild != nil && n.paramChild.matchesPath(path, captured, fold) {
 		return true
 	}
-	if n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured) {
+	if n.catchAllChild != nil && n.catchAllChild.matchesPath(path, captured, fold) {
 		return true
 	}
 	return false

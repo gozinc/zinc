@@ -479,17 +479,25 @@ func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Co
 	captured := ctx.paramRangesScratch()
 	// Normalize before traversing so literal edges inside parameterized routes
 	// keep precedence over wildcard siblings regardless of request spelling.
+	// An ASCII path with capital letters is walked in place, folding case
+	// byte by byte, instead of being copied to lowercase. Other paths are
+	// lowercased (a no-op for lowercase ASCII) and walked as before.
 	matchedPath := path
+	fold := false
 	if !caseSensitive {
-		matchedPath, _ = lowercasePath(path)
+		if hasUpper, ascii := asciiFoldKind(originalPath); ascii {
+			fold = hasUpper
+		} else {
+			matchedPath, _ = lowercasePath(path)
+		}
 	}
-	entry := r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
+	entry := r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured, fold)
 	if path != originalPath && entry.route == nil && entry.allowed.empty() {
 		matchedPath = originalPath
-		if !caseSensitive {
+		if !caseSensitive && !fold {
 			matchedPath, _ = lowercasePath(originalPath)
 		}
-		entry = r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
+		entry = r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured, fold)
 	}
 	if entry.route != nil && matchedPath != originalPath {
 		remapFoldedParams(&entry.values, int(entry.route.paramCount), originalPath, matchedPath)
@@ -537,7 +545,7 @@ func (r *routeTable) findDynamicInto(method, path string, ctx *Context) HandlerF
 	if captured == nil {
 		captured = &paramRanges{}
 	}
-	matched := lookupDynamicRoute(root, path, captured)
+	matched := lookupDynamicRoute(root, path, captured, false)
 	if matched == nil {
 		return nil
 	}
@@ -565,7 +573,10 @@ func (r *routeTable) dispatchCacheEnabled() bool {
 
 // lookupDynamicDispatch returns the same shape stored by RouteCache so the
 // caller can cache positive matches and method-aware misses without adapting it.
-func (r *routeTable) lookupDynamicDispatch(method string, mask methodMask, path string, needAllowed bool, captured *paramRanges) routeCacheEntry {
+// lookupDynamicDispatch walks the method's tree. With fold, path is matched
+// ignoring ASCII case against the lowercase labels of a case-insensitive
+// tree; path must then be all ASCII, so parameter offsets need no remapping.
+func (r *routeTable) lookupDynamicDispatch(method string, mask methodMask, path string, needAllowed bool, captured *paramRanges, fold bool) routeCacheEntry {
 	if r.dynamicRouteCount == 0 {
 		return routeCacheEntry{}
 	}
@@ -573,7 +584,7 @@ func (r *routeTable) lookupDynamicDispatch(method string, mask methodMask, path 
 		captured = &paramRanges{}
 	}
 	if root := r.dynamicTree(method, mask); root != nil {
-		if route := lookupDynamicRoute(root, path, captured); route != nil {
+		if route := lookupDynamicRoute(root, path, captured, fold); route != nil {
 			return routeCacheEntry{
 				route:  route,
 				values: *captured,
@@ -583,7 +594,7 @@ func (r *routeTable) lookupDynamicDispatch(method string, mask methodMask, path 
 	if !needAllowed {
 		return routeCacheEntry{}
 	}
-	return routeCacheEntry{allowed: r.lookupAllowedInDynamicTrees(path, method)}
+	return routeCacheEntry{allowed: r.lookupAllowedInDynamicTrees(path, method, fold)}
 }
 
 func (r *routeTable) dynamicTree(method string, mask methodMask) *radixNode {
@@ -608,11 +619,11 @@ func (r *routeTable) ensureDynamicTree(method string, mask methodMask) *radixNod
 	return root
 }
 
-func lookupDynamicRoute(root *radixNode, path string, captured *paramRanges) *radixRoute {
+func lookupDynamicRoute(root *radixNode, path string, captured *paramRanges, fold bool) *radixRoute {
 	if root == nil {
 		return nil
 	}
-	return root.lookup(path, 0, captured, 0)
+	return root.lookup(path, 0, captured, 0, fold)
 }
 
 type allowedMethodSet struct {
@@ -661,11 +672,11 @@ func init() {
 	}
 }
 
-func (r *routeTable) lookupAllowedInDynamicTrees(path, excludeMethod string) allowedMethodSet {
+func (r *routeTable) lookupAllowedInDynamicTrees(path, excludeMethod string, fold bool) allowedMethodSet {
 	if !r.hasAlternateDynamicMethods(excludeMethod) {
 		return allowedMethodSet{}
 	}
-	return r.lookupAllowedInDynamicRoots(path, excludeMethod)
+	return r.lookupAllowedInDynamicRoots(path, excludeMethod, fold)
 }
 
 func (r *routeTable) hasAlternateDynamicMethods(excludeMethod string) bool {
@@ -686,7 +697,7 @@ func (r *routeTable) hasAlternateDynamicMethods(excludeMethod string) bool {
 	return false
 }
 
-func (r *routeTable) lookupAllowedInDynamicRoots(path, excludeMethod string) allowedMethodSet {
+func (r *routeTable) lookupAllowedInDynamicRoots(path, excludeMethod string, fold bool) allowedMethodSet {
 	var allowed allowedMethodSet
 	for slot, root := range r.dynamicRoots {
 		if root == nil {
@@ -696,7 +707,7 @@ func (r *routeTable) lookupAllowedInDynamicRoots(path, excludeMethod string) all
 		if method == excludeMethod {
 			continue
 		}
-		if root.matchesPath(path, 0) {
+		if root.matchesPath(path, 0, fold) {
 			allowed.addMethod(method)
 		}
 	}
@@ -705,7 +716,7 @@ func (r *routeTable) lookupAllowedInDynamicRoots(path, excludeMethod string) all
 		if tree.method == excludeMethod || tree.root == nil {
 			continue
 		}
-		if tree.root.matchesPath(path, 0) {
+		if tree.root.matchesPath(path, 0, fold) {
 			allowed.addMethod(tree.method)
 		}
 	}
@@ -746,19 +757,30 @@ func lookupStaticRouteLower(methodRoutes map[string]*routeEntry, originalPath, p
 	if len(methodRoutes) == 0 {
 		return nil
 	}
-	if lower, changed := lowercasePath(originalPath); changed {
-		if route := methodRoutes[lower]; route != nil {
-			return route
-		}
+	if route := lookupStaticLowered(methodRoutes, originalPath); route != nil {
+		return route
 	}
 	if path != originalPath {
-		if lower, changed := lowercasePath(path); changed {
-			if route := methodRoutes[lower]; route != nil {
-				return route
-			}
-		}
+		return lookupStaticLowered(methodRoutes, path)
 	}
 	return nil
+}
+
+// lookupStaticLowered probes m with path lowercased. An ASCII path is
+// lowercased into a stack buffer, and m[string(b)] doesn't allocate.
+func lookupStaticLowered[V any](m map[string]V, path string) V {
+	var buf [256]byte
+	var zero V
+	if lowered, changed, ok := lowerASCIIInto(buf[:0], path); ok {
+		if changed {
+			return m[string(lowered)]
+		}
+		return zero
+	}
+	if lower, changed := lowercasePath(path); changed {
+		return m[lower]
+	}
+	return zero
 }
 
 func lookupStaticAllowed(staticAllowed map[string]allowedMethodSet, originalPath, path string, caseSensitive bool) allowedMethodSet {
