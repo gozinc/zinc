@@ -11,14 +11,9 @@ import (
 	"unicode/utf8"
 )
 
-// routeMap indexes static routes by method and normalized path.
-type routeMap map[string]map[string]*routeEntry
-
-// routeEntry is the internal dispatch record for a registered static path.
-type routeEntry struct {
-	handler   HandlerFunc
-	infoIndex uint32
-}
+// routeMap indexes static routes by method and exact spelling. Its values are
+// the same route objects the tree holds.
+type routeMap map[string]map[string]*radixRoute
 
 // routeTable matches every route through one compressed radix tree (tree,
 // router_tree.go) whose terminals carry a method table. Exact-spelling static
@@ -35,7 +30,7 @@ type routeTable struct {
 	// routing is strict, the path without its trailing slash.
 	routes       routeMap
 	namedRoutes  map[string]uint32
-	staticRoutes [routeMethodCount]map[string]*routeEntry
+	staticRoutes [routeMethodCount]map[string]*radixRoute
 	tree         *radixNode
 	// Metadata is append-only; routes and cache entries retain stable indexes into it.
 	routeInfos []routeMeta
@@ -112,7 +107,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		return 0, err
 	}
 	if !isDynamic {
-		r.addStaticSpellings(method, mask, path, &routeEntry{handler: precomposed, infoIndex: infoIndex})
+		r.addStaticSpellings(method, mask, path, route)
 	}
 	r.routeInfos = append(r.routeInfos, info)
 	r.recordNamedRoute(name, infoIndex)
@@ -123,13 +118,13 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 // addStaticSpellings records a static route's exact spellings for the map
 // fast path: the registered path and, unless routing is strict, the path
 // without its trailing slash. Case-folded spellings are left to the tree.
-func (r *routeTable) addStaticSpellings(method string, mask methodMask, path string, entry *routeEntry) {
+func (r *routeTable) addStaticSpellings(method string, mask methodMask, path string, entry *radixRoute) {
 	if r.routes == nil {
 		r.routes = make(routeMap)
 	}
 	methodRoutes := r.routes[method]
 	if methodRoutes == nil {
-		methodRoutes = make(map[string]*routeEntry)
+		methodRoutes = make(map[string]*radixRoute)
 		if slot := singleBitIndex(mask); slot >= 0 {
 			r.staticRoutes[slot] = methodRoutes
 		}
@@ -330,7 +325,7 @@ func init() {
 	}
 }
 
-func lookupStaticRouteExact(methodRoutes map[string]*routeEntry, originalPath, path string) *routeEntry {
+func lookupStaticRouteExact(methodRoutes map[string]*radixRoute, originalPath, path string) *radixRoute {
 	if len(methodRoutes) == 0 {
 		return nil
 	}
