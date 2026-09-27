@@ -73,7 +73,7 @@ func (g *fuzzGen) pick(n int) int { return int(g.byte()) % n }
 func pickFrom[T any](g *fuzzGen, xs []T) T { return xs[g.pick(len(xs))] }
 
 var (
-	fuzzStatic  = []string{"users", "items", "api", "v1", "Users", "a", "b", "files", "health", "é"}
+	fuzzStatic  = []string{"users", "items", "api", "v1", "Users", "a", "b", "files", "health", "é", "users:batch", "a*b"}
 	fuzzParams  = []string{"id", "name", "slug"}
 	fuzzMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
 	fuzzReqMeth = []string{http.MethodGet, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodHead, http.MethodOptions}
