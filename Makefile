@@ -30,7 +30,8 @@ benchmark:
 #   make bench-compare                                 (latest run against the baseline)
 #   make bench-ab SCENARIOS=NotFound,API04ParamInt     (alternating rounds against the baseline commit)
 #   make bench-profile SCENARIO=HelloWorld              (CPU and memory profiles of Zinc's case)
-.PHONY: bench-record bench-zinc bench-compare bench-profile bench-ab bench-dash bench-list bench-baseline bench-bundle
+#   make bench-report RUN=latest                        (writes BENCHMARKS.md from a run)
+.PHONY: bench-record bench-zinc bench-compare bench-profile bench-ab bench-dash bench-list bench-baseline bench-bundle bench-report
 bench-record:
 	cd benchmarks && go run ./cmd/zincbench record -release "$(RELEASE)" -note "$(NOTE)" $(ARGS)
 
@@ -57,3 +58,6 @@ bench-baseline:
 
 bench-bundle:
 	cd benchmarks && go run ./cmd/zincbench bundle -release "$(RELEASE)" $(ARGS)
+
+bench-report:
+	cd benchmarks && go run ./cmd/zincbench report -o ../BENCHMARKS.md $(or $(RUN),latest)
