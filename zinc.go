@@ -182,12 +182,31 @@ func (m *mountedHandler) serve(c *Context) error {
 	if m == nil || (m.handler == nil && m.native == nil) {
 		return nil
 	}
-	mountedRequest := m.strippedRequest(c.Request())
+	request := c.Request()
 	if m.native != nil {
-		return m.native(c, mountedRequest)
+		// A native handler needs only the path below the prefix, so it
+		// doesn't pay for a copy of the request.
+		return m.native(c, request.URL.Path[m.prefixCut(request.URL.Path):])
 	}
-	m.handler.ServeHTTP(c.Writer(), mountedRequest)
+	m.handler.ServeHTTP(c.Writer(), m.strippedRequest(request))
 	return nil
+}
+
+// prefixCut returns the byte length of the mount prefix in path. The mount
+// was already matched using the application's case policy, so it counts
+// prefix runes to find the boundary in the original (possibly Unicode)
+// spelling.
+func (m *mountedHandler) prefixCut(path string) int {
+	cut := 0
+	if m.prefixPath != "/" {
+		for range m.prefixPath {
+			if cut < len(path) {
+				_, size := utf8.DecodeRuneInString(path[cut:])
+				cut += size
+			}
+		}
+	}
+	return cut
 }
 
 // strippedRequest copies request with the mount prefix removed from its path.
@@ -195,18 +214,8 @@ func (m *mountedHandler) strippedRequest(request *http.Request) *http.Request {
 	mountedRequest := new(http.Request)
 	*mountedRequest = *request
 	mountedRequest.URL = cloneURL(request.URL)
-	// The mount was already matched using the application's case policy. Count
-	// prefix runes to find its byte boundary in the original (possibly Unicode)
-	// spelling, then map that boundary into the validated escaped path.
-	cut := 0
-	if m.prefixPath != "/" {
-		for range m.prefixPath {
-			if cut < len(request.URL.Path) {
-				_, size := utf8.DecodeRuneInString(request.URL.Path[cut:])
-				cut += size
-			}
-		}
-	}
+	// Map the prefix's boundary into the validated escaped path.
+	cut := m.prefixCut(request.URL.Path)
 	escaped := request.URL.EscapedPath()
 	rawCut := 0
 	for decoded := 0; decoded < cut && rawCut < len(escaped); decoded++ {
