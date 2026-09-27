@@ -10,26 +10,24 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
-
-	. "github.com/0mjs/zinc"
 )
 
 // Request pools.
 //
 // A scenario that sends one fixed request measures the best case of any
-// per-path cache: after the first request every lookup is a hit. Zinc caches
-// up to DefaultRouteCacheSize concrete paths, including 404s and 405s, so a
-// pool must hold well over that many distinct paths before it measures the
-// router rather than the cache. Gin, Echo, Chi and BunRouter have no route
+// per-path cache: after the first request every lookup is a hit. Zinc can
+// cache concrete paths, including 404s and 405s (off by default since 0.5), so
+// a pool must hold well over the cache's size before it measures the router
+// rather than the cache. Gin, Echo, Chi and BunRouter have no route
 // cache; a large pool costs them only the CPU-cache misses of touching more
 // request objects, which every framework pays alike.
 //
 // Pools are built before timing starts, are deterministic, and every
 // framework in a scenario receives the same requests in the same order.
 
-// poolSize is the number of distinct request paths in a pool: ten times
-// Zinc's default route cache.
-const poolSize = 10 * DefaultRouteCacheSize
+// poolSize is the number of distinct request paths in a pool: ten times the
+// route cache size the docs suggest when enabling it (1,000).
+const poolSize = 10_000
 
 // poolSeed fixes every pool's contents and order across runs.
 const poolSeed = 0x5a1c

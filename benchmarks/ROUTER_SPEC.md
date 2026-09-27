@@ -9,6 +9,12 @@ go test -run '^$' -fuzz '^FuzzRouterReference$' -fuzztime 60s .
 
 Anything here that should change must change on purpose: update this file, give the change a migration note, and teach the fuzz test the new rule. Don't make the test lenient.
 
+## Deliberate changes from v0.4.0
+
+The fuzz test's reference is v0.4.0 with these changes applied, each marked in `internal/zinc040` and listed in its `doc.go`.
+
+1. **`Allow` lists every method of a static path (P4).** v0.4.0 indexed only static paths that have more than one accepted spelling. So with `GET /v1/` (spellings `/v1/` and `/v1`) and `DELETE /v1` (one spelling), `OPTIONS /v1` answered `Allow: GET, HEAD, OPTIONS`, leaving out DELETE even though `DELETE /v1` was served. Found by `FuzzRouterReference` when the index was made complete.
+
 ## Patterns
 
 - A pattern is a path of `/`-separated segments. A pattern that doesn't start with `/` gets one.

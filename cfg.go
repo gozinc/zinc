@@ -15,7 +15,7 @@ const (
 	DefaultWriteTimeout          = 10 * time.Second
 	DefaultIdleTimeout           = 120 * time.Second
 	DefaultShutdownTimeout       = 10 * time.Second
-	DefaultRouteCacheSize        = 1000
+	DefaultRouteCacheSize        = 0 // the route cache is off unless RouteCacheSize > 0
 	DefaultProxyHeader           = "X-Forwarded-For"
 )
 
@@ -90,8 +90,10 @@ type Config struct {
 	// Nil means DefaultErrorHandler.
 	ErrorHandler ErrorHandler
 
-	// RouteCacheSize bounds cached concrete dynamic paths.
-	// 0 means DefaultRouteCacheSize; negative disables the cache.
+	// RouteCacheSize enables a cache of up to this many concrete dynamic paths
+	// (for example 1000). The cache is off by default (0) and when negative:
+	// it helps only when a few exact URLs repeat, and costs every other
+	// request a lookup and an insert. See the configuration guide.
 	RouteCacheSize int
 }
 

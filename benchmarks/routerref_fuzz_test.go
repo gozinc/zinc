@@ -91,7 +91,7 @@ type fuzzSpec struct {
 
 type fuzzConfig struct {
 	strict, caseSensitive, noHead, noOptions, noMethodNotAllowed bool
-	cacheSize                                                     int
+	cacheSize                                                    int
 }
 
 func (c fuzzConfig) String() string {
