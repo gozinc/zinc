@@ -759,33 +759,28 @@ func lookupStaticRouteLower(methodRoutes map[string]*routeEntry, originalPath, p
 }
 
 func lookupStaticAllowed(staticAllowed map[string]allowedMethodSet, originalPath, path string, caseSensitive bool) allowedMethodSet {
+	// Deliberate change 2 (see doc.go): merge every spelling's methods
+	// instead of returning the first spelling that has any.
+	var allowed allowedMethodSet
 	if len(staticAllowed) == 0 {
-		return allowedMethodSet{}
-	}
-	if allowed := staticAllowed[originalPath]; !allowed.empty() {
 		return allowed
 	}
+	allowed.merge(staticAllowed[originalPath])
 	if path != originalPath {
-		if allowed := staticAllowed[path]; !allowed.empty() {
-			return allowed
-		}
+		allowed.merge(staticAllowed[path])
 	}
 	if caseSensitive {
-		return allowedMethodSet{}
+		return allowed
 	}
 	if lower, changed := lowercasePath(originalPath); changed {
-		if allowed := staticAllowed[lower]; !allowed.empty() {
-			return allowed
-		}
+		allowed.merge(staticAllowed[lower])
 	}
 	if path != originalPath {
 		if lower, changed := lowercasePath(path); changed {
-			if allowed := staticAllowed[lower]; !allowed.empty() {
-				return allowed
-			}
+			allowed.merge(staticAllowed[lower])
 		}
 	}
-	return allowedMethodSet{}
+	return allowed
 }
 
 // lookupStaticAllowedByScan is the fallback for routes that have a single

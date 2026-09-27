@@ -106,6 +106,9 @@ func TestCompareFlagsAllocationsTimeAndWins(t *testing.T) {
 }
 
 func TestABPatternsAndVerdict(t *testing.T) {
+	if p := abPatterns([]string{"P5Param20"}); len(p) != 1 || p[0] != "^BenchmarkP5Param20$" {
+		t.Fatalf("P5 pattern = %v", p)
+	}
 	got := abPatterns([]string{"LargeRouteSetParam", "ScenarioRouteSetBuild/GitHubAPI203", "API04ParamInt"})
 	want := []string{
 		"^BenchmarkLargeRouteSetParam$/^Zinc$",

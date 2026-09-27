@@ -574,11 +574,10 @@ func TestRouteCacheRingEvictionWrapsWithoutStaleHotEntry(t *testing.T) {
 }
 
 func TestRadixNodeBranches(t *testing.T) {
-	root := &radixNode{kind: radixRoot}
-	mustDo(t, root.addBrace("/foo", &radixRoute{}, false))
-	mustDo(t, root.addBrace("/fob", &radixRoute{}, false)) // triggers static-node split branch
-
-	if err := root.addBrace("/foo", &radixRoute{}, false); err == nil {
+	router := &routeTable{config: &Config{CaseSensitive: true}}
+	mustDo(t, router.Add(MethodGet, "/foo", func(*Context) error { return nil }))
+	mustDo(t, router.Add(MethodGet, "/fob", func(*Context) error { return nil })) // triggers static-node split branch
+	if err := router.Add(MethodGet, "/foo", func(*Context) error { return nil }); err == nil {
 		t.Fatal("expected duplicate route error")
 	}
 
@@ -591,18 +590,20 @@ func TestRadixNodeBranches(t *testing.T) {
 		t.Fatal("catch-all child should be reused")
 	}
 
+	slot := singleBitIndex(methodMaskFor(MethodGet))
 	static := &radixNode{kind: radixStatic, prefix: "abc"}
-	if matched := static.lookup("ab", 0, &paramRanges{}, 0); matched != nil {
+	if matched := static.lookupMethod("ab", 0, &paramRanges{}, 0, false, slot, MethodGet); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 
 	param := &radixNode{kind: radixParam}
-	if matched := param.lookup("/x", 0, &paramRanges{}, 0); matched != nil {
+	if matched := param.lookupMethod("/x", 0, &paramRanges{}, 0, false, slot, MethodGet); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 
-	mismatch := &radixNode{route: &radixRoute{paramCount: 1}}
-	if matched := mismatch.matchRoute(0); matched != nil {
+	mismatch := &radixNode{methods: &nodeMethods{}}
+	mismatch.methods.set(slot, MethodGet, &radixRoute{paramCount: 1})
+	if matched := mismatch.methodRoute(slot, MethodGet, 0); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 }
@@ -628,15 +629,8 @@ func TestRouterFindIntoAndDynamicCacheBranches(t *testing.T) {
 		t.Fatal("expected non-strict trailing slash match")
 	}
 
-	dynamic := &routeTable{
-		cache: newRouteCache(2),
-	}
-	cacheKey := routeCacheKey{method: MethodGet, path: "/cached"}
-	dynamic.cache.set(cacheKey, routeCacheEntry{route: nil})
-	if handler := dynamic.findDynamicInto(MethodGet, "/cached", &Context{}); handler != nil {
-		t.Fatalf("handler=%v", handler)
-	}
-	if handler := dynamic.findDynamicInto(MethodGet, "/missing", &Context{}); handler != nil {
+	empty := &routeTable{cache: newRouteCache(2)}
+	if handler := empty.findInto(MethodGet, "/missing", &Context{}); handler != nil {
 		t.Fatalf("handler=%v", handler)
 	}
 
@@ -1005,22 +999,20 @@ func TestRouterSupportsCustomDynamicMethods(t *testing.T) {
 }
 
 func TestRouterAllowedMethodsCaseInsensitiveStaticIndex(t *testing.T) {
-	router := &routeTable{
-		config:        &Config{CaseSensitive: false},
-		staticAllowed: make(map[string]allowedMethodSet),
-	}
-	router.staticAllowed["/case"] = allowedMethodSet{mask: methodMaskPost}
-
-	if allowed := lookupStaticAllowed(router.staticAllowed, "/CASE", "/CASE", false); allowed.mask != methodMaskPost {
-		t.Fatalf("static allowed=%v", allowed)
-	}
-	if allowed := lookupStaticAllowed(router.staticAllowed, "/CASE", "/CASE", true); !allowed.empty() {
-		t.Fatalf("case-sensitive allowed=%v", allowed)
-	}
-
-	methods := strings.Split(router.lookupStaticAllowedMethods("/CASE", "/CASE", false).header(true, true), ", ")
-	if want := []string{MethodPost, MethodOptions}; !reflect.DeepEqual(methods, want) {
-		t.Fatalf("methods=%v want %v", methods, want)
+	for _, caseSensitive := range []bool{false, true} {
+		router := &routeTable{config: &Config{CaseSensitive: caseSensitive}}
+		mustDo(t, router.Add(MethodPost, "/case", func(*Context) error { return nil }))
+		handled, allowed, err := router.dispatchInto(MethodPut, "/CASE", true, &Context{})
+		if err != nil || handled {
+			t.Fatalf("caseSensitive=%v: handled=%v err=%v", caseSensitive, handled, err)
+		}
+		want := "POST, OPTIONS"
+		if caseSensitive {
+			want = ""
+		}
+		if got := allowed.header(true, true); got != want {
+			t.Fatalf("caseSensitive=%v: allow=%q want %q", caseSensitive, got, want)
+		}
 	}
 }
 
@@ -1070,6 +1062,23 @@ func TestAllowListsEveryStaticMethod(t *testing.T) {
 		app.ServeHTTP(rec, httptest.NewRequest(method, "/v1", nil))
 		if got, want := rec.Header().Get(HeaderAllow), "GET, HEAD, DELETE, OPTIONS"; got != want {
 			t.Errorf("%s /v1: Allow = %q, want %q", method, got, want)
+		}
+	}
+}
+
+// Custom methods are listed in Allow in sorted order, after the standard
+// methods (deliberate change 3 in benchmarks/ROUTER_SPEC.md).
+func TestAllowSortsCustomMethods(t *testing.T) {
+	app := New()
+	for _, method := range []string{"PURGE", "LINK", "GET", "BAN"} {
+		app.Add(method, "/items/{id}", func(c *Context) error { return nil })
+		app.Add(method, "/static", func(c *Context) error { return nil })
+	}
+	for _, target := range []string{"/items/1", "/static"} {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest(MethodPut, target, nil))
+		if got, want := rec.Header().Get(HeaderAllow), "GET, HEAD, OPTIONS, BAN, LINK, PURGE"; got != want {
+			t.Errorf("%s: Allow = %q, want %q", target, got, want)
 		}
 	}
 }

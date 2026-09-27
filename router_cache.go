@@ -59,10 +59,8 @@ type routeCacheReadSnapshot struct {
 	extraCache  map[routeCacheKey]routeCacheEntry
 }
 
-const routeCacheMinRoutes = 64
-
 // A small, stable working set benefits from lock-free snapshot reads even when
-// the router has fewer than routeCacheMinRoutes dynamic routes. Keep this
+// the router has few dynamic routes. Keep this
 // separate from the threshold for caching Router.Find dynamic lookups.
 const routeCacheSnapshotMinEntries = 8
 
@@ -130,16 +128,6 @@ func (rc *routeCache) getWithMask(key routeCacheKey, mask methodMask) (routeCach
 		rc.recordHit()
 	}
 	return entry, ok
-}
-
-func (rc *routeCache) getHot(key routeCacheKey) (routeCacheEntry, bool) {
-	if rc == nil || atomic.LoadUint32(&rc.dirty) != 0 {
-		return routeCacheEntry{}, false
-	}
-	if hot := rc.hot.Load(); hot != nil && hot.key == key {
-		return hot.entry, true
-	}
-	return routeCacheEntry{}, false
 }
 
 // setWithMask inserts into the mutable ring or the post-snapshot overlay. At

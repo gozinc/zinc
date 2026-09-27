@@ -100,6 +100,7 @@ func (c fuzzConfig) String() string {
 }
 
 type fuzzRoute struct {
+	id              int // position in the generated table, as the handler reports it
 	method, pattern string
 	params          []string
 }
@@ -236,6 +237,7 @@ func buildReferencePair(t *testing.T, s fuzzSpec) (cur, ref http.Handler, routes
 			t.Fatalf("registering %s %s: got error %q, v0.4.0 %q\nearlier routes: %v", r.method, r.pattern, curErr, refErr, routes)
 		}
 		if curErr == "" {
+			r.id = i
 			routes = append(routes, r)
 		}
 	}
