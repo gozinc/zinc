@@ -15,6 +15,10 @@ import (
 	. "github.com/0mjs/zinc"
 )
 
+// cacheMatrixSize is the route cache size these benchmarks enable, the size
+// the docs suggest. The cache is off by default since 0.5.
+const cacheMatrixSize = 1000
+
 const cacheMatrixCardinality = 16
 const cacheMatrixPromotionWarmCycles = 4
 
@@ -168,20 +172,20 @@ func BenchmarkZincGitHubCachePhaseShift(b *testing.B) {
 	phaseB := buildCacheMatrixDynamicVariantRequests(scenario, 1)
 
 	b.Run("StableA", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, cacheMatrixSize)
 		warmZincCacheMatrix(handler, phaseA, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseA)
 	})
 
 	b.Run("ShiftedRecoveredB", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, cacheMatrixSize)
 		warmZincCacheMatrix(handler, phaseA, cacheMatrixPromotionWarmCycles)
 		warmZincCacheMatrix(handler, phaseB, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseB)
 	})
 
 	b.Run("FreshB", func(b *testing.B) {
-		handler := buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize)
+		handler := buildZincCacheMatrixHandler(scenario.routes, cacheMatrixSize)
 		warmZincCacheMatrix(handler, phaseB, cacheMatrixPromotionWarmCycles)
 		benchmarkZincCacheMatrixRequests(b, handler, phaseB)
 	})
@@ -192,16 +196,16 @@ func BenchmarkZincGitHubCacheMatrix(b *testing.B) {
 	highCardinality := buildCacheMatrixHighCardinalityRequests(scenario)
 
 	b.Run("DefaultCache", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, scenario.allRequests)
+		runZincCacheMatrixSequential(b, cacheMatrixSize, scenario, scenario.allRequests)
 	})
 	b.Run("CacheDisabled", func(b *testing.B) {
 		runZincCacheMatrixSequential(b, -1, scenario, scenario.allRequests)
 	})
 	b.Run("HighCardinality", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, highCardinality)
+		runZincCacheMatrixSequential(b, cacheMatrixSize, scenario, highCardinality)
 	})
 	b.Run("ParallelHighCardinality", func(b *testing.B) {
-		runZincCacheMatrixParallel(b, DefaultRouteCacheSize, scenario, highCardinality)
+		runZincCacheMatrixParallel(b, cacheMatrixSize, scenario, highCardinality)
 	})
 }
 
@@ -210,7 +214,7 @@ func BenchmarkZincGitHubStaticCacheMatrix(b *testing.B) {
 	requests := []*http.Request{scenario.staticRequest}
 
 	b.Run("DefaultCache", func(b *testing.B) {
-		runZincCacheMatrixSequential(b, DefaultRouteCacheSize, scenario, requests)
+		runZincCacheMatrixSequential(b, cacheMatrixSize, scenario, requests)
 	})
 	b.Run("CacheDisabled", func(b *testing.B) {
 		runZincCacheMatrixSequential(b, -1, scenario, requests)
@@ -233,10 +237,10 @@ func TestZincGitHubCacheMatrixCorpus(t *testing.T) {
 		key := req.Method + " " + req.URL.Path
 		uniqueDynamic[key] = struct{}{}
 	}
-	if got := len(uniqueDynamic); got <= DefaultRouteCacheSize {
-		t.Fatalf("unique request keys=%d must exceed default cache size=%d", got, DefaultRouteCacheSize)
+	if got := len(uniqueDynamic); got <= cacheMatrixSize {
+		t.Fatalf("unique request keys=%d must exceed default cache size=%d", got, cacheMatrixSize)
 	}
 
-	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, DefaultRouteCacheSize), highCardinality)
+	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, cacheMatrixSize), highCardinality)
 	proveZincCacheMatrixRequests(t, buildZincCacheMatrixHandler(scenario.routes, -1), highCardinality)
 }
