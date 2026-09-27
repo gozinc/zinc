@@ -592,12 +592,12 @@ func TestRadixNodeBranches(t *testing.T) {
 	}
 
 	static := &radixNode{kind: radixStatic, prefix: "abc"}
-	if matched := static.lookup("ab", 0, &paramRanges{}, 0); matched != nil {
+	if matched := static.lookup("ab", 0, &paramRanges{}, 0, false); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 
 	param := &radixNode{kind: radixParam}
-	if matched := param.lookup("/x", 0, &paramRanges{}, 0); matched != nil {
+	if matched := param.lookup("/x", 0, &paramRanges{}, 0, false); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 

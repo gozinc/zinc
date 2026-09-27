@@ -4,6 +4,7 @@
 package zinc
 
 import (
+	"unicode/utf8"
 	"fmt"
 	"strings"
 	"sync"
@@ -196,4 +197,63 @@ func lowercasePath(path string) (string, bool) {
 		}
 	}
 	return path, false
+}
+
+// asciiFoldKind reports whether path has ASCII capital letters, and whether it
+// is all ASCII. Folding ASCII preserves byte offsets, so an ASCII path can be
+// matched case-insensitively in place, without a lowercase copy.
+func asciiFoldKind(path string) (hasUpper, ascii bool) {
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if c >= utf8.RuneSelf {
+			return hasUpper, false
+		}
+		if c >= 'A' && c <= 'Z' {
+			hasUpper = true
+		}
+	}
+	return hasUpper, true
+}
+
+// foldByte lowercases an ASCII capital letter.
+func foldByte(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
+}
+
+// hasFoldedPrefix reports whether path starts with prefix, a lowercase label,
+// ignoring ASCII case in path.
+func hasFoldedPrefix(path, prefix string) bool {
+	if len(path) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		if foldByte(path[i]) != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// lowerASCIIInto appends path lowercased to dst when path is ASCII and fits
+// in dst's capacity, so a map can be probed with m[string(lowered)] without
+// allocating. ok is false for other paths, which take the lowercasePath route.
+func lowerASCIIInto(dst []byte, path string) (lowered []byte, changed, ok bool) {
+	if len(path) > cap(dst) {
+		return nil, false, false
+	}
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if c >= utf8.RuneSelf {
+			return nil, false, false
+		}
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+			changed = true
+		}
+		dst = append(dst, c)
+	}
+	return dst, changed, true
 }
