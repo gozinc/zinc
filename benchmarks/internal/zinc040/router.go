@@ -136,6 +136,11 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 			}
 			methodRoutes[path] = route
 			r.recordStaticRouteLength(mask, path)
+			// Deliberate change 1 (see doc.go): index every static path.
+			if r.staticAllowed == nil {
+				r.staticAllowed = make(map[string]allowedMethodSet)
+			}
+			r.staticAllowed[path] = addAllowedMethod(r.staticAllowed[path], method, mask)
 			r.routeInfos = append(r.routeInfos, info)
 			r.recordNamedRoute(name, infoIndex)
 			r.invalidateCache()
@@ -711,6 +716,10 @@ func (r *routeTable) lookupStaticAllowedMethods(originalPath, path string, caseS
 		if allowed := lookupStaticAllowed(r.staticAllowed, originalPath, path, caseSensitive); !allowed.empty() {
 			return allowed
 		}
+	}
+	// Deliberate change 1 (see doc.go): the index is complete.
+	if !r.hasCustomStatic {
+		return allowedMethodSet{}
 	}
 	return r.lookupStaticAllowedByScan(originalPath, path, caseSensitive)
 }
