@@ -54,6 +54,7 @@ func buildDashboard(s *Store, out string) (string, error) {
 	}
 	data, err := json.Marshal(map[string]any{
 		"baseline": s.baseline(),
+		"tiers":    tiers,
 		"runs":     views,
 	})
 	if err != nil {

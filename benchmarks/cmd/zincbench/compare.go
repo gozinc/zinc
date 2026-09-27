@@ -87,9 +87,9 @@ func compareRuns(base, run *Run) Comparison {
 			continue
 		}
 		d := sampleDelta(name, sc["Zinc"], now["Zinc"])
-		d.HasRival = true
-		d.BaseWin = zincWins(sc)
-		d.Win = zincWins(now)
+		d.HasRival = headline.covers(sc) && headline.covers(now)
+		d.BaseWin = d.HasRival && headline.wins(sc)
+		d.Win = d.HasRival && headline.wins(now)
 		c.Scenarios = append(c.Scenarios, d)
 	}
 	for name := range run.Scenarios {
@@ -119,17 +119,6 @@ func sampleDelta(name string, base, now Samples) Delta {
 		BaseBytes: base.Bytes, Bytes: now.Bytes,
 		BaseAllocs: base.Allocs, Allocs: now.Allocs,
 	}
-}
-
-// zincWins reports whether Zinc has the strictly lowest median in sc.
-func zincWins(sc Scenario) bool {
-	z := median(sc["Zinc"].NS)
-	for _, f := range frameworks[1:] {
-		if median(sc[f].NS) <= z {
-			return false
-		}
-	}
-	return true
 }
 
 func cmdCompare(s *Store, args []string) error {
@@ -204,7 +193,18 @@ func (c Comparison) print(w io.Writer, t Thresholds, all bool) {
 			lost = append(lost, d)
 		}
 	}
-	fmt.Fprintf(w, "Wins      %d/%d → %d/%d  (+%d, -%d)\n", c.Base.wins(), len(c.Base.Scenarios), c.Run.wins(), len(c.Run.Scenarios), len(gained), len(lost))
+	for _, t := range tiers {
+		b, r := c.Base.score(t), c.Run.score(t)
+		if b.Of == 0 && r.Of == 0 {
+			fmt.Fprintf(w, "%-10s no scenarios with %s\n", t.Name, strings.Join(t.Rivals, " and "))
+			continue
+		}
+		fmt.Fprintf(w, "%-10s %s → %s", t.Name, b, r)
+		if t.Key == headline.Key {
+			fmt.Fprintf(w, "  (+%d, -%d)", len(gained), len(lost))
+		}
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintf(w, "Allocs ↑  %s\n", names(allocs))
 	fmt.Fprintf(w, "Bytes ↑   %s\n", names(bytesUp))
 	fmt.Fprintf(w, "Slower    %s  (>%.0f%%, noisy >%.0f%%, and >%.0f ns)\n", names(slow), t.SlowPct, t.NoisyPct, t.SlowNS)

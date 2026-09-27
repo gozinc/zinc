@@ -260,8 +260,12 @@ td.fw.zinc.best { color: var(--win); }
 
 <script>
 const DATA = /*__DATA__*/null;
-const RIVALS = ["Gin", "Echo", "Chi"];
-const FW = ["Zinc", ...RIVALS];
+// Zinc is scored against each tier separately; the first is the headline.
+// Records from before tiers existed fall back to the old four-way comparison.
+const TIERDEFS = DATA?.tiers || [{ key: "frameworks", name: "Frameworks", rivals: ["Gin", "Echo", "Chi"] }];
+const RIVALS = TIERDEFS[0].rivals;
+const FW = ["Zinc", ...new Set(TIERDEFS.flatMap(t => t.rivals))];
+const andList = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
 const SIG = { p: 0.05, raw: 2, adjusted: 1 }; // % thresholds for a real change
 
 const AREAS = [
@@ -308,7 +312,7 @@ function labelOf(n) {
 }
 
 const TIERS = [
-  { id: "win", short: "Fastest", label: "Zinc is fastest", blurb: "Lowest median of all four frameworks." },
+  { id: "win", short: "Fastest", label: "Zinc is fastest", blurb: `Lower median than ${andList(RIVALS)}.` },
   { id: "noise", short: "Noise", label: "Within noise", blurb: "Sample spreads overlap, or the gap is under 1%." },
   { id: "negligible", short: "Small", label: "Under the threshold", blurb: "A real gap, but small in absolute time." },
   { id: "startup", short: "Startup", label: "Startup only", blurb: "Route registration, paid once at boot." },
@@ -357,6 +361,7 @@ function mannWhitney(a, b) {
 const RUNS = (DATA?.runs || []).map(r => {
   const sc = {};
   for (const [id, fws] of Object.entries(r.scenarios)) {
+    if (!["Zinc", ...RIVALS].every(f => fws[f])) continue; // not a headline scenario
     const fw = {};
     for (const f of FW) {
       const s = fws[f]; if (!s) continue;
@@ -364,16 +369,30 @@ const RUNS = (DATA?.runs || []).map(r => {
     }
     sc[id] = { id, label: labelOf(id), area: areaOf(id), fw };
   }
-  return { ...r, sc, ids: Object.keys(sc) };
+  return { ...r, sc, ids: Object.keys(sc), scores: TIERDEFS.map(t => tierScore(r, t)) };
 });
 const byId = Object.fromEntries(RUNS.map(r => [r.id, r]));
 const releaseOf = r => r.release || "Unassigned";
 const RELEASES = [...new Set(RUNS.map(releaseOf))];
 const T = { ns: 50, pct: 5 };
 
+// Wins and the geometric-mean distance from the fastest over the scenarios
+// where every rival in the tier was measured.
+function tierScore(r, t) {
+  let wins = 0, of = 0, logs = 0;
+  for (const fws of Object.values(r.scenarios)) {
+    if (!fws.Zinc || !t.rivals.every(f => fws[f])) continue;
+    const z = median(fws.Zinc.ns), rivals = t.rivals.map(f => median(fws[f].ns));
+    of++; if (rivals.every(v => v > z)) wins++;
+    logs += Math.log(z / Math.min(z, ...rivals));
+  }
+  return { ...t, wins, of, geo: of ? (Math.exp(logs / of) - 1) * 100 : null };
+}
+const scoreText = s => s.of ? `<b>${s.wins}/${s.of}</b> · ${pct(s.geo)} geomean` : "no scenarios yet";
+
 function triage(run) {
   let wins = 0;
-  const rivalWins = { Gin: 0, Echo: 0, Chi: 0 };
+  const rivalWins = Object.fromEntries(RIVALS.map(r => [r, 0]));
   for (const s of Object.values(run.sc)) {
     const z = s.fw.Zinc;
     let best = null; for (const r of RIVALS) if (!best || s.fw[r].ns < s.fw[best].ns) best = r;
@@ -464,7 +483,7 @@ function runCard(role, r) {
     <span class="role">${role}${r.id === activeBaselineId() ? " · baseline" : ""} · ${esc(releaseOf(r))}</span>
     <h3>${esc(r.note || g.subject || r.id)}</h3>
     <div class="sub"><b>${esc(g.short)}</b>${g.branch ? " on " + esc(g.branch) : ""}${dirty}${r.imported ? '<span class="tag">imported</span>' : ""}</div>
-    <div class="sub">${esc(fmtDate(r.createdAt))} · ${esc(e.go)} · ${e.count} × ${esc(e.benchtime)} · <b>${r.wins}/${r.ids.length}</b> wins</div>
+    <div class="sub">${esc(fmtDate(r.createdAt))} · ${esc(e.go)} · ${e.count} × ${esc(e.benchtime)} · ${r.scores.map(s => `${esc(s.name)} ${scoreText(s)}`).join(" · ")}</div>
     ${r.rivalSource ? `<div class="sub">Mixed-date comparison · rival samples from ${esc(r.rivalSource)}</div>` : ""}
     ${r.note && g.subject ? `<div class="sub">${esc(g.subject)}</div>` : ""}
   </div>`;
@@ -523,15 +542,16 @@ function render() {
     <div class="runs">${runCard("This run", B)}${runCard("Compared with", A)}</div>
     ${diffs.length ? `<div class="warn"><strong>These runs were measured differently.</strong> ${diffs.map(esc).join(" · ")}. Treat the comparison with care.</div>` : ""}
     ${partial ? `<div class="warn"><strong>These runs cover different scenarios.</strong> This run has ${B.ids.length}, the comparison run has ${A.ids.length}. Changes and win counts compare only the ${shared.length} they share.</div>` : ""}
-    ${!same && Math.abs(cmp.drift) >= 3 ? `<div class="warn"><strong>The rivals moved ${pct(cmp.drift)} between these runs.</strong> Gin, Echo, and Chi did not change, so the machine did: thermal state, power, or background load. Rival-adjusted changes are more reliable than raw ones here.</div>` : ""}
+    ${!same && Math.abs(cmp.drift) >= 3 ? `<div class="warn"><strong>The rivals moved ${pct(cmp.drift)} between these runs.</strong> ${esc(andList(RIVALS))} did not change, so the machine did: thermal state, power, or background load. Rival-adjusted changes are more reliable than raw ones here.</div>` : ""}
   </div>
 
   <div class="hero">
     <div>
       <p class="kicker">Zinc head-to-head · ${B.ids.length} scenarios</p>
       <div class="score"><strong>${B.wins}</strong><span>/ ${B.ids.length}</span>${same ? "" : `<em class="${winDelta > 0 ? "up" : winDelta < 0 ? "down" : "flat"}">${winDelta ? (winDelta > 0 ? "+" : "") + winDelta + " vs " : "same as "}${esc(A.git.short)}</em>`}</div>
-      <p class="score-note">scenarios where Zinc had the lowest median time of Zinc, Gin, Echo, and Chi. This count is descriptive, not a release gate.</p>
-      ${B.rivalSource ? `<p class="score-note">Zinc was measured in this run; Gin, Echo, and Chi samples came from ${esc(B.rivalSource)}. Close results should be rerun together.</p>` : ""}
+      <p class="score-note">scenarios where Zinc had a lower median time than ${esc(andList(RIVALS))}. Geometric-mean distance from the fastest: ${B.scores[0].of ? pct(B.scores[0].geo) : "—"}. This count is descriptive, not a release gate.</p>
+      ${B.scores.slice(1).map(s => `<p class="score-note">${esc(s.name)} (against ${esc(andList(s.rivals))}): ${scoreText(s)}.</p>`).join("")}
+      ${B.rivalSource ? `<p class="score-note">Zinc was measured in this run; the rival samples came from ${esc(B.rivalSource)}. Close results should be rerun together.</p>` : ""}
       <div class="rivals">${RIVALS.map(r => `<span>${r} <b>${B.rivalWins[r]}</b></span>`).join("")}</div>
     </div>
     <div class="panel triage">
@@ -625,7 +645,7 @@ function render() {
   <div class="method">
     <div><h3>Where this comes from</h3><p>Each run is a record in <code>benchmarks/results/runs</code>, written by <code>zincbench record</code> with raw samples, git state, and environment. Change the baseline with <code>zincbench baseline &lt;run&gt;</code>.</p></div>
     <div><h3>Winner and noise</h3><p>A scenario's winner has the lowest median. A loss is noise when Zinc's first-quartile sample is no slower than the winner's third quartile, or the gap is under 1%.</p></div>
-    <div><h3>Adjusted change</h3><p>Gin, Echo, and Chi are the same code in every run, so their geometric-mean movement estimates machine drift. The adjusted change divides it out of Zinc's change.</p></div>
+    <div><h3>Adjusted change</h3><p>${esc(andList(RIVALS))} are the same code in every run, so their geometric-mean movement estimates machine drift. The adjusted change divides it out of Zinc's change.</p></div>
   </div>`;
 
   renderTriage(B); renderAreas(B); renderQueue(B, cmp); renderGrid(B, cmp); renderHistory(A, B);
