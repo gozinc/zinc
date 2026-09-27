@@ -20,7 +20,7 @@ app := zinc.New(zinc.Config{
 | `DisableAutoHead` | `bool` | automatic `HEAD` on | Stop serving `HEAD` from the matching `GET` route |
 | `DisableAutoOptions` | `bool` | automatic `OPTIONS` on | Stop answering `OPTIONS` with `204` and `Allow` |
 | `DisableMethodNotAllowed` | `bool` | `405` on | Answer method mismatches with `404` instead of `405` and `Allow` |
-| `RouteCacheSize` | `int` | `1000` | Cached dynamic paths; `-1` disables |
+| `RouteCacheSize` | `int` | `0` (off) | Caches up to this many concrete dynamic paths when positive |
 | `BodyLimit` | `int64` | `4 << 20` | Maximum body size read by binding and forms; `-1` for no limit |
 | `ReadTimeout` | `time.Duration` | `5s` | Server read timeout; `-1` for none |
 | `WriteTimeout` | `time.Duration` | `10s` | Server write timeout, per event for SSE; `-1` for none |
@@ -48,7 +48,7 @@ For limits and timeouts, `0` selects the default and a negative value turns the 
 | `DefaultWriteTimeout` | `10 * time.Second` |
 | `DefaultIdleTimeout` | `120 * time.Second` |
 | `DefaultShutdownTimeout` | `10 * time.Second` |
-| `DefaultRouteCacheSize` | `1000` |
+| `DefaultRouteCacheSize` | `0` (the route cache is off) |
 | `DefaultProxyHeader` | `"X-Forwarded-For"` |
 
 ## Related
