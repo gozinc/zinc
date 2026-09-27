@@ -136,6 +136,12 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 			}
 			methodRoutes[path] = route
 			r.recordStaticRouteLength(mask, path)
+			// Index every static path, so a miss in staticAllowed is final and
+			// 404s and 405s never scan the static maps.
+			if r.staticAllowed == nil {
+				r.staticAllowed = make(map[string]allowedMethodSet)
+			}
+			r.staticAllowed[path] = addAllowedMethod(r.staticAllowed[path], method, mask)
 			r.routeInfos = append(r.routeInfos, info)
 			r.recordNamedRoute(name, infoIndex)
 			r.invalidateCache()
@@ -711,6 +717,12 @@ func (r *routeTable) lookupStaticAllowedMethods(originalPath, path string, caseS
 		if allowed := lookupStaticAllowed(r.staticAllowed, originalPath, path, caseSensitive); !allowed.empty() {
 			return allowed
 		}
+	}
+	// staticAllowed holds every static path, so a miss there is final. Apps
+	// with static routes on custom methods keep the scan, which orders those
+	// methods as before.
+	if !r.hasCustomStatic {
+		return allowedMethodSet{}
 	}
 	return r.lookupStaticAllowedByScan(originalPath, path, caseSensitive)
 }
