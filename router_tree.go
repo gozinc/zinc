@@ -304,7 +304,7 @@ func treeMatchPath(path string, caseSensitive bool) (matched string, fold bool) 
 }
 
 // dispatchTree resolves and invokes a route through the route tree. Order:
-// the opt-in cache, the walk for the path without its trailing slash, then
+// the static map, the walk for the path without its trailing slash, then
 // (only when that found no route and no other methods) the path as sent.
 // A 405 collects every method that matches.
 func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
@@ -335,22 +335,6 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 		if route := lookupStaticRouteExact(routes, originalPath, path); route != nil {
 			ctx.setRouteIndex(route.infoIndex)
 			return true, allowedMethodSet{}, route.handler(ctx)
-		}
-	}
-
-	cacheEnabled := r.dispatchCacheEnabled()
-	var key routeCacheKey
-	if cacheEnabled {
-		key = routeCacheKey{method: method, path: originalPath}
-		if entry, ok := r.cache.getWithMask(key, mask); ok {
-			if entry.route == nil {
-				return false, entry.allowed, nil
-			}
-			if entry.route.paramCount > 0 {
-				ctx.applyRouteParams(originalPath, entry.route, entry.values)
-			}
-			ctx.setRouteIndex(entry.route.infoIndex)
-			return true, allowedMethodSet{}, entry.route.handler(ctx)
 		}
 	}
 
@@ -387,9 +371,6 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 	}
 	captured := w.values
 	if route == nil {
-		if cacheEnabled {
-			r.cache.setMissWithMask(key, mask, routeCacheEntry{allowed: allowed})
-		}
 		return false, allowed, nil
 	}
 	if route.paramCount > 0 {
@@ -399,13 +380,6 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 		ctx.applyRouteParams(originalPath, route, *captured)
 	}
 	ctx.setRouteIndex(route.infoIndex)
-	// Static hits aren't cached, as before: their walk is already cheap.
-	if cacheEnabled && route.paramCount > 0 {
-		r.cache.setMissWithMask(key, mask, routeCacheEntry{
-			route:  route,
-			values: cloneParamRangesForCache(*captured, int(route.paramCount)),
-		})
-	}
 	return true, allowedMethodSet{}, route.handler(ctx)
 }
 
