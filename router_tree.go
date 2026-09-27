@@ -161,19 +161,6 @@ func indexByte(s string, b byte) int {
 	return -1
 }
 
-// methodRoute is this node's route for the method, if it takes captured
-// parameters.
-func (n *radixNode) methodRoute(slot int, method string, captured int) *radixRoute {
-	if n.methods == nil {
-		return nil
-	}
-	route := n.methods.get(slot, method)
-	if route == nil || int(route.paramCount) != captured {
-		return nil
-	}
-	return route
-}
-
 // treeWalk is the part of a route-tree walk that doesn't change from node to
 // node, passed by pointer so each recursive call carries only the node, the
 // rest of the path, the offset and the count of captured parameters.
