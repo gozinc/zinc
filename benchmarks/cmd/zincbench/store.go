@@ -184,7 +184,7 @@ func (s *Store) gitAt(commit string) (GitInfo, error) {
 	return GitInfo{Commit: parts[0], Short: parts[1], Subject: parts[2]}, nil
 }
 
-var requireLine = regexp.MustCompile(`^\s*(?:require\s+)?(github\.com/(?:gin-gonic/gin|labstack/echo/v\d+|go-chi/chi/v\d+))\s+(v\S+)`)
+var requireLine = regexp.MustCompile(`^\s*(?:require\s+)?(github\.com/(?:gin-gonic/gin|labstack/echo/v\d+|go-chi/chi/v\d+|uptrace/bunrouter))\s+(v\S+)`)
 
 // rivalVersions reads the peer framework versions from benchmarks/go.mod.
 func (s *Store) rivalVersions() map[string]string {

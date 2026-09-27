@@ -35,6 +35,8 @@ Usage:
   zincbench baseline [run-id | latest]
   zincbench list
   zincbench dash     [-o file] [-open]
+  zincbench report   [-o file] [run-id | latest]
+  zincbench gin-report -log full.log -label version -date date -go version [-previous old.log] [-o file]
 
 Records and the dashboard live in benchmarks/results/, which git ignores.
 `
@@ -71,6 +73,10 @@ func main() {
 		err = cmdList(store)
 	case "dash":
 		err = cmdDash(store, args)
+	case "report":
+		err = cmdReport(store, args)
+	case "gin-report":
+		err = cmdGinReport(store, args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:

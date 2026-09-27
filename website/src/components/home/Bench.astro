@@ -4,15 +4,32 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const frameworks = ["Zinc", "Gin", "Echo", "Chi"];
+const frameworks = ["Zinc", "Gin", "Echo"];
 const source = [path.resolve(process.cwd(), "../BENCHMARKS.md"), path.resolve(process.cwd(), "BENCHMARKS.md")].find((p) => fs.existsSync(p));
 const md = source ? fs.readFileSync(source, "utf8") : "";
 
-const results = [...md.matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| (\w+) \|$/gm)].map((m) => ({
+// The report has two tables; the homepage shows the frameworks table, the
+// headline, and quotes the routers score.
+const section = (title: string) => md.split(/^## /m).find((s) => s.startsWith(title)) ?? "";
+const results = [...section("Frameworks: every scenario").matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| (\w+) \|$/gm)].map((m) => ({
   bench: m[1],
-  ns: [m[2], m[3], m[4], m[5]].map((v) => parseFloat(v.replace(/,/g, ""))),
-  winner: m[6],
+  ns: [m[2], m[3], m[4]].map((v) => parseFloat(v.replace(/,/g, ""))),
+  winner: m[5],
 }));
+const score = (tier: string) => {
+  const m = md.match(new RegExp(`### ${tier} \\(\\d+ scenarios\\)[\\s\\S]*?\\| \\*\\*Zinc\\*\\* \\| (\\d+) / (\\d+) \\| \\+([\\d.]+)% \\|`));
+  return m ? { wins: +m[1], of: +m[2], geo: m[3] } : null;
+};
+const fwScore = score("Frameworks");
+const rtScore = score("Routers");
+const release = md.match(/from run `[^`]+` \(([^)]+)\)/)?.[1] ?? "";
+const caption = [
+  "Scenarios where Zinc recorded the lowest latency against Gin and Echo.",
+  fwScore && `On average it was ${fwScore.geo}% from the fastest.`,
+  `Gin led ${results.filter((r) => r.winner === "Gin").length} and Echo ${results.filter((r) => r.winner === "Echo").length}.`,
+  rtScore && `Against the bare routers BunRouter and Chi, Zinc led ${rtScore.wins} of ${rtScore.of}.`,
+  release && release !== "unreleased" ? `All were measured together in one run for ${release}.` : "All were measured together in one run.",
+].filter(Boolean).join(" ");
 const field = (label: string) => md.match(new RegExp(`${label}: \`([^\`]+)\``))?.[1] ?? "";
 const run = { commit: field("Zinc commit"), go: field("Go"), machine: field("Machine"), date: field("Date") };
 const mixedDate = /Mixed-date comparison/i.test(md);
@@ -51,9 +68,7 @@ const first = workloads[0];
     <p class="kicker">Measured, in the repo</p>
     <p class="hero-num"><strong>{wins.Zinc}</strong><span>/ {results.length}</span></p>
     <p class="caption">
-      Scenarios where Zinc recorded the lowest latency against Gin, Echo, and Chi.
-      Gin led {wins.Gin}, Chi {wins.Chi}, and Echo {wins.Echo}.
-      All four were measured together on 26 September, for the 0.4.0 release.
+      {caption}
     </p>
     <ol class="winmap" aria-label={`${wins.Zinc} of ${results.length} scenarios won by Zinc`}>
       {results.map((r) => (

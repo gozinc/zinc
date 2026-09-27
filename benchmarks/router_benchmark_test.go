@@ -27,19 +27,6 @@ func runZincServeHTTPBenchmark(b *testing.B, handler http.Handler, req *http.Req
 	benchmarkSinkInt = rw.status + rw.bytes
 }
 
-func runZincServeHTTPRequestSetBenchmark(b *testing.B, handler http.Handler, requests []*http.Request) {
-	rw := newDiscardResponseWriter()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rw.reset()
-		handler.ServeHTTP(rw, requests[i%len(requests)])
-	}
-
-	benchmarkSinkInt = rw.status + rw.bytes
-}
-
 func buildZincDiagnosticRouterApp(cfg Config) *App {
 	app := New(cfg)
 	app.Get("/hello", func(c *Context) error {
