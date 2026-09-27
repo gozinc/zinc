@@ -17,6 +17,7 @@ The fuzz test's reference is v0.4.0 with these changes applied, each marked in `
 
 2. **`Allow` merges every spelling of a static path (P5).** v0.4.0 looked up the path's spellings in order (as sent, without its trailing slash, then lowercased) and returned the first one that had any methods. With `POST /Users/users` and `DELETE /users/users/`, `GET /Users/users` answered `Allow: POST, OPTIONS`, leaving out DELETE, though `DELETE /Users/users` was served. Found by `FuzzRouterReference` when static routes moved into the route tree.
 3. **Custom methods are listed in `Allow` in sorted order (P5).** v0.4.0 had no single rule: sorted for some static paths, registration order for others, and tree-creation order for parameter routes. Standard methods keep their fixed order. The fuzz test doesn't generate custom methods; `TestAllowSortsCustomMethods` covers this.
+4. **`:` and `*` are literal except at a segment's start (0.5.1).** v0.4.0 rejected them anywhere in a pattern, so routes such as `/v1/users:batch` or `/times/12:00` couldn't be registered. A segment that starts with either is still rejected with the `{…}` form to use.
 
 ## Patterns
 
@@ -24,7 +25,7 @@ The fuzz test's reference is v0.4.0 with these changes applied, each marked in `
 - `{name}` matches one non-empty segment. `{name...}` matches the rest of the path, including slashes, and must be the final segment.
 - A parameter must fill its whole segment: `/files/{id}.json` is rejected.
 - Names are letters, digits and `_`, and don't start with a digit. A name can appear only once per pattern.
-- The 0.3 grammar (`:name`, `*name`) is rejected, and the error names the `{…}` form to use.
+- A segment that starts with `:` or `*` is rejected, and the error names the `{…}` form to use: that is Gin's, Echo's and httprouter's syntax, and was Zinc 0.1's. Anywhere else in a segment, `:` and `*` are literal characters (`/v1/users:batch`, `/times/12:00`).
 - Registering the same method and pattern twice, or patterns that can't coexist, panics at registration, naming both.
 
 ## Matching a request
@@ -64,7 +65,7 @@ Zinc has no route cache since 0.5; `RouteCacheSize` is accepted and ignored. v0.
 |---|---|
 | Config | `StrictRouting`, `CaseSensitive`, `DisableAutoHead`, `DisableAutoOptions`, `DisableMethodNotAllowed`, and, for the reference only, cache sizes 1,000, off and 2 |
 | Route tables | Up to 24 routes, from 0 to 4 segments deep |
-| Route segments | Static (including mixed case and non-ASCII), `{param}` and `{name...}` |
+| Route segments | Static (including mixed case, non-ASCII, and `:` or `*` inside a segment), `{param}` and `{name...}` |
 | Route patterns | Sometimes a trailing slash |
 | Methods | GET, POST, PUT, DELETE and PATCH |
 | Requests | Near a registered route or random; with changed case, an extra or missing segment, a trailing or doubled slash, and encoded values |

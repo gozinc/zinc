@@ -47,8 +47,10 @@ func (r *routeTable) normalizePath(path string) string {
 	return result
 }
 
-// rejectLegacyRoutePattern reports the removed :name and *name grammar with an
-// actionable replacement while allowing literal punctuation inside segments.
+// rejectLegacyRoutePattern reports a segment that starts with ':' or '*'.
+//
+// Deliberate change 4 (0.5.1): v0.4.0 rejected ':' and '*' anywhere in a
+// pattern; they are literal except at a segment's start.
 func rejectLegacyRoutePattern(path string) error {
 	if !strings.ContainsAny(path, ":*") {
 		return nil
@@ -56,23 +58,16 @@ func rejectLegacyRoutePattern(path string) error {
 
 	for start := 0; start < len(path); {
 		end := start
-		firstParam := -1
 		for end < len(path) && path[end] != '/' {
-			switch path[end] {
-			case legacyParamIdentifier:
-				if firstParam < 0 {
-					firstParam = end
-				}
-			case legacyWildcardIdentifier:
-				for end < len(path) && path[end] != '/' {
-					end++
-				}
-				return fmt.Errorf("legacy route wildcard %q in path %q: use {name...} syntax", path[start:end], path)
-			}
 			end++
 		}
-		if firstParam >= 0 {
-			return fmt.Errorf("legacy route parameter %q in path %q: use {name} syntax", path[start:end], path)
+		if end > start {
+			switch path[start] {
+			case legacyParamIdentifier:
+				return fmt.Errorf("legacy route parameter %q in path %q: use {name} syntax", path[start:end], path)
+			case legacyWildcardIdentifier:
+				return fmt.Errorf("legacy route wildcard %q in path %q: use {name...} syntax", path[start:end], path)
+			}
 		}
 		start = end + 1
 	}

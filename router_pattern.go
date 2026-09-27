@@ -48,12 +48,11 @@ func (r *routeTable) normalizePath(path string) string {
 	return result
 }
 
-// rejectLegacyRoutePattern reports the removed :name and *name grammar with an
-// actionable replacement. It rejects any ':' or '*' in a pattern, not only at
-// a segment's start: 0.3 began a parameter at a colon anywhere in a segment,
-// so "/v1/users:batch" meant a parameter named batch, and accepting it as a
-// literal would turn an upgraded route into a silent 404. Other punctuation
-// ('.', '-', '~', ...) is literal.
+// rejectLegacyRoutePattern reports a segment that starts with ':' or '*' with
+// the {…} form to use. That is Gin's, Echo's and httprouter's parameter and
+// wildcard syntax (and was Zinc 0.1's), so a literal there would be a route
+// that silently never matches. Anywhere else in a segment, ':' and '*' are literal,
+// as in /v1/users:batch or /times/12:00.
 func rejectLegacyRoutePattern(path string) error {
 	if !strings.ContainsAny(path, ":*") {
 		return nil
@@ -61,23 +60,16 @@ func rejectLegacyRoutePattern(path string) error {
 
 	for start := 0; start < len(path); {
 		end := start
-		firstParam := -1
 		for end < len(path) && path[end] != '/' {
-			switch path[end] {
-			case legacyParamIdentifier:
-				if firstParam < 0 {
-					firstParam = end
-				}
-			case legacyWildcardIdentifier:
-				for end < len(path) && path[end] != '/' {
-					end++
-				}
-				return fmt.Errorf("legacy route wildcard %q in path %q: use {name...} syntax", path[start:end], path)
-			}
 			end++
 		}
-		if firstParam >= 0 {
-			return fmt.Errorf("legacy route parameter %q in path %q: use {name} syntax", path[start:end], path)
+		if end > start {
+			switch path[start] {
+			case legacyParamIdentifier:
+				return fmt.Errorf("legacy route parameter %q in path %q: use {name} syntax", path[start:end], path)
+			case legacyWildcardIdentifier:
+				return fmt.Errorf("legacy route wildcard %q in path %q: use {name...} syntax", path[start:end], path)
+			}
 		}
 		start = end + 1
 	}

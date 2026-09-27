@@ -530,9 +530,15 @@ func TestTryHandleDynamicRegistration(t *testing.T) {
 func TestAppRejectsLegacyRoutePatterns(t *testing.T) {
 	app := New()
 	handler := func(c *Context) error { return c.String("ok") }
-	for _, pattern := range []string{"/users/:id", "/users/prefix:id", "/files/*path", "/files/prefix*path", "/users/:id<\\d+>"} {
+	for _, pattern := range []string{"/users/:id", "/files/*path", "/users/:id<\\d+>"} {
 		err := app.TryHandle(RouteSpec{Method: MethodGet, Path: pattern, Handler: handler})
 		if err == nil || !strings.Contains(err.Error(), "legacy route") {
+			t.Fatalf("pattern=%q err=%v", pattern, err)
+		}
+	}
+	// Inside a segment, ':' and '*' are literal.
+	for _, pattern := range []string{"/users/prefix:id", "/files/prefix*path"} {
+		if err := app.TryHandle(RouteSpec{Method: MethodGet, Path: pattern, Handler: handler}); err != nil {
 			t.Fatalf("pattern=%q err=%v", pattern, err)
 		}
 	}
