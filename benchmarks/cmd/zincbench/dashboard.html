@@ -278,10 +278,12 @@ const AREAS = [
   ["files", "Static files", "Serving files and missing-file responses"],
   ["parallel", "Parallel", "The same work under concurrent load"],
   ["startup", "Startup", "Route registration, paid once when the app boots"],
+  ["cache", "Cache best case", "One repeated URL: the best case for Zinc's route cache, shown next to the pooled scenarios"],
 ].map(([id, label, blurb]) => ({ id, label, blurb }));
 const areaName = Object.fromEntries(AREAS.map(a => [a.id, a.label]));
 
 function areaOf(n) {
+  if (n.startsWith("CacheBestCase/")) return "cache";
   if (n.startsWith("ScenarioRouteSetBuild/") || n.startsWith("RouteRegistration")) return "startup";
   if (n.startsWith("Parallel")) return "parallel";
   if (n.startsWith("StaticFile")) return "files";
@@ -292,9 +294,11 @@ function areaOf(n) {
   if (["JSONResponse", "LargeJSONResponse", "APIHappyPath"].includes(n)) return "responses";
   return "routing";
 }
-const SETS = { Static157: "157 static routes", GitHubAPI203: "GitHub API, 203 routes", GPlusAPI13: "Google+ API, 13 routes", ParseAPI26: "Parse API, 26 routes", NestedAPI36: "Nested API, 36 routes", ParamsAny24: "Parameter-heavy, 24 routes" };
-const KINDS = { ScenarioRouteSetBuild: "Build", ScenarioRouteSetStatic: "Static hit", ScenarioRouteSetParam: "Parameter hit", ScenarioRouteSetNotFound: "404", ScenarioRouteSetMethodMismatch: "405", ScenarioRouteSetAll: "Mixed traffic" };
+const SETS = { Static157: "157 static routes", GitHubAPI203: "GitHub API, 203 routes", GPlusAPI13: "Google+ API, 13 routes", ParseAPI26: "Parse API, 26 routes", NestedAPI36: "Nested API, 36 routes", ParamsAny24: "Parameter-heavy, 24 routes", Services1024: "128 services, 1,024 routes" };
+const KINDS = { ScenarioRouteSetBuild: "Build", ScenarioRouteSetStatic: "Static hit", ScenarioRouteSetParam: "Parameter hit", ScenarioRouteSetNotFound: "404", ScenarioRouteSetMethodMismatch: "405", ScenarioRouteSetAll: "Every route", ScenarioRouteSetTraffic: "Weighted traffic" };
 const NAMES = {
+  "CacheBestCase/RouterParam": "Parameter route, one URL", "CacheBestCase/GitHubAPI203Param": "GitHub API parameter hit, one URL",
+  "CacheBestCase/LargeRouteSetNotFound": "Large route set 404, one URL", ParallelRouteSetTraffic: "Parallel GitHub API traffic",
   HelloWorld: "Hello world", StaticRoute: "Static route", StaticRouteCold: "Static route, cold", RouterParam: "Parameter route", RouterParamCold: "Parameter route, cold",
   JSONResponse: "JSON response", QueryParams: "Query parameters", MiddlewareChain: "Middleware chain", NotFound: "404",
   LargeRouteSetStatic: "Large route set, static", LargeRouteSetStaticMixed: "Large route set, mixed static", LargeRouteSetNotFound: "Large route set, 404", LargeRouteSetMethodMismatch: "Large route set, 405",
@@ -307,6 +311,7 @@ const NAMES = {
   NestedGroupMethodMismatch: "Nested group, 405", WildcardTail: "Wildcard", WildcardTailNotFound: "Wildcard, 404",
 };
 function labelOf(n) {
+  if (NAMES[n]) return NAMES[n];
   if (n.includes("/")) { const [k, s] = n.split("/"); return `${SETS[s] || s} · ${KINDS[k] || k}`; }
   return NAMES[n] || n.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
 }

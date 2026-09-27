@@ -59,8 +59,8 @@ func TestWins(t *testing.T) {
 }
 
 func TestSuitePatternCoversEveryFunction(t *testing.T) {
-	if len(suite) != 48 {
-		t.Fatalf("suite has %d benchmark functions, want 48", len(suite))
+	if len(suite) != 49 { // suite v2
+		t.Fatalf("suite has %d benchmark functions, want 49", len(suite))
 	}
 	if !strings.HasPrefix(suitePattern(), "^Benchmark(HelloWorld|") {
 		t.Fatalf("pattern = %s", suitePattern())

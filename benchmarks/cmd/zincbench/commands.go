@@ -15,10 +15,11 @@ import (
 	"time"
 )
 
-// suite lists the benchmark functions in the 77-scenario head-to-head
-// comparison. Zinc-only benchmarks in the module are deliberately excluded.
+// suite lists the benchmark functions in the head-to-head comparison (suite
+// v2). Zinc-only benchmarks in the module are deliberately excluded.
+// TestSuiteNamesExist fails if an entry has no benchmark function.
 var suite = []string{
-	"HelloWorld", "StaticRoute", "StaticRouteCold", "RouterParam", "RouterParamCold",
+	"HelloWorld", "StaticRoute", "RouterParam", "CacheBestCase",
 	"JSONResponse", "QueryParams", "MiddlewareChain", "NotFound",
 	"LargeRouteSetStatic", "LargeRouteSetStaticMixed", "LargeRouteSetNotFound",
 	"LargeRouteSetMethodMismatch", "LargeRouteSetParam", "LargeRouteSetParamMixed",
@@ -32,6 +33,7 @@ var suite = []string{
 	"NestedGroupMethodMismatch", "WildcardTail", "WildcardTailNotFound",
 	"ScenarioRouteSetBuild", "ScenarioRouteSetStatic", "ScenarioRouteSetParam",
 	"ScenarioRouteSetNotFound", "ScenarioRouteSetMethodMismatch", "ScenarioRouteSetAll",
+	"ScenarioRouteSetTraffic", "ParallelRouteSetTraffic",
 }
 
 func suitePattern() string {
