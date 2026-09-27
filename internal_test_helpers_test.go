@@ -11,6 +11,20 @@ func (c *Context) setParam(key, value string) {
 	c.paramCount++
 	c.paramRoute = nil
 }
+
+// methodRoute is this node's route for the method, if it takes captured
+// parameters.
+func (n *radixNode) methodRoute(slot int, method string, captured int) *radixRoute {
+	if n.methods == nil {
+		return nil
+	}
+	route := n.methods.get(slot, method)
+	if route == nil || int(route.paramCount) != captured {
+		return nil
+	}
+	return route
+}
+
 func bindData(ptr any, data map[string][]string, tag string) error {
 	val, plan, err := bindTargetPlan(ptr)
 	if err != nil {
