@@ -203,7 +203,22 @@ func lowercasePath(path string) (string, bool) {
 // is all ASCII. Folding ASCII preserves byte offsets, so an ASCII path can be
 // matched case-insensitively in place, without a lowercase copy.
 func asciiFoldKind(path string) (hasUpper, ascii bool) {
-	for i := 0; i < len(path); i++ {
+	// Eight bytes at a time: for bytes below 0x80, adding 0x3f sets a byte's
+	// high bit when it is at least 'A', and adding 0x25 when it is past 'Z',
+	// with no carry between bytes. The byte-wise loads combine into one load.
+	const high = 0x8080808080808080
+	var upper uint64
+	i := 0
+	for ; i+8 <= len(path); i += 8 {
+		w := uint64(path[i]) | uint64(path[i+1])<<8 | uint64(path[i+2])<<16 | uint64(path[i+3])<<24 |
+			uint64(path[i+4])<<32 | uint64(path[i+5])<<40 | uint64(path[i+6])<<48 | uint64(path[i+7])<<56
+		if w&high != 0 {
+			return false, false
+		}
+		upper |= (w + 0x3f3f3f3f3f3f3f3f) &^ (w + 0x2525252525252525) & high
+	}
+	hasUpper = upper != 0
+	for ; i < len(path); i++ {
 		c := path[i]
 		if c >= utf8.RuneSelf {
 			return hasUpper, false
