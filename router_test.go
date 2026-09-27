@@ -184,18 +184,49 @@ func TestRouterConflictsAndNormalization(t *testing.T) {
 func TestRouterRejectsLegacyRoutePatterns(t *testing.T) {
 	router := &routeTable{config: &Config{}}
 	handler := func(*Context) error { return nil }
+	// A segment that starts with ':' or '*' is Gin's (and Zinc 0.1's) syntax.
 	patterns := []string{
 		"/users/:id",
 		"/users/:",
-		"/users/prefix:id",
 		"/files/*path",
-		"/files/prefix*path",
+		"/files/*",
 		"/users/:id<\\d+>",
+		"/teams/:team/members",
 	}
 	for _, pattern := range patterns {
 		if err := router.Add(MethodGet, pattern, handler); err == nil || !strings.Contains(err.Error(), "legacy route") {
 			t.Fatalf("pattern=%q err=%v", pattern, err)
 		}
+	}
+}
+
+// ':' and '*' inside a segment are literal characters, so routes such as
+// Google-style custom methods and times register and match like any other
+// static text, including under case folding and next to parameter routes.
+func TestRouterLiteralColonAndAsterisk(t *testing.T) {
+	app := New()
+	app.Post("/v1/users:batch", func(c *Context) error { return c.String("batch") })
+	app.Get("/v1/{name}", func(c *Context) error { return c.String("name=" + c.Param("name")) })
+	app.Get("/times/12:00", func(c *Context) error { return c.String("noon") })
+	app.Get("/files/a*b/{rest...}", func(c *Context) error { return c.String("glob:" + c.Param("rest")) })
+
+	for _, tt := range []struct{ method, path, want string }{
+		{MethodPost, "/v1/users:batch", "batch"},
+		{MethodPost, "/V1/Users:Batch", "batch"},
+		{MethodGet, "/v1/users:batch", "name=users:batch"},
+		{MethodGet, "/times/12:00", "noon"},
+		{MethodGet, "/files/a*b/x/y", "glob:x/y"},
+	} {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(tt.method, tt.path, nil))
+		if w.Code != http.StatusOK || w.Body.String() != tt.want {
+			t.Errorf("%s %s = %d %q, want 200 %q", tt.method, tt.path, w.Code, w.Body.String(), tt.want)
+		}
+	}
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(MethodPut, "/v1/users:batch", nil))
+	if w.Code != http.StatusMethodNotAllowed || w.Header().Get(HeaderAllow) != "GET, HEAD, POST, OPTIONS" {
+		t.Errorf("PUT /v1/users:batch = %d Allow %q", w.Code, w.Header().Get(HeaderAllow))
 	}
 }
 
