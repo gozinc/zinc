@@ -16,6 +16,12 @@
 //     v0.4.0 returned the first spelling that had any, so with POST /Users/users
 //     and DELETE /users/users/, GET /Users/users answered Allow: POST, OPTIONS,
 //     leaving out DELETE, though DELETE /Users/users was served.
+//  3. Custom methods are listed in Allow in sorted order (0.5 P5). Not
+//     applied here: the fuzz test doesn't generate custom methods;
+//     TestAllowSortsCustomMethods covers it.
+//  4. ':' and '*' are literal except at a segment's start (0.5.1). v0.4.0
+//     rejected them anywhere in a pattern, so /v1/users:batch couldn't be
+//     registered.
 //
 // Otherwise, regenerate them from the v0.4.0 module:
 //

@@ -83,6 +83,15 @@ catch-all = "{" identifier "...}"   ; final segment only
 
 An identifier contains letters, digits, and underscores, and cannot start with a digit. A parameter must fill a whole segment, and each name can appear only once per pattern.
 
+A literal can contain any character except `{` and `}`, so Google-style custom methods and times are ordinary static routes:
+
+```go
+app.Post("/v1/users:batch", batchCreateUsers)
+app.Get("/opening/09:00", openingTimes)
+```
+
+A segment can't *start* with `:` or `*`. That's Gin's and Echo's parameter syntax, so `/users/:id` fails at startup and names the `{id}` form instead of registering a literal route that never matches.
+
 Some `net/http` pattern features are intentionally not supported: method or host prefixes inside ordinary route paths, the `{$}` end marker, and `ServeMux`'s overlap resolution. `HandleHTTP("GET /users/{id}", h)` accepts a method prefix because the method is split off before matching.
 
 ### Invalid patterns fail at startup
