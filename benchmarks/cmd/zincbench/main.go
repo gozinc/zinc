@@ -28,6 +28,7 @@ Usage:
                      [-zinc-only [-rivals run-id]] [-micro=false]
   zincbench compare  [-base run-id] [-slow-pct 5] [-noisy-pct 12] [-slow-ns 15] [-all] [run-id | latest]
   zincbench ab       -scenarios name1,name2 [-base commit] [-rounds 6] [-count 3] [-benchtime 100ms]
+  zincbench profile  [-benchtime 3s] [-top 20] scenario
   zincbench import   -log file[.gz] [-release version] [-commit sha] [-date RFC3339] [-note text] [-baseline]
   zincbench import-zinc -logs file1,file2 -rivals run-id -commit sha -date RFC3339 [-release version] [-note text]
   zincbench bundle   -release version [-o file.zip] [-include path1,path2]
@@ -64,6 +65,8 @@ func main() {
 		err = cmdAB(store, args)
 	case "compare":
 		err = cmdCompare(store, args)
+	case "profile":
+		err = cmdProfile(store, args)
 	case "list":
 		err = cmdList(store)
 	case "dash":

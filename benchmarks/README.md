@@ -2,12 +2,21 @@
 
 `make bench-dash` opens the local head-to-head run history. Every run has its own raw log and JSON record in `benchmarks/results/runs/`. The dashboard now groups runs by their intended Zinc release. These files are gitignored, so each checkout or worktree has a separate local results directory unless you copy or restore the records.
 
-Record a complete four-framework run for a release:
+Record a complete run of every framework for a release:
 
 ```sh
-make bench-record RELEASE=0.4.0 NOTE="baseline"
+make bench-record RELEASE=0.5.0 NOTE="baseline"
 make bench-dash
 ```
+
+## Two scoreboards
+
+Zinc is scored against two groups separately:
+
+- **Frameworks** (Gin and Echo) on every scenario. This is the headline figure.
+- **Routers** (BunRouter and Chi) on the routing scenarios they run.
+
+Each scoreboard shows two numbers: how many scenarios Zinc is fastest in, and the geometric mean of how far Zinc's median is above the fastest median in each scenario. The second number doesn't treat a 0.1% win and a 60% loss as equal, so it shows the size of the gaps as well as the count. Records made before 0.5 are scored the same way, so their headline no longer counts Chi. Fiber is not measured: it runs on fasthttp, not net/http.
 
 ## Checking a change
 
@@ -18,7 +27,7 @@ make bench-zinc RELEASE=0.4.0 NOTE="router: cache promotion at 8"
 make bench-compare
 ```
 
-`bench-compare` compares the latest run with the baseline. It lists changes in allocations, bytes, time and wins, and exits non-zero if any benchmark allocates more. A scenario is flagged as slower when it loses more than 5% and more than 15 ns. Parallel, registration and route-set build benchmarks, which vary by up to 12% between runs of identical code, get a 12% margin. Use `ARGS='-all'` to list every scenario.
+`bench-compare` compares the latest run with the baseline. It lists both scoreboards, then changes in allocations, bytes, time and headline wins, and exits non-zero if any benchmark allocates more. A scenario is flagged as slower when it loses more than 5% and more than 15 ns. Parallel, registration and route-set build benchmarks, which vary by up to 12% between runs of identical code, get a 12% margin. Use `ARGS='-all'` to list every scenario.
 
 Pin a Zinc-only run as the baseline when checking Zinc-only runs. Identical code measures faster in Zinc-only mode than in a four-framework run, so mixing the two modes shows differences that aren't real.
 
@@ -29,6 +38,14 @@ make bench-ab SCENARIOS=LargeRouteSetParam,API04ParamInt
 ```
 
 `bench-ab` checks out the baseline commit in the user cache directory (`zincbench/ab/` under `os.UserCacheDir`, outside the repository), then measures that tree and the working tree in alternating rounds. It reports "slower" or "faster" only when the interquartile ranges of the two sample sets don't overlap. The baseline commit must contain any Zinc-only benchmark you name.
+
+## Profiling a scenario
+
+```sh
+make bench-profile SCENARIO=ScenarioRouteSetAll/GitHubAPI203
+```
+
+`bench-profile` runs Zinc's case of one scenario with the CPU and memory profilers, prints the top of each, and keeps the profiles and test binary in `benchmarks/results/profiles/` for `go tool pprof -http=:`.
 
 ## Importing Zinc-only logs
 

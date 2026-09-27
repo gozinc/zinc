@@ -205,6 +205,8 @@ func (s *Store) rivalVersions() map[string]string {
 			versions["Echo"] = m[2]
 		case strings.Contains(m[1], "go-chi"):
 			versions["Chi"] = m[2]
+		case strings.Contains(m[1], "uptrace/bunrouter"):
+			versions["BunRouter"] = m[2]
 		}
 	}
 	return versions
@@ -262,7 +264,7 @@ func (s *Store) rivalSource(id string) (*Run, error) {
 		return nil, err
 	}
 	for _, sc := range run.Scenarios {
-		if len(sc) != len(frameworks) {
+		if !headline.covers(sc) {
 			return nil, fmt.Errorf("run %s has no rival samples to reuse", run.ID)
 		}
 		break

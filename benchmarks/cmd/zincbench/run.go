@@ -9,8 +9,9 @@ import (
 	"strings"
 )
 
-// Frameworks compared in the head-to-head suite. Zinc is always first.
-var frameworks = []string{"Zinc", "Gin", "Echo", "Chi"}
+// Frameworks measured in the head-to-head suite. Zinc is always first. Which
+// rivals Zinc is scored against is set by tiers.
+var frameworks = []string{"Zinc", "Gin", "Echo", "Chi", "BunRouter"}
 
 // Run is one immutable benchmark record.
 type Run struct {
@@ -72,8 +73,11 @@ func parseOutput(r io.Reader) (scenarios map[string]Scenario, zincOnly map[strin
 	}
 	scenarios = map[string]Scenario{}
 	for name, fws := range all {
-		if len(fws) == len(frameworks) {
-			scenarios[name] = fws
+		for _, t := range tiers {
+			if t.covers(fws) {
+				scenarios[name] = fws
+				break
+			}
 		}
 	}
 	return scenarios, zincOnly, header, nil
@@ -170,22 +174,4 @@ func median(v []float64) float64 {
 		return s[n/2]
 	}
 	return (s[n/2-1] + s[n/2]) / 2
-}
-
-// wins counts scenarios where Zinc has the strictly lowest median.
-func (r *Run) wins() int {
-	n := 0
-	for _, s := range r.Scenarios {
-		z := median(s["Zinc"].NS)
-		best := true
-		for _, f := range frameworks[1:] {
-			if median(s[f].NS) <= z {
-				best = false
-			}
-		}
-		if best {
-			n++
-		}
-	}
-	return n
 }

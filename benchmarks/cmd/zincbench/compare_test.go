@@ -98,7 +98,7 @@ func TestCompareFlagsAllocationsTimeAndWins(t *testing.T) {
 
 	var out bytes.Buffer
 	c.print(&out, th, false)
-	for _, want := range []string{"Wins      1/1 → 0/1  (+0, -1)", "ALLOCS", "SLOW", "Lost      1: HelloWorld", "API04ParamInt"} {
+	for _, want := range []string{"Frameworks 1/1 +0.0% → 0/1 +18.2%  (+0, -1)", "Routers    1/1 +0.0% → 0/1 +18.2%", "ALLOCS", "SLOW", "Lost      1: HelloWorld", "API04ParamInt"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}

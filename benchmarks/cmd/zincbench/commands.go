@@ -334,13 +334,14 @@ func mergeZincWithRivals(partial map[string]Scenario, source *Run) (map[string]S
 		if !ok {
 			return nil, 0, fmt.Errorf("%s missing from rival run %s", name, source.ID)
 		}
+		if !headline.covers(peers) {
+			return nil, 0, fmt.Errorf("%s is missing %s samples in rival run %s", name, strings.Join(headline.Rivals, " or "), source.ID)
+		}
 		combined := Scenario{"Zinc": zinc}
 		for _, fw := range frameworks[1:] {
-			peer, ok := peers[fw]
-			if !ok {
-				return nil, 0, fmt.Errorf("%s/%s missing from rival run %s", name, fw, source.ID)
+			if peer, ok := peers[fw]; ok {
+				combined[fw] = peer
 			}
-			combined[fw] = peer
 		}
 		scenarios[name] = combined
 	}
@@ -387,7 +388,12 @@ func finish(s *Store, run *Run, raw []byte, pin bool) error {
 	if err := s.save(run, raw); err != nil {
 		return err
 	}
-	fmt.Printf("\nSaved %s: %d scenarios, Zinc fastest in %d.\n", run.ID, len(run.Scenarios), run.wins())
+	fmt.Printf("\nSaved %s: %d scenarios.\n", run.ID, len(run.Scenarios))
+	for _, t := range tiers {
+		if sc := run.score(t); sc.Of > 0 {
+			fmt.Printf("  %-10s %s against %s\n", t.Name, sc, strings.Join(t.Rivals, " and "))
+		}
+	}
 	if pin || s.baseline() == "" {
 		if err := s.setBaseline(run.ID); err != nil {
 			return err
@@ -442,14 +448,14 @@ func cmdList(s *Store) error {
 	}
 	base := s.baseline()
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "\tRUN\tRELEASE\tWHEN\tCOMMIT\tWINS\tNOTE")
+	fmt.Fprintln(w, "\tRUN\tRELEASE\tWHEN\tCOMMIT\tFRAMEWORKS\tROUTERS\tNOTE")
 	for _, r := range runs {
 		mark := ""
 		if r.ID == base {
 			mark = "base"
 		}
 		when, _ := time.Parse(time.RFC3339, r.CreatedAt)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", mark, r.ID, r.Release, when.Local().Format("Jan 02 15:04"), r.Git.Short, r.wins(), len(r.Scenarios), r.Note)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", mark, r.ID, r.Release, when.Local().Format("Jan 02 15:04"), r.Git.Short, r.score(tiers[0]), r.score(tiers[1]), r.Note)
 	}
 	return w.Flush()
 }
