@@ -1,0 +1,807 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
+package zinc040
+
+import (
+	"bytes"
+	"encoding/json"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ErrResponseAlreadySent is returned when a handler attempts a second terminal
+// response write. SSE is the deliberate exception and supports multiple events.
+var ErrResponseAlreadySent = errors.New("response already sent")
+
+// MIME types for Context.Data and response headers. The text types include
+// the UTF-8 charset.
+const (
+	MIMEJSON        = "application/json; charset=utf-8"
+	MIMEXML         = "application/xml; charset=utf-8"
+	MIMEHTML        = "text/html; charset=utf-8"
+	MIMEText        = "text/plain; charset=utf-8"
+	MIMEEventStream = "text/event-stream"
+	MIMEOctetStream = "application/octet-stream"
+)
+
+const (
+	contentType = "Content-Type"
+	jsonType    = MIMEJSON
+	xmlType     = MIMEXML
+	plainText   = MIMEText
+	htmlType    = MIMEHTML
+	eventStream = MIMEEventStream
+	octetStream = MIMEOctetStream
+)
+
+// Event describes one Server-Sent Events message.
+type Event struct {
+	Event string
+	ID    string
+	Retry time.Duration
+	Data  any
+}
+
+var nullBytes = []byte("null")
+
+// The built-in 404 and 405 bodies are precomputed so the router's miss path
+// writes the default JSON error without encoding.
+var (
+	statusNotFoundBytes         = []byte("{\"error\":{\"status\":404,\"message\":\"Not Found\"}}\n")
+	statusMethodNotAllowedBytes = []byte("{\"error\":{\"status\":405,\"message\":\"Method Not Allowed\"}}\n")
+)
+
+func bodyAllowed(method string, status int) bool {
+	if method == http.MethodHead {
+		return false
+	}
+	if status >= 100 && status < 200 {
+		return false
+	}
+	return status != http.StatusNoContent && status != http.StatusNotModified
+}
+
+func (c *Context) responseStatus() int {
+	if c.status == 0 {
+		return http.StatusOK
+	}
+	return c.status
+}
+
+// SetHeader replaces a response header value.
+func (c *Context) SetHeader(key, value string) *Context {
+	c.Writer().Header().Set(key, value)
+	return c
+}
+
+// AppendHeader adds response header values without replacing existing ones.
+func (c *Context) AppendHeader(key string, values ...string) *Context {
+	for _, value := range values {
+		c.Writer().Header().Add(key, value)
+	}
+	return c
+}
+
+// Type sets Content-Type from a filename extension.
+func (c *Context) Type(ext string) *Context {
+	if ext == "" {
+		return c
+	}
+	if ext[0] != '.' {
+		ext = "." + ext
+	}
+	if contentType := mime.TypeByExtension(ext); contentType != "" {
+		c.SetHeader(HeaderContentType, contentType)
+	}
+	return c
+}
+
+// Location sets the response Location header.
+func (c *Context) Location(location string) *Context {
+	return c.SetHeader(HeaderLocation, location)
+}
+
+// Vary appends fields to the response Vary header.
+func (c *Context) Vary(fields ...string) *Context {
+	return c.AppendHeader(HeaderVary, fields...)
+}
+
+// String writes a plain-text response without converting data to []byte.
+func (c *Context) String(data string) error {
+	if c.baseWriter && !c.written && c.request != nil && c.request.Method != http.MethodHead &&
+		(c.status == http.StatusOK || bodyAllowed(c.request.Method, c.responseStatus())) {
+		// Body-allowed responses can use the already-owned base writer.
+		// SetWriter, HEAD, and bodyless statuses use the general path below.
+		writer := &c.response.base
+		header := writer.Header()
+		if len(header[contentType]) == 0 {
+			header[contentType] = []string{plainText}
+		}
+		_, err := writer.WriteString(data)
+		return err
+	}
+	writer, writeBody, err := c.prepareResponse(plainText)
+	if err != nil || !writeBody {
+		return err
+	}
+	_, err = io.WriteString(writer, data)
+	return err
+}
+
+// Send chooses a response representation from the dynamic value type.
+func (c *Context) Send(data any) error {
+	switch value := data.(type) {
+	case nil:
+		return c.writeResponse(jsonType, func() error {
+			_, err := c.Writer().Write(nullBytes)
+			return err
+		})
+	case string:
+		return c.String(value)
+	case []byte:
+		return c.Data(octetStream, value)
+	default:
+		return c.JSON(value)
+	}
+}
+
+// Data writes bytes with the supplied content type.
+func (c *Context) Data(contentType string, b []byte) error {
+	writer, writeBody, err := c.prepareResponse(contentType)
+	if err != nil || !writeBody {
+		return err
+	}
+	_, err = writer.Write(b)
+	return err
+}
+
+// JSON writes v as JSON, using the app's JSON encoder when one is configured.
+func (c *Context) JSON(v any) error {
+	return c.writeJSON(v, "")
+}
+
+// JSONPretty writes v as JSON indented by indent.
+func (c *Context) JSONPretty(v any, indent string) error {
+	return c.writeJSON(v, indent)
+}
+
+func (c *Context) writeJSON(v any, indent string) error {
+	if encode := c.encoderFor("application/json"); encode != nil && v != nil {
+		data, err := encode(v)
+		if err != nil {
+			return err
+		}
+		if indent != "" {
+			var buf bytes.Buffer
+			if err := json.Indent(&buf, data, "", indent); err != nil {
+				return err
+			}
+			data = buf.Bytes()
+		}
+		return c.Data(jsonType, data)
+	}
+
+	writer, writeBody, err := c.prepareResponse(jsonType)
+	if err != nil || !writeBody {
+		return err
+	}
+
+	if v == nil {
+		_, err = writer.Write(nullBytes)
+		return err
+	}
+
+	enc := json.NewEncoder(writer)
+	if indent != "" {
+		enc.SetIndent("", indent)
+	}
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	if !c.written {
+		writer.WriteHeader(c.responseStatus())
+	}
+	return nil
+}
+
+// XML writes v as XML, using the app's XML encoder when one is configured.
+func (c *Context) XML(v any) error {
+	if v == nil {
+		return c.writeResponse(xmlType, func() error {
+			_, err := c.Writer().Write(nullBytes)
+			return err
+		})
+	}
+	if encode := c.encoderFor("application/xml"); encode != nil {
+		return c.writeEncoded(xmlType, encode, v)
+	}
+
+	var buf bytes.Buffer
+	if err := xml.NewEncoder(&buf).Encode(v); err != nil {
+		return err
+	}
+	return c.writeResponse(xmlType, func() error {
+		_, err := c.Writer().Write(buf.Bytes())
+		return err
+	})
+}
+
+// HTML writes an HTML response.
+func (c *Context) HTML(data string) error {
+	return c.writeResponse(htmlType, func() error {
+		_, err := io.WriteString(c.Writer(), data)
+		return err
+	})
+}
+
+// Stream copies r to the response without buffering it in Zinc.
+func (c *Context) Stream(contentType string, r io.Reader) error {
+	return c.writeResponse(contentType, func() error {
+		_, err := io.Copy(c.Writer(), r)
+		return err
+	})
+}
+
+// SSE writes and flushes one event, keeping the event-stream response open for
+// more calls. Config.WriteTimeout bounds each event rather than the whole
+// stream, so a stream may run for as long as the handler keeps sending.
+func (c *Context) SSE(event Event) error {
+	writer, writeBody, err := c.prepareSSE()
+	if err != nil || !writeBody {
+		return err
+	}
+	rc := http.NewResponseController(writer)
+	if c.app != nil && c.app.config.WriteTimeout > 0 {
+		// Writers that cannot move their deadline, such as recorders, have
+		// no deadline to outlive.
+		_ = rc.SetWriteDeadline(time.Now().Add(c.app.config.WriteTimeout))
+	}
+	if err := c.writeSSEEvent(writer, event); err != nil {
+		return err
+	}
+	if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+// Accepts returns the best offered type allowed by the request Accept header.
+func (c *Context) Accepts(types ...string) string {
+	if len(types) == 0 {
+		return ""
+	}
+	header := c.Header(HeaderAccept)
+	if strings.TrimSpace(header) == "" {
+		return types[0]
+	}
+
+	offers := make([]acceptOffer, 0, len(types))
+	for _, offer := range types {
+		if strings.TrimSpace(offer) == "" {
+			continue
+		}
+		offers = append(offers, acceptOffer{raw: offer, mediaType: mediaTypeOnly(offer)})
+	}
+	if len(offers) == 0 {
+		return ""
+	}
+
+	ranges := parseAcceptHeader(header)
+	best, bestQ, bestSpecificity, bestIndex := "", 0.0, -1, len(ranges)+len(header)
+	for _, offer := range offers {
+		q, specificity, index := 0.0, -1, bestIndex
+		for _, accept := range ranges {
+			if acceptMatches(accept.mediaType, offer.mediaType) && (accept.specificity > specificity || (accept.specificity == specificity && accept.index < index)) {
+				q, specificity, index = accept.q, accept.specificity, accept.index
+			}
+		}
+		if q > 0 && (q > bestQ || (q == bestQ && (specificity > bestSpecificity || (specificity == bestSpecificity && index < bestIndex)))) {
+			best, bestQ, bestSpecificity, bestIndex = offer.raw, q, specificity, index
+		}
+	}
+	return best
+}
+
+// Negotiate writes the offered representation that best matches the Accept
+// header, using the status set by Status, or returns ErrNotAcceptable.
+func (c *Context) Negotiate(offers map[string]any) error {
+	if len(offers) == 0 {
+		return ErrNotAcceptable
+	}
+	types := make([]string, 0, len(offers))
+	for contentType := range offers {
+		types = append(types, contentType)
+	}
+	sort.Strings(types)
+
+	selected := c.Accepts(types...)
+	if selected == "" {
+		return ErrNotAcceptable
+	}
+	return c.writeNegotiated(selected, offers[selected])
+}
+
+// NoContent writes the selected status, defaulting to 204.
+func (c *Context) NoContent() error {
+	if c.status == 0 || c.status == http.StatusOK {
+		c.status = http.StatusNoContent
+	}
+	writer, _, err := c.prepareResponse("")
+	if err == nil {
+		writer.WriteHeader(c.responseStatus())
+	}
+	return err
+}
+
+func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) error {
+	if c.written {
+		return ErrResponseAlreadySent
+	}
+
+	// The common default 404/405 can use the already-owned base writer.
+	// SetWriter and HEAD keep the general path so their response semantics stay
+	// unchanged.
+	if c.baseWriter && c.request != nil && c.request.Method != http.MethodHead &&
+		(status == http.StatusNotFound || status == http.StatusMethodNotAllowed) {
+		writer := &c.response.base
+		header := writer.Header()
+		if allowHeader != "" {
+			if len(header[contentType]) == 0 {
+				// Both values belong to this response. Separate capacities prevent
+				// appending to one header from modifying the other.
+				values := []string{allowHeader, jsonType}
+				header[HeaderAllow] = values[:1:1]
+				header[contentType] = values[1:2:2]
+			} else {
+				header[HeaderAllow] = []string{allowHeader}
+			}
+		} else if len(header[contentType]) == 0 {
+			header[contentType] = []string{jsonType}
+		}
+		writer.WriteHeader(status)
+		if status == http.StatusNotFound {
+			_, err := writer.Write(statusNotFoundBytes)
+			return err
+		}
+		_, err := writer.Write(statusMethodNotAllowedBytes)
+		return err
+	}
+
+	writer := c.Writer()
+	header := writer.Header()
+	if len(allowHeader) != 0 {
+		header[HeaderAllow] = []string{allowHeader}
+	}
+	if len(header[contentType]) == 0 {
+		header[contentType] = []string{jsonType}
+	}
+	if !bodyAllowed(c.Method(), status) {
+		writer.WriteHeader(status)
+		return nil
+	}
+
+	writer.WriteHeader(status)
+	switch status {
+	case http.StatusNotFound:
+		_, err := writer.Write(statusNotFoundBytes)
+		return err
+	case http.StatusMethodNotAllowed:
+		_, err := writer.Write(statusMethodNotAllowedBytes)
+		return err
+	default:
+		return writeErrorEnvelope(writer, status, http.StatusText(status))
+	}
+}
+
+// Redirect sends location with 302 Found, or with the redirect status chosen
+// by Status, such as c.Status(http.StatusMovedPermanently).Redirect("/new").
+func (c *Context) Redirect(location string) error {
+	if c.written {
+		return ErrResponseAlreadySent
+	}
+	code := c.status
+	if code < 300 || code > 399 {
+		code = http.StatusFound
+	}
+	c.Location(location)
+	c.Writer().WriteHeader(code)
+	return nil
+}
+
+// File serves a file from the operating-system filesystem.
+func (c *Context) File(filePath string) error {
+	return c.serveFile(filePath, nil, "")
+}
+
+// FileFS serves a file from filesystem using fs.ValidPath semantics.
+func (c *Context) FileFS(filePath string, filesystem fs.FS) error {
+	return c.serveFile(filePath, filesystem, "")
+}
+
+// Attachment serves a file with an attachment Content-Disposition.
+func (c *Context) Attachment(filePath string, name ...string) error {
+	downloadName := filepath.Base(filePath)
+	if len(name) > 0 && name[0] != "" {
+		downloadName = name[0]
+	}
+	return c.serveFile(filePath, nil, downloadName)
+}
+
+// Inline serves a file with an inline Content-Disposition.
+func (c *Context) Inline(filePath string, name ...string) error {
+	inlineName := filepath.Base(filePath)
+	if len(name) > 0 && name[0] != "" {
+		inlineName = name[0]
+	}
+	return c.serveFileWithDisposition(filePath, nil, "inline", inlineName)
+}
+
+// Render executes the configured renderer and writes the result as HTML.
+func (c *Context) Render(name string, data any) error {
+	if c.app == nil || c.app.config.Renderer == nil {
+		return errors.New("renderer is not configured")
+	}
+	var buf bytes.Buffer
+	if err := c.app.config.Renderer.Render(&buf, name, data, c); err != nil {
+		return err
+	}
+	return c.writeResponse(htmlType, func() error {
+		_, err := c.Writer().Write(buf.Bytes())
+		return err
+	})
+}
+
+// SetCookie adds cookie to the response.
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	c.writeCookie(cookie)
+}
+
+// ClearCookie tells the client to delete cookie. Name, Path, and Domain must
+// match the cookie being removed; Path defaults to "/".
+//
+//	c.ClearCookie(&http.Cookie{Name: "session"})
+func (c *Context) ClearCookie(cookie *http.Cookie) {
+	if cookie == nil {
+		return
+	}
+	cleared := *cookie
+	cleared.Value = ""
+	cleared.MaxAge = -1
+	cleared.Expires = time.Unix(1, 0).UTC()
+	if cleared.Path == "" {
+		cleared.Path = "/"
+	}
+	c.writeCookie(&cleared)
+}
+
+func (c *Context) writeCookie(cookie *http.Cookie) {
+	if cookie != nil && cookie.SameSite == 0 && c.app != nil && c.app.config.CookieSameSite != 0 {
+		clone := *cookie
+		clone.SameSite = c.app.config.CookieSameSite
+		cookie = &clone
+	}
+	http.SetCookie(c.Writer(), cookie)
+}
+
+func (c *Context) writeResponse(ct string, writeBody func() error) error {
+	writer, allowed, err := c.prepareResponse(ct)
+	if err != nil || !allowed {
+		return err
+	}
+	if writeBody != nil {
+		if err := writeBody(); err != nil {
+			return err
+		}
+		if !c.written {
+			writer.WriteHeader(c.responseStatus())
+		}
+		return nil
+	}
+	writer.WriteHeader(c.responseStatus())
+	return nil
+}
+
+func (c *Context) prepareResponse(ct string) (http.ResponseWriter, bool, error) {
+	if c.written {
+		return nil, false, ErrResponseAlreadySent
+	}
+	writer := c.Writer()
+	if ct != "" {
+		header := writer.Header()
+		if len(header[contentType]) == 0 {
+			// The key is already canonical. Keep the value slice request-owned.
+			header[contentType] = []string{ct}
+		}
+	}
+	status := c.responseStatus()
+	if !bodyAllowed(c.Method(), status) {
+		writer.WriteHeader(status)
+		return writer, false, nil
+	}
+	// Defer the selected status until an actual write. Encoding and file-open
+	// failures can still produce an error response before commitment.
+	return writer, true, nil
+}
+
+func (c *Context) prepareSSE() (http.ResponseWriter, bool, error) {
+	if c.written {
+		writer := c.Writer()
+		if mediaTypeOnly(writer.Header().Get(contentType)) != eventStream {
+			return nil, false, ErrResponseAlreadySent
+		}
+		return writer, bodyAllowed(c.Method(), c.responseStatus()), nil
+	}
+	return c.prepareResponse(eventStream)
+}
+
+func (c *Context) writeSSEEvent(w io.Writer, event Event) error {
+	if event.Event != "" {
+		if err := writeSSEField(w, "event", event.Event); err != nil {
+			return err
+		}
+	}
+	if event.ID != "" {
+		if err := writeSSEField(w, "id", event.ID); err != nil {
+			return err
+		}
+	}
+	if event.Retry > 0 {
+		if _, err := fmt.Fprintf(w, "retry: %d\n", event.Retry.Milliseconds()); err != nil {
+			return err
+		}
+	}
+
+	data, err := c.sseData(event.Data)
+	if err != nil {
+		return err
+	}
+	if err := writeSSEField(w, "data", string(data)); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, "\n")
+	return err
+}
+
+func (c *Context) sseData(data any) ([]byte, error) {
+	switch value := data.(type) {
+	case nil:
+		return nullBytes, nil
+	case string:
+		return []byte(value), nil
+	case []byte:
+		return value, nil
+	default:
+		if encode := c.encoderFor("application/json"); encode != nil {
+			return encode(value)
+		}
+		return json.Marshal(value)
+	}
+}
+
+func writeSSEField(w io.Writer, field, value string) error {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	for _, line := range strings.Split(value, "\n") {
+		if _, err := fmt.Fprintf(w, "%s: %s\n", field, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type acceptOffer struct {
+	raw       string
+	mediaType string
+}
+
+type acceptRange struct {
+	mediaType   string
+	q           float64
+	specificity int
+	index       int
+}
+
+func parseAcceptHeader(header string) []acceptRange {
+	parts := strings.Split(header, ",")
+	ranges := make([]acceptRange, 0, len(parts))
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		mediaType, params, err := mime.ParseMediaType(part)
+		if err != nil {
+			mediaType = mediaTypeOnly(part)
+			params = nil
+		} else {
+			mediaType = strings.ToLower(mediaType)
+		}
+		if !strings.Contains(mediaType, "/") {
+			continue
+		}
+
+		q := 1.0
+		if rawQ := params["q"]; rawQ != "" {
+			parsed, err := strconv.ParseFloat(rawQ, 64)
+			if err != nil {
+				continue
+			}
+			q = parsed
+		}
+		if !(q >= 0 && q <= 1) {
+			continue
+		}
+
+		ranges = append(ranges, acceptRange{
+			mediaType:   mediaType,
+			q:           q,
+			specificity: acceptSpecificity(mediaType),
+			index:       index,
+		})
+	}
+
+	sort.SliceStable(ranges, func(i, j int) bool {
+		if ranges[i].q != ranges[j].q {
+			return ranges[i].q > ranges[j].q
+		}
+		if ranges[i].specificity != ranges[j].specificity {
+			return ranges[i].specificity > ranges[j].specificity
+		}
+		return ranges[i].index < ranges[j].index
+	})
+	return ranges
+}
+
+func acceptSpecificity(mediaType string) int {
+	switch {
+	case mediaType == "*/*":
+		return 0
+	case strings.HasSuffix(mediaType, "/*"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+func acceptMatches(accept, offer string) bool {
+	if accept == "*/*" {
+		return true
+	}
+	acceptType, acceptSubType, ok := strings.Cut(accept, "/")
+	if !ok {
+		return false
+	}
+	offerType, offerSubType, ok := strings.Cut(offer, "/")
+	if !ok {
+		return false
+	}
+	if acceptSubType == "*" {
+		return acceptType == offerType
+	}
+	return acceptType == offerType && acceptSubType == offerSubType
+}
+
+func (c *Context) writeNegotiated(ct string, value any) error {
+	switch mediaTypeOnly(ct) {
+	case "application/json":
+		if data, ok := value.([]byte); ok {
+			return c.Data(jsonType, data)
+		}
+		return c.JSON(value)
+	case "application/xml", "text/xml":
+		if data, ok := value.([]byte); ok {
+			return c.Data(xmlType, data)
+		}
+		return c.XML(value)
+	case "text/html":
+		switch data := value.(type) {
+		case []byte:
+			return c.Data(htmlType, data)
+		case string:
+			return c.HTML(data)
+		default:
+			return c.HTML(fmt.Sprint(data))
+		}
+	case "text/plain":
+		switch data := value.(type) {
+		case []byte:
+			return c.Data(plainText, data)
+		case string:
+			return c.String(data)
+		default:
+			return c.String(fmt.Sprint(data))
+		}
+	default:
+		if encode := c.encoderFor(mediaTypeOnly(ct)); encode != nil {
+			if data, ok := value.([]byte); ok {
+				return c.Data(ct, data)
+			}
+			return c.writeEncoded(ct, encode, value)
+		}
+		switch data := value.(type) {
+		case []byte:
+			return c.Data(ct, data)
+		case string:
+			return c.Data(ct, []byte(data))
+		case io.Reader:
+			return c.Stream(ct, data)
+		default:
+			return c.Data(ct, []byte(fmt.Sprint(data)))
+		}
+	}
+}
+
+func (c *Context) serveFile(filePath string, filesystem fs.FS, downloadName string) error {
+	disposition := ""
+	if downloadName != "" {
+		disposition = "attachment"
+	}
+	return c.serveFileWithDisposition(filePath, filesystem, disposition, downloadName)
+}
+
+// fileError reports a missing or unreadable file as 404, keeping the cause.
+func fileError(err error) error {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) || errors.Is(err, fs.ErrPermission) {
+		return ErrNotFound.Wrap(err)
+	}
+	return err
+}
+
+func (c *Context) serveFileWithDisposition(filePath string, filesystem fs.FS, disposition, name string) error {
+	if c.written {
+		return ErrResponseAlreadySent
+	}
+	if name != "" && disposition != "" {
+		c.SetHeader(HeaderContentDisposition, fmt.Sprintf("%s; filename=%q", disposition, name))
+	}
+
+	if filesystem == nil {
+		// http.ServeFile would answer a missing file with its own plain-text
+		// 404; report it to the error handler instead.
+		if _, err := os.Stat(filePath); err != nil {
+			return fileError(err)
+		}
+		http.ServeFile(c.Writer(), c.Request(), filePath)
+		return nil
+	}
+
+	file, err := filesystem.Open(filePath)
+	if err != nil {
+		return fileError(err)
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if stat.IsDir() {
+		return ErrNotFound.Wrap(fs.ErrInvalid)
+	}
+
+	if rs, ok := file.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer(), c.Request(), stat.Name(), stat.ModTime(), rs)
+		return nil
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	reader := bytes.NewReader(data)
+	http.ServeContent(c.Writer(), c.Request(), stat.Name(), stat.ModTime(), reader)
+	return nil
+}
