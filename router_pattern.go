@@ -4,11 +4,11 @@
 package zinc
 
 import (
-	"unicode/utf8"
 	"fmt"
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
