@@ -191,6 +191,8 @@ func TestRouterRejectsLegacyRoutePatterns(t *testing.T) {
 		"/files/*path",
 		"/files/prefix*path",
 		"/users/:id<\\d+>",
+		// Reserved on purpose: 0.3 read this as a parameter named batch.
+		"/v1/users:batch",
 	}
 	for _, pattern := range patterns {
 		if err := router.Add(MethodGet, pattern, handler); err == nil || !strings.Contains(err.Error(), "legacy route") {
