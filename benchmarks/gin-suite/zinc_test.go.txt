@@ -1,0 +1,118 @@
+// Zinc adapter for the gin-gonic/go-http-routing-benchmark suite. Copy it into
+// the suite as zinc_test.go and add github.com/0mjs/zinc to its go.mod; the
+// upstream files stay untouched. Zinc runs as zinc.New() with its defaults.
+
+package main
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"regexp"
+	"testing"
+
+	"github.com/0mjs/zinc"
+)
+
+func zincHandler(c *zinc.Context) error { return nil }
+
+func zincHandlerWrite(c *zinc.Context) error {
+	io.WriteString(c.Writer(), c.Param("name"))
+	return nil
+}
+
+func zincHandlerTest(c *zinc.Context) error {
+	io.WriteString(c.Writer(), c.Request().RequestURI)
+	return nil
+}
+
+var zincParamRe = regexp.MustCompile(":([^/]*)")
+
+func loadZinc(routes []route) http.Handler {
+	h := zincHandler
+	if loadTestHandler {
+		h = zincHandlerTest
+	}
+	app := zinc.New()
+	for _, r := range routes {
+		app.Add(r.method, zincParamRe.ReplaceAllString(r.path, "{$1}"), h)
+	}
+	return app
+}
+
+func loadZincSingle(method, path string, h zinc.HandlerFunc) http.Handler {
+	app := zinc.New()
+	app.Add(method, zincParamRe.ReplaceAllString(path, "{$1}"), h)
+	return app
+}
+
+var githubZinc, gplusZinc, parseZinc, staticZinc http.Handler
+
+func init() {
+	println("#Zinc routing-structure memory:")
+	calcMem("Zinc_GitHub", func() { githubZinc = loadZinc(githubAPI) })
+	calcMem("Zinc_GPlus", func() { gplusZinc = loadZinc(gplusAPI) })
+	calcMem("Zinc_Parse", func() { parseZinc = loadZinc(parseAPI) })
+	calcMem("Zinc_Static", func() { staticZinc = loadZinc(staticRoutes) })
+}
+
+func TestZincRouters(t *testing.T) {
+	loadTestHandler = true
+	defer func() { loadTestHandler = false }()
+	for _, api := range apis {
+		h := loadZinc(api.routes)
+		for _, rt := range api.routes {
+			req := httptest.NewRequest(rt.method, rt.path, nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != 200 || w.Body.String() != rt.path {
+				t.Errorf("%s %s %s: %d %q", api.name, rt.method, rt.path, w.Code, w.Body.String())
+			}
+		}
+	}
+}
+
+// Micro benchmarks
+
+func BenchmarkZinc_Param(b *testing.B) {
+	r, _ := http.NewRequest("GET", "/user/gordon", nil)
+	benchRequest(b, loadZincSingle("GET", "/user/:name", zincHandler), r)
+}
+func BenchmarkZinc_Param5(b *testing.B) {
+	r, _ := http.NewRequest("GET", fiveRoute, nil)
+	benchRequest(b, loadZincSingle("GET", fiveColon, zincHandler), r)
+}
+func BenchmarkZinc_Param20(b *testing.B) {
+	r, _ := http.NewRequest("GET", twentyRoute, nil)
+	benchRequest(b, loadZincSingle("GET", twentyColon, zincHandler), r)
+}
+func BenchmarkZinc_ParamWrite(b *testing.B) {
+	r, _ := http.NewRequest("GET", "/user/gordon", nil)
+	benchRequest(b, loadZincSingle("GET", "/user/:name", zincHandlerWrite), r)
+}
+
+// API benchmarks
+
+func zincBenchReq(b *testing.B, h http.Handler, path string) {
+	r, _ := http.NewRequest("GET", path, nil)
+	benchRequest(b, h, r)
+}
+
+func BenchmarkZinc_GithubStatic(b *testing.B) { zincBenchReq(b, githubZinc, "/user/repos") }
+func BenchmarkZinc_GithubParam(b *testing.B) {
+	zincBenchReq(b, githubZinc, "/repos/julienschmidt/httprouter/stargazers")
+}
+func BenchmarkZinc_GithubAll(b *testing.B)   { benchRoutes(b, githubZinc, githubAPI) }
+func BenchmarkZinc_GPlusStatic(b *testing.B) { zincBenchReq(b, gplusZinc, "/people") }
+func BenchmarkZinc_GPlusParam(b *testing.B) {
+	zincBenchReq(b, gplusZinc, "/people/118051310819094153327")
+}
+func BenchmarkZinc_GPlus2Params(b *testing.B) {
+	zincBenchReq(b, gplusZinc, "/people/118051310819094153327/activities/123456789")
+}
+func BenchmarkZinc_GPlusAll(b *testing.B)     { benchRoutes(b, gplusZinc, gplusAPI) }
+func BenchmarkZinc_ParseStatic(b *testing.B)  { zincBenchReq(b, parseZinc, "/1/users") }
+func BenchmarkZinc_ParseParam(b *testing.B)   { zincBenchReq(b, parseZinc, "/1/classes/go") }
+func BenchmarkZinc_Parse2Params(b *testing.B) { zincBenchReq(b, parseZinc, "/1/classes/go/123456789") }
+func BenchmarkZinc_ParseAll(b *testing.B)     { benchRoutes(b, parseZinc, parseAPI) }
+func BenchmarkZinc_StaticAll(b *testing.B)    { benchRoutes(b, staticZinc, staticRoutes) }
