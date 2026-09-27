@@ -34,6 +34,10 @@ jobs:
         working-directory: benchmarks
       - if: matrix.go == '1.27.x'
         run: go test -run '^$' -fuzz '^FuzzRoutingCacheEquivalence$' -fuzztime 10s
+      # Routing must match Zinc v0.4.0 (benchmarks/ROUTER_SPEC.md).
+      - if: matrix.go == '1.27.x'
+        run: go test -run '^$' -fuzz '^FuzzRouterReference$' -fuzztime 20s .
+        working-directory: benchmarks
   analysis:
     runs-on: ubuntu-latest
     steps:
