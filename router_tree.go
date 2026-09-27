@@ -125,13 +125,27 @@ func (n *radixNode) methodRoute(slot int, method string, captured int) *radixRou
 	return route
 }
 
-// lookupMethod is lookup for one method in the route tree. A terminal without
-// a route for the method is not a match, so the walk backtracks past it, as
-// a per-method tree would never have entered that branch.
-func (n *radixNode) lookupMethod(path string, offset int, values *paramRanges, captured int, fold bool, slot int, method string) *radixRoute {
+// treeWalk is the part of a route-tree walk that doesn't change from node to
+// node, passed by pointer so each recursive call carries only the node, the
+// rest of the path, the offset and the count of captured parameters.
+type treeWalk struct {
+	values *paramRanges
+	method string
+	slot   int
+	fold   bool
+	// static and dynamic, when set, receive the methods of every terminal
+	// that matches the path without a route for method. A miss has visited
+	// every such terminal, so they then hold Allow without a second walk.
+	static, dynamic *allowedMethodSet
+}
+
+// walk finds method's route for path. A terminal without a route for the
+// method is not a match, so the walk backtracks past it, as a per-method
+// tree would never have entered that branch.
+func (n *radixNode) walk(path string, offset, captured int, w *treeWalk) *radixRoute {
 	switch n.kind {
 	case radixStatic:
-		if fold {
+		if w.fold {
 			if !hasFoldedPrefix(path, n.prefix) {
 				return nil
 			}
@@ -148,7 +162,7 @@ func (n *radixNode) lookupMethod(path string, offset int, values *paramRanges, c
 		if end < 0 {
 			end = len(path)
 		}
-		values.set(captured, paramRange{start: uint32(offset), end: uint32(offset + end)})
+		w.values.set(captured, paramRange{start: uint32(offset), end: uint32(offset + end)})
 		captured++
 		offset += end
 		path = path[end:]
@@ -157,36 +171,57 @@ func (n *radixNode) lookupMethod(path string, offset int, values *paramRanges, c
 		if len(path) > 0 && path[0] == '/' {
 			start++
 		}
-		values.set(captured, paramRange{start: uint32(start), end: uint32(offset + len(path))})
-		return n.methodRoute(slot, method, captured+1)
+		w.values.set(captured, paramRange{start: uint32(start), end: uint32(offset + len(path))})
+		return n.terminal(captured+1, w)
 	}
 	if len(path) == 0 {
-		if matched := n.methodRoute(slot, method, captured); matched != nil {
+		if matched := n.terminal(captured, w); matched != nil {
 			return matched
 		}
 		if n.catchAllChild != nil {
-			return n.catchAllChild.lookupMethod(path, offset, values, captured, fold, slot, method)
+			return n.catchAllChild.walk(path, offset, captured, w)
 		}
 		return nil
 	}
 	first := path[0]
-	if fold {
+	if w.fold {
 		first = foldByte(first)
 	}
 	if idx := n.staticChildIndex(first); idx >= 0 {
-		if matched := n.children[idx].lookupMethod(path, offset, values, captured, fold, slot, method); matched != nil {
+		if matched := n.children[idx].walk(path, offset, captured, w); matched != nil {
 			return matched
 		}
 	}
 	if n.paramChild != nil {
-		if matched := n.paramChild.lookupMethod(path, offset, values, captured, fold, slot, method); matched != nil {
+		if matched := n.paramChild.walk(path, offset, captured, w); matched != nil {
 			return matched
 		}
 	}
 	if n.catchAllChild != nil {
-		return n.catchAllChild.lookupMethod(path, offset, values, captured, fold, slot, method)
+		return n.catchAllChild.walk(path, offset, captured, w)
 	}
 	return nil
+}
+
+// terminal returns the node's route for the walk's method, recording the
+// node's other methods when the walk collects Allow.
+func (n *radixNode) terminal(captured int, w *treeWalk) *radixRoute {
+	if n.methods == nil {
+		return nil
+	}
+	if route := n.methods.get(w.slot, w.method); route != nil && int(route.paramCount) == captured {
+		return route
+	}
+	if w.static != nil {
+		n.methods.addAllowed(w.static, w.dynamic, captured)
+	}
+	return nil
+}
+
+// lookupMethod is walk without collecting Allow.
+func (n *radixNode) lookupMethod(path string, offset int, values *paramRanges, captured int, fold bool, slot int, method string) *radixRoute {
+	w := treeWalk{values: values, method: method, slot: slot, fold: fold}
+	return n.walk(path, offset, captured, &w)
 }
 
 // collectAllowed adds every method of every terminal that matches path. It
@@ -287,7 +322,7 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 
 	// Fast path: an exact-spelling static hit is one map probe, cheaper than
 	// walking the tree's shared prefixes. Anything else walks the tree.
-	var routes map[string]*routeEntry
+	var routes map[string]*radixRoute
 	if slot >= 0 {
 		routes = r.staticRoutes[slot]
 	} else {
@@ -319,26 +354,28 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 		}
 	}
 
-	captured := ctx.paramRangesScratch()
+	// The walk records the methods of every terminal it passes on the way
+	// to a miss, so a 405 needs no second walk. As before the tree, the path
+	// as sent is tried only when the path without its trailing slash matched
+	// no route and no other method of a parameterized route; Allow adds the
+	// static routes of both spellings.
+	var static, dynamic allowedMethodSet
+	w := treeWalk{values: ctx.paramRangesScratch(), method: method, slot: slot}
+	if needAllowed {
+		w.static, w.dynamic = &static, &dynamic
+	}
 	matched, fold := treeMatchPath(path, caseSensitive)
-	route := r.tree.lookupMethod(matched, 0, captured, 0, fold, slot, method)
-	// As before the tree: the path as sent is tried only when the path
-	// without its trailing slash matched no route and no other method of a
-	// parameterized route; Allow adds the static routes of both spellings.
+	w.fold = fold
+	route := r.tree.walk(matched, 0, 0, &w)
 	var allowed allowedMethodSet
 	if route == nil {
-		var static, dynamic allowedMethodSet
-		if needAllowed {
-			r.tree.collectAllowed(matched, 0, fold, &static, &dynamic)
-		}
 		if path != originalPath {
 			originalMatched, originalFold := treeMatchPath(originalPath, caseSensitive)
 			if dynamic.empty() {
-				route = r.tree.lookupMethod(originalMatched, 0, captured, 0, originalFold, slot, method)
+				w.fold = originalFold
+				route = r.tree.walk(originalMatched, 0, 0, &w)
 				if route != nil {
 					matched, fold = originalMatched, originalFold
-				} else if needAllowed {
-					r.tree.collectAllowed(originalMatched, 0, originalFold, &static, &dynamic)
 				}
 			} else {
 				var ignored allowedMethodSet
@@ -348,6 +385,7 @@ func (r *routeTable) dispatchTree(method, path string, needAllowed bool, ctx *Co
 		allowed = dynamic
 		allowed.merge(static)
 	}
+	captured := w.values
 	if route == nil {
 		if cacheEnabled {
 			r.cache.setMissWithMask(key, mask, routeCacheEntry{allowed: allowed})
