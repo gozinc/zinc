@@ -138,7 +138,11 @@ func (c *Context) release() {
 	c.paramRoute = nil
 	clear(c.pathParams[:c.paramCount])
 	c.paramCount = 0
-	clear(c.store)
+	// Most requests store nothing; clearing a map walks every bucket it has
+	// ever allocated, so skip it when it's empty.
+	if len(c.store) != 0 {
+		clear(c.store)
+	}
 	c.app = nil
 	c.lastErr = nil
 	c.routeInfo = routeMeta{}
