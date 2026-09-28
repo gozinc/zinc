@@ -5,7 +5,7 @@ description: Answers to common questions about Zinc, including how it compares, 
 
 ## What is Zinc?
 
-A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 27 first-party middleware packages. It does not replace the standard HTTP server, request, or response writer.
+A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 27 built-in middleware packages. It does not replace the standard HTTP server, request, or response writer.
 
 ## How does it compare with Gin, Echo, and Chi?
 
@@ -41,7 +41,7 @@ No. Zinc's `go.mod` requires no module, and its middleware packages use only Zin
 
 ## Does Zinc validate input?
 
-Zinc calls any validator you configure after every bind, but does not ship one. A three-line adapter plugs in [go-playground/validator](/guide/binding/#validation) or any other library.
+Zinc calls any validator you configure after every bind, but does not ship one. A short adapter plugs in [go-playground/validator](/guide/binding/#validation) or any other library.
 
 ## Does it support WebSockets, SSE, and HTTP/2?
 
@@ -49,7 +49,7 @@ Yes. WebSocket libraries work unchanged because handlers get the real response w
 
 ## Why do invalid routes panic?
 
-Route patterns are written in source code, so a typo is a programming error. Panicking at startup surfaces it immediately instead of at the first request. When patterns come from configuration, use `TryHandle`, which returns an error.
+Route patterns are written in source code, so a typo is a programming error. Panicking at startup means you see it as soon as the app starts, not at the first request. When patterns come from configuration, use `TryHandle`, which returns an error.
 
 ## Where do I report bugs or ask questions?
 

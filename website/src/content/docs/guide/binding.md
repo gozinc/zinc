@@ -292,7 +292,7 @@ Change the limit for the whole app in [configuration](/guide/configuration/), or
 
 ### Later sources overwrite earlier ones
 
-`All` always reads path, then query, then body, whatever the body format. If a field is tagged for more than one source, the last one sent wins: `/orders/p?both=q` fills a `path:"both" query:"both"` field with `q`.
+`All` always reads path, then query, then body, whatever the body format. If a field is tagged for more than one source, the value read last wins: with `path:"id" query:"id"` on a `/orders/{id}` route, a request to `/orders/7?id=9` gets `9`.
 
 ### Maps, strings and plain text
 

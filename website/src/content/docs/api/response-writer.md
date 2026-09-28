@@ -16,6 +16,9 @@ func metrics(c *zinc.Context) error {
 
 	start := time.Now()
 	err := c.Next()
+	if err != nil {
+		c.HandleError(err) // write the error response now, so rw sees its status
+	}
 
 	requestDuration.
 		WithLabelValues(c.FullPath(), strconv.Itoa(rw.Status())).

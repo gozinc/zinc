@@ -113,7 +113,7 @@ A negative `ShutdownTimeout` waits until every request finishes, however long th
 
 ### Running your own http.Server
 
-If you serve Zinc from an `http.Server` you configure yourself, call its `Shutdown` as usual, then `app.Close()` to release static-file roots.
+If you serve Zinc from an `http.Server` you configure yourself, call its `Shutdown` as usual, then `app.Close()` to close the folders `Static` keeps open.
 
 ## See also
 

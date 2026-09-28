@@ -117,4 +117,4 @@ Every handler has the same shape, `func(c *zinc.Context) error`. You write the r
 
 - [Your First Route](/guide/first-route/): build an endpoint that reads input, checks it, and returns errors.
 - [Routing](/guide/routing/): patterns, groups, and which route wins.
-- [Middleware](/middleware/overview/): every built-in middleware, and a good default stack.
+- [Coming from Gin or Echo](/guide/coming-from-gin-or-echo/): the Zinc version of what you already write.

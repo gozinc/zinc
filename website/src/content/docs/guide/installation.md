@@ -71,5 +71,5 @@ Each minor release has an upgrade guide:
 
 ## Next steps
 
-- [Quickstart](/guide/quickstart/): run your first server in five minutes.
 - [Your First Route](/guide/first-route/): handlers, input, and errors.
+- [Coming from Gin or Echo](/guide/coming-from-gin-or-echo/): the Zinc version of what you already write.
