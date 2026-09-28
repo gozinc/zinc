@@ -16,8 +16,8 @@ app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
 |---|---|
 | `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` `(path, handlers...) Route` | A route for that method |
 | `Add(method, path, handlers...) Route` | A route for any method, including custom ones |
-| `Match(methods, path, handlers...)` | The same chain for several methods |
-| `All(path, handlers...)` | The same chain for every standard method |
+| `Match(methods []string, path, handlers...)` | The same chain for several methods; returns nothing |
+| `All(path, handlers...)` | The same chain for every standard method; returns nothing |
 | `TryHandle(spec RouteSpec) error` | A route from configuration or plugins, returning every problem as an error |
 | `HandleHTTP(pattern, http.Handler) Route` | A standard handler, with a `"METHOD /path"` pattern |
 
@@ -111,6 +111,7 @@ type RouteInfo struct {
 	Params  []string // parameter names, in order
 	Mounted bool     // true for Mount, Static, and StaticFS
 	Handler string   // the handler's function name
+	Status  int      // the success status set with Route.Status, or 0
 }
 ```
 

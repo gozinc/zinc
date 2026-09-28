@@ -16,9 +16,17 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Browsers send an Origin header; only accept pages you trust. Clients such as
+// websocat send none, so they're allowed for local testing.
+var allowedOrigins = map[string]bool{
+	"https://app.example.com": true,
+	"http://localhost:8080":   true,
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return r.Header.Get("Origin") == "https://app.example.com"
+		origin := r.Header.Get("Origin")
+		return origin == "" || allowedOrigins[origin]
 	},
 }
 
@@ -45,6 +53,12 @@ func main() {
 
 	log.Fatal(app.Listen())
 }
+```
+
+Try it with [websocat](https://github.com/vi/websocat): every line you type comes back.
+
+```bash
+websocat ws://localhost:8080/ws
 ```
 
 :::caution[Before production]

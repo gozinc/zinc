@@ -97,4 +97,4 @@ curl -i http://localhost:8080/webhooks/billing \
 - Read the secret from your deployment environment; never commit it.
 - Keep the body limit close to the provider's documented maximum.
 - Store processed event IDs so provider retries are idempotent.
-- Return quickly and move slow work to a queue or Zinc job.
+- Return quickly and hand slow work to a background worker or queue.
