@@ -1,24 +1,13 @@
 ---
 title: Add Zinc to an Existing net/http Service
-description: Introduce Zinc routes without rewriting working standard-library handlers or middleware.
+description: Put Zinc in front of a working net/http service and add new routes without rewriting the old handlers or middleware.
 ---
 
-Zinc is an `http.Handler`, so adopting it does not require a flag day. Keep an
-existing `http.ServeMux`, mount it under Zinc, then add Zinc routes where they
-make the application clearer.
+This program keeps an existing `http.ServeMux` and its middleware running, and adds new routes with Zinc beside them. You'd use it to adopt Zinc gradually in a service that already works, moving handlers over when there's a reason to. Zinc is an `http.Handler` and accepts standard handlers and middleware, so nothing has to change on day one.
 
-## Setup
+## The program
 
-```bash
-mkdir zinc-adoption
-cd zinc-adoption
-go mod init example.com/zinc-adoption
-go get github.com/0mjs/zinc
-```
-
-## Application
-
-```go
+```go title="main.go"
 package main
 
 import (
@@ -46,20 +35,20 @@ func main() {
 
 	app := zinc.New()
 
-	// Standard middleware can continue to wrap the whole service.
+	// Standard middleware can keep wrapping the whole service.
 	app.UseHTTP(accessLog)
 
 	// Mount strips /legacy before the request reaches legacy.
 	app.Mount("/legacy", legacy)
 
-	// New endpoints can use Zinc's concise handler API.
+	// New endpoints use Zinc handlers.
 	app.Get("/api/health", func(c *zinc.Context) error {
 		return c.JSON(zinc.Map{"status": "ok"})
 	})
 
-	// Standard handlers can also own individual routed endpoints.
-	app.HandleHTTP("GET /metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("requests_total 1\n"))
+	// A standard handler can own a single route, path values included.
+	app.HandleHTTP("GET /files/{name}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("file " + r.PathValue("name") + "\n"))
 	}))
 
 	log.Fatal(app.Listen(":8080"))
@@ -70,18 +59,49 @@ func main() {
 
 ```bash
 curl http://localhost:8080/legacy/reports
+# legacy report
+
 curl http://localhost:8080/api/health
-curl http://localhost:8080/metrics
+# {"status":"ok"}
+
+curl http://localhost:8080/files/report.pdf
+# file report.pdf
 ```
+
+`accessLog` sees every request, whichever kind of handler serves it:
+
+```text
+2026/09/28 01:20:58 GET /legacy/reports 31.917µs
+2026/09/28 01:20:58 GET /api/health 184.708µs
+2026/09/28 01:20:58 GET /files/report.pdf 12.25µs
+```
+
+A path under `/legacy` that the old mux doesn't know gets the mux's own answer, not Zinc's JSON error:
+
+```bash
+curl -i http://localhost:8080/legacy/missing
+# HTTP/1.1 404 Not Found
+# Content-Type: text/plain; charset=utf-8
+#
+# 404 page not found
+```
+
+## How it works
+
+- `app.UseHTTP(accessLog)` wraps the whole app in standard `func(http.Handler) http.Handler` middleware, with no adapter. It runs before the mount prefix is removed, so it logs the full path.
+- `app.Mount("/legacy", legacy)` hands everything under `/legacy` to the old mux, with `/legacy` removed from the path. The mux keeps its own routing, 404s and 405s.
+- `app.Get("/api/health", ...)` is an ordinary Zinc route, with binding, groups and Zinc middleware available.
+- `app.HandleHTTP("GET /files/{name}", ...)` routes one pattern to a standard handler. Path values are read with `r.PathValue`, as with Go's `ServeMux`.
 
 ## Choose the smallest integration point
 
-- Use `app.Mount("/prefix", handler)` when an existing handler owns a subtree.
-- Use `app.HandleHTTP("METHOD /path", handler)` for one standard handler.
-- Use `app.UseHTTP(middleware)` for standard middleware around the whole app.
-- Use Zinc handlers for new routes that benefit from context helpers, binding,
-  groups, and framework middleware.
+- `app.Mount("/prefix", handler)` when an existing handler owns a whole subtree.
+- `app.HandleHTTP("METHOD /path", handler)` for one standard handler.
+- `app.UseHTTP(middleware)` for standard middleware around the whole app.
+- Zinc handlers for new routes that benefit from context helpers, binding, groups and Zinc middleware.
 
-Mounted handlers receive the path with the mount prefix removed. `HandleHTTP`
-parameters are available through `r.PathValue`, just as they are with Go's
-standard `ServeMux`.
+## See also
+
+- [Zinc and net/http](/guide/http-interoperability/): every way Zinc and standard handlers fit together.
+- [Groups and Middleware](/guide/groups-and-middleware/): where Zinc middleware and `UseHTTP` middleware run.
+- [Reverse Proxy](/cookbook/reverse-proxy/): when the old service runs as a separate process.
