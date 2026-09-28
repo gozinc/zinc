@@ -1,11 +1,11 @@
 ---
 title: Middleware
-description: Choose and compose Zinc's first-party middleware.
+description: Pick the built-in middleware your app needs, and attach it to the app, a group or a single route.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Zinc's middleware lives under `github.com/0mjs/zinc/middleware`, one small package each. Every package has a `New` function that takes an optional `Config`, and its zero value means the defaults:
+Middleware runs code around your handlers: logging, auth, CORS, limits and more. Zinc ships one small package for each under `github.com/0mjs/zinc/middleware`, and you import only the ones you use.
 
 ```go
 import (
@@ -17,7 +17,9 @@ app.Use(logger.New())
 app.Use(cors.New(cors.Config{AllowOrigins: []string{"https://app.example.com"}}))
 ```
 
-Each middleware is an ordinary `func(*zinc.Context) error`, so you can attach it to the whole app, a group, or a single route. Standard `net/http` middleware works too, through [`UseHTTP`](/guide/http-interoperability/).
+Each package has a `New` function. It takes an optional `Config`, and any field you leave empty keeps its default, so `logger.New()` works as is. ([No Cache](/middleware/nocache/) has nothing to configure, so its `New` takes no arguments.)
+
+What `New` returns is an ordinary `func(*zinc.Context) error`, so you can attach it to the whole app, a group, or one route. Standard `net/http` middleware works too, through [`UseHTTP`](/guide/http-interoperability/).
 
 ## A good default stack
 
@@ -32,80 +34,99 @@ app.Use(
 )
 ```
 
+```bash
+curl -i http://localhost:8080/hello
+# HTTP/1.1 200 OK
+# Cross-Origin-Resource-Policy: same-origin
+# Referrer-Policy: no-referrer
+# X-Content-Type-Options: nosniff
+# X-Frame-Options: SAMEORIGIN
+# X-Request-Id: 83d4da64e6fcaaf8da8484c63a3aa52c
+# X-Xss-Protection: 0
+```
+
+```text
+2026/09/28 01:22:59 INFO REQUEST method=GET uri=/hello route=/hello status=200 latency=21.042µs host=localhost:8080 bytes_in="" bytes_out=5 user_agent=curl/8.7.1 remote_ip=::1 request_id=83d4da64e6fcaaf8da8484c63a3aa52c
+```
+
+A handler that panics still gets a log line, at `ERROR` with the message `REQUEST_ERROR` and an `error` attribute, and the client gets a `500`.
+
 Add [CORS](/middleware/cors/) when browsers on other origins call the API, [Context Timeout](/middleware/timeout/) to bound slow requests, and an auth middleware on the groups that need it.
 
 ## Start with the request path
 
 <CardGrid>
-  <LinkCard title="Request ID" description="requestid: generate or propagate an X-Request-ID value." href="/middleware/requestid/" />
-  <LinkCard title="Request Logger" description="logger: one slog line per request, with status, latency, and route." href="/middleware/logger/" />
-  <LinkCard title="Recover" description="recover: return panics through Zinc's normal error path." href="/middleware/recover/" />
-  <LinkCard title="Secure Headers" description="secure: practical browser security response headers." href="/middleware/secure/" />
-  <LinkCard title="CORS" description="cors: control browser origins and preflight requests." href="/middleware/cors/" />
-  <LinkCard title="Body Limit" description="bodylimit: reject request bodies above a configured size." href="/middleware/bodylimit/" />
-  <LinkCard title="Context Timeout" description="timeout: attach a deadline to the remaining handler chain." href="/middleware/timeout/" />
-  <LinkCard title="Rate Limiter" description="limiter: token-bucket limits by app, IP, or custom key, and concurrency caps." href="/middleware/limiter/" />
+  <LinkCard title="Request ID" description="requestid: generate or pass on an X-Request-ID value." href="/middleware/requestid/" />
+  <LinkCard title="Request Logger" description="logger: one slog line per request, with status, latency and route." href="/middleware/logger/" />
+  <LinkCard title="Recover" description="recover: turn panics into 500 responses through your error handler." href="/middleware/recover/" />
+  <LinkCard title="Secure Headers" description="secure: browser security response headers, with HSTS and CSP when you want them." href="/middleware/secure/" />
+  <LinkCard title="CORS" description="cors: control which browser origins may call you, and answer preflights." href="/middleware/cors/" />
+  <LinkCard title="Body Limit" description="bodylimit: reject request bodies above a size you set." href="/middleware/bodylimit/" />
+  <LinkCard title="Context Timeout" description="timeout: give the rest of the chain a deadline." href="/middleware/timeout/" />
+  <LinkCard title="Rate Limiter" description="limiter: token-bucket limits by app, IP or custom key, and concurrency caps." href="/middleware/limiter/" />
   <LinkCard title="Health Check" description="healthcheck: answer load balancer probes before routing." href="/middleware/healthcheck/" />
 </CardGrid>
 
 ## Identity and access
 
 <CardGrid>
-  <LinkCard title="Basic Auth" description="basicauth: protect a small internal or administrative surface." href="/middleware/basicauth/" />
-  <LinkCard title="Key Auth" description="keyauth: read opaque API keys from headers, queries, or cookies." href="/middleware/keyauth/" />
-  <LinkCard title="JWT" description="contrib/jwtauth: validate bearer tokens and expose typed claims." href="/middleware/jwtauth/" />
-  <LinkCard title="Session" description="session: store small signed values in a cookie." href="/middleware/session/" />
-  <LinkCard title="CSRF" description="csrf: protect cookie-authenticated browser requests." href="/middleware/csrf/" />
-  <LinkCard title="Casbin Auth" description="casbin: delegate authorization to a Casbin-compatible enforcer." href="/middleware/casbin/" />
+  <LinkCard title="Basic Auth" description="basicauth: a username and password with the browser's login prompt." href="/middleware/basicauth/" />
+  <LinkCard title="Key Auth" description="keyauth: require an API key from a header, query value or cookie." href="/middleware/keyauth/" />
+  <LinkCard title="JWT" description="contrib/jwtauth: accept signed bearer tokens and read their claims. Contrib package." href="/middleware/jwtauth/" />
+  <LinkCard title="Session" description="session: remember small values between requests in a signed cookie." href="/middleware/session/" />
+  <LinkCard title="CSRF" description="csrf: stop other sites from sending requests with your users' cookies." href="/middleware/csrf/" />
+  <LinkCard title="Casbin Auth" description="casbin: decide what a signed-in user may do with a Casbin policy." href="/middleware/casbin/" />
   <LinkCard title="Content Type" description="contenttype: accept only the media types and codings you expect." href="/middleware/contenttype/" />
 </CardGrid>
 
 ## Delivery and observability
 
 <CardGrid>
+  <LinkCard title="Headers" description="headers: set fixed response headers, or pick middleware by request header." href="/middleware/headers/" />
+  <LinkCard title="No Cache" description="nocache: stop browsers and proxies from caching responses." href="/middleware/nocache/" />
   <LinkCard title="Compress" description="compress: gzip responses when the client accepts it." href="/middleware/compress/" />
   <LinkCard title="Decompress" description="decompress: decode gzip request bodies before handlers read them." href="/middleware/decompress/" />
-  <LinkCard title="Headers" description="headers: set static response headers and route by request header." href="/middleware/headers/" />
-  <LinkCard title="No Cache" description="nocache: stop browsers and proxies from caching responses." href="/middleware/nocache/" />
-  <LinkCard title="Proxy" description="proxy: reverse proxy requests with net/http/httputil." href="/middleware/proxy/" />
-  <LinkCard title="Prometheus" description="prometheus: expose request counters and duration metrics." href="/middleware/prometheus/" />
-  <LinkCard title="OpenTelemetry" description="Trace Zinc requests with standard OTel tooling." href="/middleware/open-telemetry/" />
-  <LinkCard title="pprof" description="pprof: mount standard-library profiling routes." href="/middleware/pprof/" />
-  <LinkCard title="Body Dump" description="bodydump: capture request and response bodies for deliberate debugging." href="/middleware/bodydump/" />
+  <LinkCard title="Proxy" description="proxy: forward requests to other servers." href="/middleware/proxy/" />
+  <LinkCard title="Prometheus" description="prometheus: request counters and duration metrics." href="/middleware/prometheus/" />
+  <LinkCard title="OpenTelemetry" description="Recipe, not a package: trace requests with the official otelhttp instrumentation." href="/middleware/open-telemetry/" />
+  <LinkCard title="pprof" description="pprof: mount the standard library's profiling routes." href="/middleware/pprof/" />
+  <LinkCard title="Body Dump" description="bodydump: see request and response bodies while you debug." href="/middleware/bodydump/" />
 </CardGrid>
 
 ## Request shaping
 
 <CardGrid>
-  <LinkCard title="Rewrite" description="rewrite: change a request path before route dispatch." href="/middleware/rewrite/" />
-  <LinkCard title="Redirect" description="redirect: redirect exact and wildcard paths." href="/middleware/redirect/" />
-  <LinkCard title="Method Override" description="methodoverride: tunnel PUT, PATCH, or DELETE through POST." href="/middleware/methodoverride/" />
-  <LinkCard title="Trailing Slash" description="trailingslash: add, remove, or redirect slash variants." href="/middleware/trailingslash/" />
+  <LinkCard title="Rewrite" description="rewrite: change a request path before routing, without the client seeing it." href="/middleware/rewrite/" />
+  <LinkCard title="Redirect" description="redirect: send clients from old paths to new ones." href="/middleware/redirect/" />
+  <LinkCard title="Method Override" description="methodoverride: send PUT, PATCH or DELETE through a POST." href="/middleware/methodoverride/" />
+  <LinkCard title="Trailing Slash" description="trailingslash: add, remove or redirect a trailing slash." href="/middleware/trailingslash/" />
 </CardGrid>
 
 Static files are served by the app itself; see [Static Files](/guide/static-files/).
 
 ## Put middleware where it belongs
 
-Use app middleware for every request:
+On the app, for every request:
 
 ```go
 app.Use(requestid.New(), logger.New())
 ```
 
-Use group middleware for a route family:
+On a group, for a family of routes:
 
 ```go
-api := app.Group("/api", keyauth.New(keyauth.Config{Validator: validateKey}))
+api := app.Group("/api", keyauth.New(keyauth.Config{Validator: validateKey})) // validateKey: your keyauth.Validator
 ```
 
-Use route middleware for one endpoint:
+On one route:
 
 ```go
 app.Post("/exports", limiter.Concurrency(2), startExport)
 ```
 
-Leave some requests out with `zinc.Skip`, which runs the middleware unless the predicate reports true:
+## Skip middleware for some requests
+
+`zinc.Skip` runs a middleware unless your function returns `true` for the request:
 
 ```go
 app.Use(zinc.Skip(func(c *zinc.Context) bool {
@@ -113,12 +134,21 @@ app.Use(zinc.Skip(func(c *zinc.Context) bool {
 }, logger.New()))
 ```
 
-Read [Groups and Middleware](/guide/groups-and-middleware/) for execution order and `c.Next()`, or [Errors](/guide/errors/) for returned middleware errors.
+Here, load balancer probes to `/healthz` don't fill your logs.
 
 ## Contrib
 
-Middleware with third-party dependencies lives in its own repository, [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib), so Zinc's module needs nothing beyond the standard library. Each contrib package is a separate Go module, versioned on its own:
+Middleware that needs a third-party library lives in a separate repository, [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib), so Zinc's own module needs nothing beyond the standard library. Each contrib package is its own Go module, versioned on its own, and you `go get` it separately:
 
 | Package | Depends on |
 |---|---|
 | [`github.com/0mjs/contrib/jwtauth`](/middleware/jwtauth/) | `github.com/golang-jwt/jwt/v5` |
+
+[OpenTelemetry](/middleware/open-telemetry/) is neither a Zinc package nor a contrib one: it's a recipe that uses the official `otelhttp` package, which works with Zinc because a Zinc app is an `http.Handler`.
+
+## Related
+
+- [Groups and Middleware](/guide/groups-and-middleware/): execution order, `c.Next()`, and running code after the handler.
+- [Errors](/guide/errors/): what happens to an error a middleware returns.
+- [Custom middleware](/cookbook/middleware/): write your own.
+- [Zinc and net/http](/guide/http-interoperability/): use standard `net/http` middleware.
