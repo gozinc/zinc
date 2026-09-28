@@ -25,7 +25,7 @@ type WidgetID struct {
 }
 
 type WidgetInput struct {
-	ID   int    `path:"id"`
+	ID   int    `path:"id" json:"-"` // from the path only; the body can't change it
 	Name string `json:"name"`
 }
 
