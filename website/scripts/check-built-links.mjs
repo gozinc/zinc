@@ -53,7 +53,8 @@ for (const filename of htmlFiles) {
     failures.push(`${path.relative(distRoot, filename)}: generated the 404 page instead of its documentation entry`);
   }
 
-  for (const match of html.matchAll(/\bhref=["']([^"']+)["']/g)) {
+  // Only real tags: an escaped "&lt;a href=…" in a code example isn't a link.
+  for (const match of html.matchAll(/<[a-zA-Z][^<>]*?\bhref=["']([^"']+)["']/g)) {
     const rawHref = match[1];
     if (/^(?:https?:|mailto:|tel:|data:|javascript:)/.test(rawHref)) continue;
     if (rawHref.startsWith("#")) {

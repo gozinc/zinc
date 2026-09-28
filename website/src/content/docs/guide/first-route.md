@@ -3,7 +3,7 @@ title: Your First Route
 description: Build one small endpoint end to end, reading params, query values, JSON input, and returning errors.
 ---
 
-The [Quickstart](/guide/quickstart/) got a server running. This page builds a slightly more realistic endpoint and introduces the four things nearly every handler does: read the path, read the query, decode a body, and fail cleanly.
+This page builds a small team-members endpoint, one step at a time. Each step covers something nearly every handler does: read the path, read the query, accept a JSON body, and fail with the right status. It picks up where the [Quickstart](/guide/quickstart/) left off.
 
 ## The handler shape
 
@@ -13,11 +13,9 @@ Every route handler and every middleware in Zinc has the same signature:
 func(c *zinc.Context) error
 ```
 
-`c` holds the request and writes the response. Return `nil` after writing a response, or return an error and let Zinc turn it into one.
+`c` holds the request and writes the response. Write a response and return `nil`, or return an error and Zinc turns it into a response.
 
 ## Read the path and query
-
-Brace segments in a route pattern become parameters. Query values come from the URL.
 
 ```go
 app.Get("/teams/{team}/members", func(c *zinc.Context) error {
@@ -31,15 +29,20 @@ app.Get("/teams/{team}/members", func(c *zinc.Context) error {
 ```bash
 curl 'http://localhost:8080/teams/platform/members?role=admin'
 # {"role":"admin","team":"platform"}
+
+curl http://localhost:8080/teams/platform/members
+# {"role":"any","team":"platform"}
 ```
 
-## Decode a request body
+`{team}` in the pattern becomes a path parameter, read with `c.Param`. `zinc.QueryOr` reads a query value, and returns the fallback (`"any"`) when the value is missing.
 
-Declare a struct for the input, then bind into it. Struct tags say where each field comes from.
+## Accept a JSON body
+
+Declare a struct for the input, then bind the request into it. Struct tags say where each field comes from:
 
 ```go
 type CreateMember struct {
-	Team  string `path:"team"`
+	Team  string `path:"team" json:"-"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
@@ -47,29 +50,63 @@ type CreateMember struct {
 app.Post("/teams/{team}/members", func(c *zinc.Context) error {
 	var in CreateMember
 	if err := c.Bind().All(&in); err != nil {
-		return err // 400 with the failing field
+		return err // 400, naming the field when it can
 	}
 	if in.Name == "" {
 		return zinc.UnprocessableEntity("name is required")
 	}
-	return c.Status(zinc.StatusCreated).JSON(in)
+	return c.Status(zinc.StatusCreated).JSON(zinc.Map{
+		"team":  in.Team,
+		"name":  in.Name,
+		"email": in.Email,
+	})
 })
 ```
 
-`Bind().All` fills `Team` from the path and `Name` and `Email` from the JSON body. When the request doesn't fit, such as a malformed body or a path value of the wrong type, it returns a `*zinc.BindError`. Return it unchanged: Zinc answers `400 Bad Request` and names the field, without exposing decoder details. See [Binding and validation errors](/guide/errors/#binding-and-validation-errors).
+```bash
+curl -i -X POST http://localhost:8080/teams/platform/members \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com"}'
+# HTTP/1.1 201 Created
+# Content-Type: application/json; charset=utf-8
+#
+# {"email":"ada@example.com","name":"Ada","team":"platform"}
+```
 
-## Return errors
+`Bind().All` fills `Team` from the path, and `Name` and `Email` from the JSON body.
 
-Handlers fail by returning an error. Zinc's predefined errors carry a status code and an optional client-facing message.
+:::caution[Tag path fields `json:"-"`]
+Without `json:"-"`, a body such as `{"team":"other"}` would overwrite the team from the path, because Go matches JSON keys to field names ignoring case.
+:::
+
+When the body doesn't fit the struct, return the error unchanged. The client gets a `400` that names the field, without Go's decoder details:
+
+```bash
+curl -X POST http://localhost:8080/teams/platform/members \
+  -H 'Content-Type: application/json' \
+  -d '{"name":42}'
+# {"error":{"status":400,"message":"invalid request body","fields":{"name":"must be a string"}}}
+
+curl -X POST http://localhost:8080/teams/platform/members \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"ada@example.com"}'
+# {"error":{"status":422,"message":"name is required"}}
+```
+
+The first request fails binding. The second binds, then fails the `in.Name == ""` check. [Binding](/guide/binding/) shows how to plug in a validator and declare rules such as `required` on the struct instead.
+
+## Return an error
+
+A handler fails by returning an error. Zinc's error helpers, such as `zinc.NotFound`, carry a status code and a message the client sees:
 
 ```go
 app.Get("/members/{id}", func(c *zinc.Context) error {
-	member, err := store.Find(c.Param("id"))
-	if errors.Is(err, ErrNoMember) {
+	member, err := store.Find(c.Param("id")) // store: your data layer
+	if errors.Is(err, ErrNoMember) {         // ErrNoMember: your "not found" error
 		return zinc.NotFound("member not found")
 	}
 	if err != nil {
-		return err // becomes 500 Internal Server Error, details stay private
+		return err // 500, and the message stays on the server
 	}
 	return c.JSON(member)
 })
@@ -83,14 +120,22 @@ curl -i http://localhost:8080/members/nope
 # {"error":{"status":404,"message":"member not found"}}
 ```
 
-Any error that is not a Zinc HTTP error becomes a `500 Internal Server Error`, and its text is never sent, so internal details don't leak to clients. [Errors](/guide/errors/) shows how domain errors can choose their own status, and how to log server errors.
+Any other error becomes a `500 Internal Server Error`. Its text is never sent, so internal details don't leak to clients:
 
-## Registration is checked at startup
+```bash
+# {"error":{"status":500,"message":"Internal Server Error"}}
+```
 
-Route patterns are validated when you register them. A typo such as `/users/:id` or a conflicting route panics when the program starts, not on the first request, so you never check an error after `app.Get`.
+[Errors](/guide/errors/) shows how your own error types can choose a status, and how to log server errors.
+
+## Good to know
+
+### Mistakes show up at startup
+
+Zinc checks each route pattern when you register it. A typo such as `/users/:id`, or two routes that clash, panics as soon as the program starts. You find out before the first request arrives, and there's no error to check after `app.Get`.
 
 ## Next steps
 
-- [Routing](/guide/routing/) covers every pattern form, groups, and precedence.
-- [Binding](/guide/binding/) covers every input source and validation.
-- [Errors](/guide/errors/) covers custom messages, metadata, and JSON error responses.
+- [Routing](/guide/routing/): every pattern form, groups, and which route wins.
+- [Binding](/guide/binding/): every input source, and validation.
+- [Errors](/guide/errors/): custom messages, details, and your own error format.
