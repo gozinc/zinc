@@ -98,10 +98,10 @@ if err := c.Bind().Query(&in); err != nil {
 {"error":{"status":400,"message":"invalid query parameter","fields":{"page":"must be an integer"}}}
 ```
 
-Failures from the configured `Validator` become `*zinc.ValidationError` and answer 422. If the validator's error has a `Fields() map[string]string` method, the body lists them:
+Failures from the configured `Validator` become `*zinc.ValidationError` and answer 422. If the validator's error has a `Fields() map[string]string` method, the body lists them. The keys and messages come from your validator; with the go-playground adapter shown in [Binding](/guide/binding/#validation), they look like this:
 
 ```json
-{"error":{"status":422,"message":"validation failed","fields":{"email":"required"}}}
+{"error":{"status":422,"message":"validation failed","fields":{"Email":"failed required"}}}
 ```
 
 A validator that returns its own HTTP error or `StatusCoder` keeps that status. See [Binding](/guide/binding/) for adapting a validation library.
@@ -136,7 +136,7 @@ app := zinc.New(zinc.Config{
 })
 ```
 
-`zinc.StatusCode(err)` reports the status the default handler would send. To change the body format entirely, write your own handler and use `errors.As` for the types above. `zinc.TextErrors` is a ready-made handler that sends plain-text bodies, as Zinc 0.3 did.
+`zinc.StatusCode(err)` reports the status the default handler would send. To change the body format entirely, write your own handler and use `errors.As` for the types above. `zinc.TextErrors` is a ready-made handler that sends plain-text error bodies instead of JSON.
 
 ## Panics
 
