@@ -42,7 +42,7 @@ Declare a struct for the input, then bind the request into it. Struct tags say w
 
 ```go
 type CreateMember struct {
-	Team  string `path:"team" json:"-"`
+	Team  string `path:"team"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
@@ -75,9 +75,7 @@ curl -i -X POST http://localhost:8080/teams/platform/members \
 
 `Bind().All` fills `Team` from the path, and `Name` and `Email` from the JSON body.
 
-:::caution[Tag path fields `json:"-"`]
-Without `json:"-"`, a body such as `{"team":"other"}` would overwrite the team from the path, because Go matches JSON keys to field names ignoring case.
-:::
+A body can't change the team. Values from the path win over the body, so `{"team":"other"}` still binds `platform`.
 
 When the body doesn't fit the struct, return the error unchanged. The client gets a `400` that names the field, without Go's decoder details:
 

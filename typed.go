@@ -27,8 +27,9 @@ type NoContent struct{}
 //	})).Status(http.StatusCreated)
 //
 // In must be a struct; use struct{} for a handler without input. Its fields
-// bind like Bind().All, from tagged path, query, and header fields and the
-// body, and a failure is a *BindError (400). The configured Validator then
+// bind like Bind().All, from the body and then tagged header, query, and path
+// fields, so a value from the URL or a header is never replaced by a body key.
+// A failure is a *BindError (400). The configured Validator then
 // runs, and a failure is a *ValidationError (422). An error returned by fn
 // goes to the error handler like any other.
 //
@@ -45,14 +46,14 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 		panic(fmt.Sprintf("zinc: Typed input must be a struct, not %s; use struct{} for no input", inType))
 	}
 	// Compile the binding plan now, so the first request doesn't pay for it.
-	plan := bindingPlanFor(inType)
+	bindingPlanFor(inType)
 	bindInput := inType.NumField() > 0
 	_, noContent := any(*new(Out)).(NoContent)
 
 	return func(c *Context) error {
 		var in In
 		if bindInput {
-			if err := c.bindTyped(&in, plan); err != nil {
+			if err := c.bindTyped(&in); err != nil {
 				return err
 			}
 		}
@@ -74,15 +75,10 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	}
 }
 
-// bindTyped binds header fields, which Bind().All leaves out, and then
-// everything else as Bind().All does, which validates last.
-func (c *Context) bindTyped(v any, plan *bindingPlan) error {
-	if len(plan.headerFields) > 0 && c.request != nil {
-		if err := bindFieldsFromHeader(reflect.ValueOf(v).Elem(), plan.headerFields, c.request.Header); err != nil {
-			return wrapBindError("header", err)
-		}
-	}
-	return bindAll(c, v)
+// bindTyped binds like Bind().All and also binds header fields, after the
+// body and before query and path values.
+func (c *Context) bindTyped(v any) error {
+	return bindRequest(c, v, true)
 }
 
 // declaredStatus returns the success status set with Route.Status for the

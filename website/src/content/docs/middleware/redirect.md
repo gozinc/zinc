@@ -32,6 +32,12 @@ Register it with `app.Use`. It then runs before routing, so the old paths don't 
 
 :::caution[Not in a group]
 Group middleware only runs for paths that match one of the group's routes. An old path usually doesn't, so it gets a 404 instead of a redirect. Use `app.Use`, or `app.UsePrefix` for one subtree.
+
+The first request that reaches a misplaced `redirect` logs a warning through `slog`:
+
+```text
+time=2026-09-28T02:13:48.899+01:00 level=WARN msg="redirect middleware runs after routing, so it only sees requests that already matched a route; register it with app.Use or app.UsePrefix" middleware=redirect route=/api/users
+```
 :::
 
 ## Defaults

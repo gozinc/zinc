@@ -345,64 +345,70 @@ func (c *Context) NoContent() error {
 	return err
 }
 
-func (c *Context) writeDefaultErrorResponse(status int, allowHeader string) error {
+// writeDefaultMiss writes DefaultErrorHandler's 404 or 405 body without
+// resolving the error, for a routing miss that came back through the
+// middleware chain unchanged. The response bytes are the same.
+func (c *Context) writeDefaultMiss(status int) {
 	if c.written {
-		return ErrResponseAlreadySent
+		return
 	}
-
-	// The common default 404/405 can use the already-owned base writer.
-	// SetWriter and HEAD keep the general path so their response semantics stay
-	// unchanged.
-	if c.baseWriter && c.request != nil && c.request.Method != http.MethodHead &&
-		(status == http.StatusNotFound || status == http.StatusMethodNotAllowed) {
-		writer := &c.response.base
-		header := writer.Header()
-		if allowHeader != "" {
-			if len(header[contentType]) == 0 {
-				// Both values belong to this response. Separate capacities prevent
-				// appending to one header from modifying the other.
-				values := []string{allowHeader, jsonType}
-				header[HeaderAllow] = values[:1:1]
-				header[contentType] = values[1:2:2]
-			} else {
-				header[HeaderAllow] = []string{allowHeader}
-			}
-		} else if len(header[contentType]) == 0 {
-			header[contentType] = []string{jsonType}
-		}
+	if !c.baseWriter {
+		writer := c.Writer()
+		setDefaultMissHeaders(writer.Header())
+		c.status = status
 		writer.WriteHeader(status)
-		if status == http.StatusNotFound {
-			_, err := writer.Write(statusNotFoundBytes)
-			return err
+		if c.request == nil || c.request.Method != http.MethodHead {
+			_, _ = writer.Write(defaultMissBody(status))
 		}
-		_, err := writer.Write(statusMethodNotAllowedBytes)
-		return err
+		return
 	}
-
-	writer := c.Writer()
-	header := writer.Header()
-	if len(allowHeader) != 0 {
-		header[HeaderAllow] = []string{allowHeader}
-	}
-	if len(header[contentType]) == 0 {
-		header[contentType] = []string{jsonType}
-	}
-	if !bodyAllowed(c.Method(), status) {
-		writer.WriteHeader(status)
-		return nil
-	}
-
+	// As in writeErrorJSON: write the pooled base writer directly, without
+	// interface dispatch.
+	writer := &c.response.base
+	setDefaultMissHeaders(writer.Header())
+	c.status = status
 	writer.WriteHeader(status)
-	switch status {
-	case http.StatusNotFound:
-		_, err := writer.Write(statusNotFoundBytes)
-		return err
-	case http.StatusMethodNotAllowed:
-		_, err := writer.Write(statusMethodNotAllowedBytes)
-		return err
-	default:
-		return writeErrorEnvelope(writer, status, http.StatusText(status))
+	if c.request == nil || c.request.Method != http.MethodHead {
+		_, _ = writer.Write(defaultMissBody(status))
 	}
+}
+
+// responseHeader returns the response header map, reading the pooled base
+// writer directly when no SetWriter wrapper is installed.
+func (c *Context) responseHeader() http.Header {
+	if c.baseWriter {
+		return c.response.base.Header()
+	}
+	return c.Writer().Header()
+}
+
+// setDefaultMissHeaders does what resetErrorRepresentation does, then sets
+// the JSON Content-Type.
+func setDefaultMissHeaders(header http.Header) {
+	others := len(header)
+	allow, hasAllow := header[HeaderAllow]
+	if hasAllow {
+		others--
+	}
+	if others > 0 {
+		delete(header, HeaderContentType)
+		delete(header, HeaderContentLength)
+		delete(header, HeaderContentDisposition)
+	}
+	if len(allow) == 1 && cap(allow) == 2 {
+		// dispatch left the Content-Type in Allow's spare capacity.
+		header[HeaderAllow] = allow[:1:1]
+		header[contentType] = allow[1:2:2]
+		return
+	}
+	header[contentType] = []string{jsonType}
+}
+
+func defaultMissBody(status int) []byte {
+	if status == http.StatusNotFound {
+		return statusNotFoundBytes
+	}
+	return statusMethodNotAllowedBytes
 }
 
 // Redirect sends location with 302 Found, or with the redirect status chosen

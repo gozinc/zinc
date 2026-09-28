@@ -367,9 +367,13 @@ func TextErrors(c *Context, err error) {
 // helper that failed before the response was committed.
 func resetErrorRepresentation(c *Context) {
 	header := c.Writer().Header()
-	header.Del(HeaderContentType)
-	header.Del(HeaderContentLength)
-	header.Del(HeaderContentDisposition)
+	if len(header) == 0 {
+		return
+	}
+	// The keys are already canonical, so skip Header.Del's canonicalization.
+	delete(header, HeaderContentType)
+	delete(header, HeaderContentLength)
+	delete(header, HeaderContentDisposition)
 }
 
 type errorBody struct {
