@@ -1,14 +1,14 @@
 ---
 title: Installation
-description: Add Zinc to a Go module, import its packages, and manage versions.
+description: Add Zinc to a Go module, import its packages, and upgrade between versions.
 ---
 
-Zinc is an ordinary Go module with no code generation or CLI. If you want a guided first run instead, start with the [Quickstart](/guide/quickstart/).
+Zinc installs with one `go get`, like any other Go module. There's no code generator or CLI to set up. For a guided first run, start with the [Quickstart](/guide/quickstart/) instead.
 
 ## Requirements
 
 - Go **1.25** or newer
-- A Go module, created with `go mod init` if you do not have one yet
+- A Go module. Run `go mod init` if you don't have one yet.
 
 ## Install
 
@@ -16,9 +16,9 @@ Zinc is an ordinary Go module with no code generation or CLI. If you want a guid
 go get github.com/0mjs/zinc
 ```
 
-## Import
+## Import what you use
 
-The core package is `github.com/0mjs/zinc`. Each first-party middleware is its own small package in the same module, so one `go get` installs them all:
+The core package is `github.com/0mjs/zinc`. Each built-in middleware is its own small package in the same module, so the one `go get` above already installed them all:
 
 ```go
 import (
@@ -28,12 +28,26 @@ import (
 )
 ```
 
-The core package depends only on the standard library: its go.mod requires no other module, and the middleware packages add nothing. YAML, TOML, and other formats plug in through [decoders and encoders](/guide/customization/#body-formats) with the library you choose. Middleware with third-party dependencies, such as [JWT](/middleware/jwtauth/), lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib) and is installed separately. Integrations with larger dependencies, such as OpenTelemetry or the official Prometheus client, plug in through `net/http`.
+Zinc's `go.mod` requires no other modules, so adding Zinc adds nothing else to your build.
+
+## What else you might install
+
+Some features need a library of your choice. They plug in without changes to Zinc:
+
+| You want | Install | See |
+|---|---|---|
+| YAML, TOML or another body format | The library you prefer, registered as a decoder or encoder | [Customization](/guide/customization/) |
+| JWT authentication | `go get github.com/0mjs/contrib/jwtauth` | [JWT](/middleware/jwtauth/) |
+| OpenTelemetry tracing | The official `otelhttp` package, wrapped around your app | [OpenTelemetry](/middleware/open-telemetry/) |
+| The official Prometheus client | `promhttp.Handler()`, served with `app.HandleHTTP` | [Prometheus](/middleware/prometheus/) |
+
+Middleware that needs a third-party library, such as JWT, lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib). Each contrib package is its own module, so you only download what you import.
 
 ## Check the installed version
 
 ```bash
 go list -m github.com/0mjs/zinc
+# github.com/0mjs/zinc v0.5.1
 ```
 
 ## Upgrade
@@ -43,11 +57,19 @@ go get github.com/0mjs/zinc@latest
 go mod tidy
 ```
 
+Your `go.mod` records the exact version you build with, so Zinc only changes when you run `go get`.
+
 :::caution[Zinc is pre-1.0]
-Minor releases can contain deliberate API changes. Pin a version in production and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading. Upgrading from 0.3? Follow [Migrating to 0.4](/extra/migration-0.4/). From an older release, work through [0.3](/extra/migration-0.3/) and [0.2](/extra/migration-0.2/) first. Moving from 0.4 to 0.5 needs no code changes.
+A minor release, such as 0.4 to 0.5, can change the API. Read the [release notes](https://github.com/0mjs/zinc/releases) before you upgrade, and run your tests afterwards.
 :::
+
+Each minor release has an upgrade guide:
+
+- From 0.4: [Upgrading to 0.5](/extra/migration-0.5/). No code changes are needed.
+- From 0.3: [Migrating to 0.4](/extra/migration-0.4/), then the 0.5 guide.
+- From an older release: work through [0.2](/extra/migration-0.2/) and [0.3](/extra/migration-0.3/) first.
 
 ## Next steps
 
-- [Quickstart](/guide/quickstart/) runs your first server.
-- [Your First Route](/guide/first-route/) introduces handlers, input, and errors.
+- [Quickstart](/guide/quickstart/): run your first server in five minutes.
+- [Your First Route](/guide/first-route/): handlers, input, and errors.
