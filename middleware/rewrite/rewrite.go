@@ -40,7 +40,7 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return c.Next()
 	}
-	// On a group it would run after routing; Group.Use panics instead.
+	// Mark this instance: on a group it would run after routing, so Group.Use panics.
 	prerouting.Mark(mw, "rewrite")
 	return mw
 }

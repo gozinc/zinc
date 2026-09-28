@@ -13,9 +13,10 @@ import (
 
 var marked sync.Map // code pointer → middleware name
 
-// Mark records that middleware built by the same function as mw must run
-// before routing. Every closure from one function literal shares a code
-// pointer, so one Mark covers every instance.
+// Mark records that mw must run before routing. Call it on every instance
+// a constructor returns: when the constructor is inlined, the compiler can
+// give each call site its own copy of the closure's code, and so its own
+// code pointer. Marking the instance itself is always exact.
 func Mark(mw any, name string) {
 	if pc := codePointer(mw); pc != 0 {
 		marked.Store(pc, name)
