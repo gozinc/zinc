@@ -5,6 +5,8 @@ description: Reference for zinc.Group, a set of routes that share a path prefix 
 
 A `*zinc.Group` registers routes below a prefix and runs its middleware before theirs. Create one from the app or from another group.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#Group).
+
 ```go
 api := app.Group("/api", requireAPIKey)
 v1 := api.Group("/v1")

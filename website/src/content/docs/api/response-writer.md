@@ -5,6 +5,8 @@ description: Reference for zinc.WrapResponseWriter, which lets middleware observ
 
 Middleware sometimes needs to know what a handler sent: the status for metrics, or the byte count for logs. `zinc.WrapResponseWriter` wraps the current writer and records both.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#ResponseWriter).
+
 ```go
 func metrics(c *zinc.Context) error {
 	base := c.Writer()
