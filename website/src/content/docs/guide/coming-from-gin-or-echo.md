@@ -100,7 +100,7 @@ Standard `func(http.Handler) http.Handler` middleware works too, through [`app.U
 
 ### Case and trailing slashes don't matter by default
 
-`/Users/42` and `/users/42/` reach the same handler as `/users/42`. Gin and Echo treat them as different paths. Set `CaseSensitive` or `StrictRouting` in [`zinc.Config`](/guide/configuration/) if you want that behaviour back.
+`/Users/42` and `/users/42/` reach the same handler as `/users/42`. Gin and Echo treat them as different paths. Set `CaseSensitive` or `StrictRouting` in [`zinc.Config`](/guide/configuration/) if you want that behavior back.
 
 ### It's all `net/http` underneath
 
