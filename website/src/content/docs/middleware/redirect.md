@@ -31,13 +31,14 @@ A rule ending in `*` matches a prefix, and a `*` in the target is replaced by th
 Register it with `app.Use`. It then runs before routing, so the old paths don't need routes of their own.
 
 :::caution[Not in a group]
-Group middleware only runs for paths that match one of the group's routes. An old path usually doesn't, so it gets a 404 instead of a redirect. Use `app.Use`, or `app.UsePrefix` for one subtree.
+Group middleware only runs for paths that match one of the group's routes. An old path usually doesn't, so it would get a 404 instead of a redirect. Registering it on a group panics at startup:
 
-The first request that reaches a misplaced `redirect` logs a warning through `slog`:
-
-```text
-time=2026-09-28T02:13:48.899+01:00 level=WARN msg="redirect middleware runs after routing, so it only sees requests that already matched a route; register it with app.Use or app.UsePrefix" middleware=redirect route=/api/users
+```go
+app.Group("/api").Use(redirect.New(cfg))
+// panic: zinc: redirect middleware on group "/api" would run after routing, where it can't work; register it with app.Use, or app.UsePrefix("/api", ...) for the group's paths
 ```
+
+On a single route, such as `app.Get("/old", redirect.New(cfg))`, it works for that path, and logs a warning through `slog` the first time it runs.
 :::
 
 ## Defaults

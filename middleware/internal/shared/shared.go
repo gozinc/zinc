@@ -87,9 +87,9 @@ func PathWithRawQuery(path, rawQuery string) string {
 
 // RoutingWarning warns once when middleware that changes which route a
 // request takes, such as redirect or rewrite, runs after a route was already
-// chosen. That happens when it's registered on a group or a route instead of
-// with App.Use or App.UsePrefix: paths without a route never reach it, and a
-// rewrite can no longer change the route.
+// chosen. On a group Zinc refuses it at registration, so this catches the
+// remaining case, a single route: it works for that path only, and a rewrite
+// can no longer change the route.
 type RoutingWarning struct {
 	name   string
 	warned atomic.Bool
