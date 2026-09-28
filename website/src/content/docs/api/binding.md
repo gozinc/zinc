@@ -5,6 +5,8 @@ description: Reference for c.Bind(), struct tags, BindError, Validator, and body
 
 `c.Bind()` returns a binder for the current request. Each method decodes into a pointer to a struct, then runs the configured `Validator`. See the [Binding guide](/guide/binding/) for examples.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#Bind).
+
 ## Methods
 
 | Method | Reads |

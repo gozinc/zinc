@@ -96,6 +96,21 @@ function methodsFor(typeName) {
 }
 
 const zincExports = topLevelExports(rootGoFiles);
+
+// Exported fields of a root struct type, such as Config.
+function fieldsFor(typeName) {
+  const names = new Set();
+  for (const filename of rootGoFiles) {
+    const source = fs.readFileSync(filename, "utf8");
+    const body = source.match(new RegExp(`^type ${typeName} struct \\{([\\s\\S]*?)^\\}`, "m"));
+    if (!body) continue;
+    for (const match of body[1].matchAll(/^\t([A-Z][A-Za-z0-9_]*)\b/gm)) names.add(match[1]);
+  }
+  return names;
+}
+const configFields = fieldsFor("Config");
+// Type-qualified references such as Context.Param or App.URL, written without c. or app.
+const qualifiedMethods = { Context: methodsFor("Context"), App: methodsFor("App"), Group: methodsFor("Group") };
 const middlewareExports = new Map(
   middlewarePackages.map((name) => {
     const dir = path.join(middlewareRoot, name);
@@ -130,6 +145,17 @@ function checkAPI(filename, source) {
   for (const [name, exports] of middlewareExports) {
     for (const match of source.matchAll(new RegExp(`(?<![\\w./])${name}\\.([A-Z][A-Za-z0-9_]*)`, "g"))) {
       if (!exports.has(match[1])) failures.push(`${relative}: unknown API ${name}.${match[1]}`);
+    }
+  }
+  // Config.X names a zinc.Config field. Middleware pages have their own Config types.
+  if (!relative.includes("/middleware/")) {
+    for (const match of source.matchAll(/(?<![\w.])Config\.([A-Z][A-Za-z0-9_]*)/g)) {
+      if (!configFields.has(match[1])) failures.push(`${relative}: unknown field Config.${match[1]}`);
+    }
+  }
+  for (const [typeName, methods] of Object.entries(qualifiedMethods)) {
+    for (const match of source.matchAll(new RegExp(`(?<![\\w.])${typeName}\\.([A-Z][A-Za-z0-9_]*)`, "g"))) {
+      if (!methods.has(match[1])) failures.push(`${relative}: unknown API ${typeName}.${match[1]}`);
     }
   }
   if (isComparisonPage(relative)) return;
