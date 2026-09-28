@@ -113,6 +113,9 @@ const methodSets = {
 };
 // Migration guides name removed APIs on purpose, so only their links are checked.
 const isMigrationGuide = (relative) => /\/extra\/migration-[^/]+\.md$/.test(relative);
+// Comparison pages name other frameworks' methods (c.QueryParam, c.AbortWithStatusJSON)
+// on purpose, so their c., app. and group. calls aren't checked; zinc.X still is.
+const isComparisonPage = (relative) => /\/guide\/coming-from-[^/]+\.md$/.test(relative);
 
 function checkAPI(filename, source) {
   const relative = path.relative(repoRoot, filename);
@@ -129,6 +132,7 @@ function checkAPI(filename, source) {
       if (!exports.has(match[1])) failures.push(`${relative}: unknown API ${name}.${match[1]}`);
     }
   }
+  if (isComparisonPage(relative)) return;
   for (const [receiver, methods] of Object.entries(methodSets)) {
     for (const match of source.matchAll(new RegExp(`\\b${receiver}\\.([A-Z][A-Za-z0-9_]*)`, "g"))) {
       if (!methods.has(match[1])) failures.push(`${relative}: unknown API ${receiver}.${match[1]}`);
