@@ -27,7 +27,7 @@ var suite = []string{
 	"APIParamQueryJSON", "APIHappyPath", "APIBindJSONHappyPath", "APIBindHeaderQueryJSON",
 	"APIBindInvalidJSON", "APIBindValidationFailure", "APIBindMultipartHappyPath",
 	"LargeJSONResponse", "LargeJSONBind", "StaticFileHit", "StaticFileNotFound",
-	"NestedGroupMiddlewareAPI", "APIUnauthorizedReject",
+	"NestedGroupMiddlewareAPI", "APIUnauthorizedReject", "APIProductionStack",
 	"ParallelStaticRoute", "ParallelRouterParam", "ParallelMiddlewareChain", "ParallelAPIHappyPath",
 	"Param5", "Param10", "NestedGroupStatic", "NestedGroupParam", "NestedGroupNotFound",
 	"NestedGroupMethodMismatch", "WildcardTail", "WildcardTailNotFound",
