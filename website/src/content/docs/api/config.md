@@ -1,9 +1,11 @@
 ---
-title: Configuration
+title: Config type
 description: Reference for zinc.Config and the default constants.
 ---
 
 `zinc.Config` holds every application setting. Pass it to `zinc.New`; every field you leave out keeps its default.
+
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#Config).
 
 ```go
 app := zinc.New(zinc.Config{

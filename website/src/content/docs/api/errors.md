@@ -5,6 +5,8 @@ description: Reference for zinc.HTTPError, the error constructors, StatusCoder, 
 
 Return an error from a handler, and the application's error handler turns it into a response. See the [Errors guide](/guide/errors/) for patterns.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#HTTPError).
+
 ## Constructors
 
 | Function | Status |
