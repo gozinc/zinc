@@ -7,7 +7,7 @@ slug: extra/migration-0.5
 Moving from 0.4 to 0.5 needs no code changes. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.5.1
+go get github.com/0mjs/zinc@v0.5.2
 go test ./...
 ```
 
