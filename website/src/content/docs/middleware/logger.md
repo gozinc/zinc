@@ -30,10 +30,10 @@ curl http://localhost:8080/users/0
 
 ```text
 2026/09/28 01:18:28 INFO REQUEST method=GET uri=/users/42 route=/users/{id} status=200 latency=157µs host=localhost:8080 bytes_in="" bytes_out=12 user_agent=curl/8.7.1 remote_ip=::1 request_id=cad891ee0a72092ded6fb64d17c87158
-2026/09/28 01:18:28 ERROR REQUEST_ERROR method=GET uri=/users/0 route=/users/{id} status=404 latency=15.916µs host=localhost:8080 bytes_in="" bytes_out=52 user_agent=curl/8.7.1 remote_ip=::1 request_id=c059b23c10bde4b7bee10dbe1ec2d912 error="user not found"
+2026/09/28 01:18:28 INFO REQUEST method=GET uri=/users/0 route=/users/{id} status=404 latency=15.916µs host=localhost:8080 bytes_in="" bytes_out=52 user_agent=curl/8.7.1 remote_ip=::1 request_id=c059b23c10bde4b7bee10dbe1ec2d912 error="user not found"
 ```
 
-A request that returns an error logs at `ERROR` with the message `REQUEST_ERROR`; everything else logs at `INFO` with `REQUEST`. The line is written after your error handler has run, so `status` is the status the client received.
+A request that ends in a `5xx` logs at `ERROR` with the message `REQUEST_ERROR`; everything else logs at `INFO` with `REQUEST`. The line is written after your error handler has run, so `status` is the status the client received. A `404` is normal traffic, so it stays at `INFO`, with an `error` key saying why.
 
 Register [`requestid`](/middleware/requestid/) too, so `request_id` is filled in. Put the logger before [`recover`](/middleware/recover/), so it logs the `500` a panic turns into.
 
@@ -54,7 +54,7 @@ Register [`requestid`](/middleware/requestid/) too, so `request_id` is filled in
 | `request_id` | `X-Request-ID` from the request, or else from the response |
 | `headers` | Headers you listed in `Headers`, when any were present |
 | `query` | Query parameters you listed in `QueryParams`, when any were present |
-| `error` | The error's message, on `REQUEST_ERROR` lines only |
+| `error` | The error's message, when the chain returned an error |
 
 ## Defaults
 
@@ -132,9 +132,9 @@ app.Use(zinc.Skip(func(c *zinc.Context) bool {
 
 ## Errors
 
-- A request whose chain returned an error is logged at `ERROR` as `REQUEST_ERROR`, with an `error` key. That includes a `4xx` your handler returns, such as `zinc.NotFound(...)`.
+- The level follows the status the client received: `5xx` is `ERROR` as `REQUEST_ERROR`, anything else is `INFO` as `REQUEST`. A `4xx` your handler returns, such as `zinc.NotFound(...)`, is `INFO` with an `error` key.
 - The `error` key holds the error's own message, which may differ from what the client saw. A plain `errors.New("db down")` logs `error="db down"`, while the client gets `Internal Server Error`.
-- With the default error handler, a request that matched no route gets its `404` or `405` without an error, so it logs at `INFO` as `REQUEST`, with no `route` key. With a custom `ErrorHandler`, those misses come back as errors and log at `ERROR` as `REQUEST_ERROR`.
+- A request that matched no route logs at `INFO` with `error="Not Found"` or `error="Method Not Allowed"`, and no `route` key, whichever error handler you use.
 - An error returned from your `Log` function becomes the request's error.
 
 ## Related

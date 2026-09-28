@@ -18,12 +18,16 @@ type Config struct {
 }
 
 // New changes the routed path of matching requests without a redirect.
-// Query parameters remain untouched.
+// Query parameters remain untouched. Register it with App.Use or
+// App.UsePrefix: on a group or a route it runs after routing, when the route
+// can no longer change, and logs a warning the first time.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("rewrite", configs)
 	rules := shared.CloneRewriteRules(config.Rules)
+	placement := shared.NewRoutingWarning("rewrite")
 
 	return func(c *zinc.Context) error {
+		placement.Check(c)
 		req := c.Request()
 		if req == nil || req.URL == nil {
 			return c.Next()

@@ -279,3 +279,35 @@ func TestDefaultLogIncludesSelectedHeadersAndQuery(t *testing.T) {
 		}
 	}
 }
+
+// The level follows the final status, and a routing miss reaches the logger
+// the same way with or without a custom error handler.
+func TestDefaultLogLevelFollowsStatus(t *testing.T) {
+	for _, custom := range []bool{false, true} {
+		var buf bytes.Buffer
+		cfg := zinc.Config{}
+		if custom {
+			cfg.ErrorHandler = func(c *zinc.Context, err error) { zinc.DefaultErrorHandler(c, err) }
+		}
+		app := zinc.New(cfg)
+		app.Use(New(Config{Logger: slog.New(slog.NewTextHandler(&buf, nil))}))
+		app.Get("/users", func(c *zinc.Context) error { return c.String("ok") })
+		app.Get("/boom", func(*zinc.Context) error { return errors.New("db down") })
+
+		for _, tt := range []struct{ method, path, want string }{
+			{"GET", "/users", `level=INFO msg=REQUEST`},
+			{"GET", "/nope", `level=INFO msg=REQUEST`},
+			{"DELETE", "/users", `level=INFO msg=REQUEST`},
+			{"GET", "/boom", `level=ERROR msg=REQUEST_ERROR`},
+		} {
+			buf.Reset()
+			app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tt.method, tt.path, nil))
+			if !strings.Contains(buf.String(), tt.want) {
+				t.Fatalf("custom=%v %s %s: %q, want %s", custom, tt.method, tt.path, buf.String(), tt.want)
+			}
+			if tt.path == "/nope" && !strings.Contains(buf.String(), `error="Not Found"`) {
+				t.Fatalf("custom=%v: 404 line has no error attr: %q", custom, buf.String())
+			}
+		}
+	}
+}

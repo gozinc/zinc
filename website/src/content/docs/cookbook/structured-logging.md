@@ -70,7 +70,7 @@ The server prints one line for that request (wrapped here to fit):
  "headers":{"Traceparent":["00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"]}}
 ```
 
-A request that fails is logged at `ERROR` with the message `REQUEST_ERROR` and an `error` field:
+A request that fails gets an `error` field. A client error such as this `400` stays at `INFO`:
 
 ```bash
 curl http://localhost:8080/users/abc
@@ -78,7 +78,7 @@ curl http://localhost:8080/users/abc
 ```
 
 ```json
-{"time":"2026-09-28T01:16:57.543319+01:00","level":"ERROR","msg":"REQUEST_ERROR",
+{"time":"2026-09-28T01:16:57.543319+01:00","level":"INFO","msg":"REQUEST",
  "method":"GET","uri":"/users/abc","route":"/users/{id}","status":400,
  "latency":280750,"host":"localhost:8080","bytes_in":"","bytes_out":97,
  "user_agent":"curl/8.7.1","remote_ip":"::1",
@@ -105,9 +105,9 @@ curl http://localhost:8080/users/abc
 
 `slog.NewJSONHandler` writes a `time.Duration` as an integer number of nanoseconds, so `"latency":163459` is about 0.16 ms. `slog.NewTextHandler` writes it as `163.459µs` instead.
 
-### Client errors log at ERROR
+### Only server errors log at ERROR
 
-Any returned error, including a `400` or `404`, produces a `REQUEST_ERROR` line at `ERROR` level. If you want client errors at a lower level, write your own `Log` function and choose the level from `Values.Status`.
+A `5xx` logs at `ERROR` with the message `REQUEST_ERROR`, so alerts on `ERROR` fire for faults in your server, not for bots probing missing pages. A `400` or `404` logs at `INFO` with an `error` field. To choose levels yourself, write your own `Log` function and pick from `Values.Status`.
 
 ## See also
 

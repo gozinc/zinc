@@ -148,7 +148,7 @@ Everything after this middleware is skipped. Middleware that already ran still r
 The built-in [logger](/middleware/logger/) sends that error through your error handler before it logs, so the log line shows the 401:
 
 ```text
-level=ERROR msg=REQUEST_ERROR method=GET uri=/api/users/42 route=/api/users/{id} status=401 latency=121.792µs host=example.com bytes_in="" bytes_out=50 user_agent="" remote_ip=192.0.2.1 request_id="" error=Unauthorized
+level=INFO msg=REQUEST method=GET uri=/api/users/42 route=/api/users/{id} status=401 latency=121.792µs host=example.com bytes_in="" bytes_out=50 user_agent="" remote_ip=192.0.2.1 request_id="" error=Unauthorized
 ```
 
 [Custom Middleware](/cookbook/middleware/) shows how your own middleware can do the same.
@@ -228,7 +228,7 @@ If more than one `UsePrefix` matches a request, each runs once, in the order you
 
 ### 404s and app middleware
 
-`app.Use` and `app.UsePrefix` middleware wrap routing, so they also run for 404 and 405 responses. There, `c.FullPath()` is empty because no route matched.
+`app.Use` and `app.UsePrefix` middleware wrap routing, so they also run for 404 and 405 responses. There, `c.Next()` returns `zinc.ErrNotFound` or `zinc.ErrMethodNotAllowed`, and `c.FullPath()` is empty because no route matched. Return the error to send the usual response, or write your own instead.
 
 ## Next steps
 
