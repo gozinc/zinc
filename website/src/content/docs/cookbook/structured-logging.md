@@ -1,23 +1,13 @@
 ---
 title: Structured Request Logs with slog
-description: Send Zinc request data through Go's standard structured logger.
+description: Write one JSON log line per request through Go's log/slog, with the request ID and the headers you choose.
 ---
 
-Zinc's request logger uses `log/slog` directly. Supply the logger your service
-already uses and choose the request fields that belong in production logs.
+This program writes one JSON log line for every request, with the method, route, status, latency and request ID. You'd want it when logs go to a system that searches by field, such as Loki, Datadog or CloudWatch. Zinc's [Request Logger](/middleware/logger/) takes a `*slog.Logger`, so it can use the one your service already has.
 
-## Setup
+## The program
 
-```bash
-mkdir zinc-logging
-cd zinc-logging
-go mod init example.com/zinc-logging
-go get github.com/0mjs/zinc
-```
-
-## Application
-
-```go
+```go title="main.go"
 package main
 
 import (
@@ -47,8 +37,12 @@ func main() {
 	)
 
 	app.Get("/users/{id}", func(c *zinc.Context) error {
+		id, err := zinc.Param[int](c, "id")
+		if err != nil {
+			return err
+		}
 		return c.JSON(zinc.Map{
-			"id":         c.Param("id"),
+			"id":         id,
 			"request_id": requestid.Get(c),
 		})
 	})
@@ -60,13 +54,63 @@ func main() {
 ## Try it
 
 ```bash
-curl http://localhost:8080/users/42
+curl http://localhost:8080/users/42 \
+  -H 'Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+# {"id":42,"request_id":"43bac861b22f6ca7968edfe2ac36583e"}
 ```
 
-The log record includes the method, URI, route pattern, status, latency, remote
-IP, request ID, request and response sizes, and the selected `Traceparent`
-header. Avoid logging authorization, cookie, or other secret-bearing headers.
+The server prints one line for that request (wrapped here to fit):
 
-For complete control, set `logger.Config.Log`. It receives a `logger.Values`
-snapshot for every request and can map fields into an existing logging or
-observability pipeline.
+```json
+{"time":"2026-09-28T01:16:57.531307+01:00","level":"INFO","msg":"REQUEST",
+ "method":"GET","uri":"/users/42","route":"/users/{id}","status":200,
+ "latency":163459,"host":"localhost:8080","bytes_in":"","bytes_out":58,
+ "user_agent":"curl/8.7.1","remote_ip":"::1",
+ "request_id":"43bac861b22f6ca7968edfe2ac36583e",
+ "headers":{"Traceparent":["00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"]}}
+```
+
+A request that fails is logged at `ERROR` with the message `REQUEST_ERROR` and an `error` field:
+
+```bash
+curl http://localhost:8080/users/abc
+# {"error":{"status":400,"message":"invalid path parameter","fields":{"id":"must be an integer"}}}
+```
+
+```json
+{"time":"2026-09-28T01:16:57.543319+01:00","level":"ERROR","msg":"REQUEST_ERROR",
+ "method":"GET","uri":"/users/abc","route":"/users/{id}","status":400,
+ "latency":280750,"host":"localhost:8080","bytes_in":"","bytes_out":97,
+ "user_agent":"curl/8.7.1","remote_ip":"::1",
+ "request_id":"4358504898202cd1b078a38940633cb4",
+ "error":"bind path: strconv.Atoi: parsing \"abc\": invalid syntax"}
+```
+
+## How it works
+
+- `requestid.New()` comes first, so the ID it sets is on the request by the time the logger reads it. `requestid.Get(c)` returns the same ID to your handler.
+- `logger.Config{Logger: jsonLog}` sends each line through your `slog.Logger`, so its handler decides the format and destination.
+- `Headers: []string{"Traceparent"}` copies only the request headers you list into a `headers` field.
+- The logger runs your error handler before it writes the line, so `status` is the status the client received. `route` is the pattern, which groups `/users/42` and `/users/7` together.
+
+## Before production
+
+- Don't list `Authorization`, `Cookie` or other headers that carry secrets in `Headers`.
+- Add the query parameters you want with `QueryParams`; the rest of the query string still appears in `uri`.
+- To reshape the line completely, set `logger.Config.Log`. It receives a `logger.Values` snapshot for every request, which you can map into your existing logging or observability pipeline.
+
+## Good to know
+
+### Latency is in nanoseconds
+
+`slog.NewJSONHandler` writes a `time.Duration` as an integer number of nanoseconds, so `"latency":163459` is about 0.16 ms. `slog.NewTextHandler` writes it as `163.459µs` instead.
+
+### Client errors log at ERROR
+
+Any returned error, including a `400` or `404`, produces a `REQUEST_ERROR` line at `ERROR` level. If you want client errors at a lower level, write your own `Log` function and choose the level from `Values.Status`.
+
+## See also
+
+- [Request Logger](/middleware/logger/): every field and the default attribute keys.
+- [Request ID](/middleware/requestid/): where the ID comes from, and when an incoming one is reused.
+- [Custom Middleware](/cookbook/middleware/): measure status and bytes in your own middleware.
