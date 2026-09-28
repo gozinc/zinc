@@ -120,12 +120,20 @@ func (c *Context) writeEncoded(contentType string, encode Encoder, v any) error 
 // decodeBody decodes the cached body with a configured decoder. A decoder's
 // error is the client's: a 400, unless it carries its own status.
 func decodeBody(c *Context, decode Decoder, v any, requireBody bool) error {
+	if err := decodeBodyOnly(c, decode, v, requireBody); err != nil {
+		return err
+	}
+	return c.Validate(v)
+}
+
+// decodeBodyOnly decodes the body with decode without validating v.
+func decodeBodyOnly(c *Context, decode Decoder, v any, requireBody bool) error {
 	body, readErr := readRequiredBody(c, requireBody)
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}
 	if len(body) == 0 {
-		return c.Validate(v)
+		return nil
 	}
 	if err := decode(body, v); err != nil {
 		if coder, _ := findStatusCoder(err); coder != nil {
@@ -133,5 +141,5 @@ func decodeBody(c *Context, decode Decoder, v any, requireBody bool) error {
 		}
 		return wrapBindError("body", err)
 	}
-	return c.Validate(v)
+	return nil
 }

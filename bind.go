@@ -96,17 +96,24 @@ func (e *BindError) Unwrap() error {
 	return e.Err
 }
 
-// bindAll binds path, query, and body data, then validates v.
+// bindAll binds body, query, and path data, then validates v.
 func bindAll(c *Context, v any) error {
-	// General binding is intentionally deterministic: path values are applied
-	// first, then query values, then the body. Later sources may overwrite
-	// earlier fields before validation runs once at the end.
+	return bindRequest(c, v, false)
+}
+
+// bindRequest fills v from the body first, then headers when withHeaders is
+// set, then query values, then path parameters, and validates once at the
+// end. Later sources overwrite earlier ones, so a value from the URL always
+// wins over a body key that happens to match the same field: encoding/json
+// matches keys case-insensitively, so {"id": ...} would otherwise replace a
+// `path:"id"` field.
+func bindRequest(c *Context, v any, withHeaders bool) error {
 	mediaType := requestMediaType(c.Header(HeaderContentType))
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
 	}
 	// A configured decoder fills a non-struct target, such as a map, from the
-	// body alone. Struct targets merge path, query, then body like JSON.
+	// body alone. Struct targets merge the body, query, then path like JSON.
 	decode := c.decoderFor(mediaType)
 	if decode != nil {
 		typ := reflect.TypeOf(v)
@@ -119,20 +126,35 @@ func bindAll(c *Context, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
-		return wrapBindError("path", err)
+	if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
+		return err
 	}
 	req := c.Request()
+	if withHeaders && len(plan.headerFields) > 0 && req != nil {
+		if err := bindFieldsFromHeader(val, plan.headerFields, req.Header); err != nil {
+			return wrapBindError("header", err)
+		}
+	}
 	if len(plan.queryFields) > 0 && req != nil && req.URL != nil && req.URL.RawQuery != "" {
 		if err := bindFieldsFromQuery(val, plan.queryFields, c); err != nil {
 			return wrapBindError("query", err)
 		}
 	}
+	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
+		return wrapBindError("path", err)
+	}
+	return c.Validate(v)
+}
+
+// bindRequestBody decodes an optional body into v without validating it. A
+// missing or empty body is not an error.
+func bindRequestBody(c *Context, v any, val reflect.Value, plan *bindingPlan, mediaType string, decode Decoder) error {
+	req := c.Request()
 	if req == nil || req.Body == nil {
-		return c.Validate(v)
+		return nil
 	}
 	if decode != nil {
-		return decodeBody(c, decode, v, false)
+		return decodeBodyOnly(c, decode, v, false)
 	}
 
 	switch mediaType {
@@ -141,10 +163,7 @@ func bindAll(c *Context, v any) error {
 		if readErr != nil {
 			return wrapBindError("body", readErr)
 		}
-		if bodyLen == 0 {
-			return c.Validate(v)
-		}
-		if decodeErr != nil {
+		if bodyLen > 0 && decodeErr != nil {
 			return classifyJSONDecodeError(decodeErr)
 		}
 	case "application/xml", "text/xml":
@@ -154,10 +173,7 @@ func bindAll(c *Context, v any) error {
 		if readErr != nil {
 			return wrapBindError("body", readErr)
 		}
-		if bodyLen == 0 {
-			return c.Validate(v)
-		}
-		if decodeErr != nil {
+		if bodyLen > 0 && decodeErr != nil {
 			return wrapBindError("body", decodeErr)
 		}
 	case "application/x-www-form-urlencoded":
@@ -177,12 +193,10 @@ func bindAll(c *Context, v any) error {
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
 		}
-	case "text/plain":
-		return bindPlainTextBody(c, v, false)
 	default:
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 	}
-	return c.Validate(v)
+	return nil
 }
 
 // bindBody binds the request body according to its Content-Type.
@@ -297,7 +311,9 @@ func (c *Context) Bind() *Bind {
 	return &Bind{c: c}
 }
 
-// All binds path, query, and body data, then validates v.
+// All binds the body, then query values, then path parameters, and validates
+// v. Later sources win, so a path or query value is never replaced by a body
+// key that matches the same field.
 func (b *Bind) All(v any) error {
 	return bindAll(b.c, v)
 }

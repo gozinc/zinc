@@ -21,7 +21,9 @@ type Config struct {
 }
 
 // New redirects requests whose path matches a rule, keeping the original
-// query string.
+// query string. Register it with App.Use or App.UsePrefix: on a group or a
+// route it only sees paths that have a route, and logs a warning the first
+// time it runs there.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("redirect", configs)
 	rules := shared.CloneRewriteRules(config.Rules)
@@ -29,8 +31,10 @@ func New(configs ...Config) zinc.Middleware {
 	if statusCode == 0 {
 		statusCode = http.StatusMovedPermanently
 	}
+	placement := shared.NewRoutingWarning("redirect")
 
 	return func(c *zinc.Context) error {
+		placement.Check(c)
 		req := c.Request()
 		if req == nil || req.URL == nil {
 			return c.Next()

@@ -51,16 +51,16 @@ Declare a struct for each handler's input rather than binding into your database
 
 `c.Bind().All(&in)` is the usual choice for API handlers. It reads, in order:
 
-1. route parameters,
+1. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`,
 2. query values,
-3. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`,
+3. route parameters,
 
 and then runs your [validator](#validation), if you've set one.
 
 ```go
 type CreateOrder struct {
-	Customer int      `path:"customer" json:"-"`
-	DryRun   bool     `query:"dry_run" json:"-"`
+	Customer int      `path:"customer"`
+	DryRun   bool     `query:"dry_run"`
 	Items    []string `json:"items"`
 	Note     string   `json:"note"`
 }
@@ -85,9 +85,7 @@ curl -X POST "http://localhost:8080/customers/7/orders?dry_run=true" \
 # {"customer":7,"dry_run":true,"items":["tea","milk"]}
 ```
 
-:::caution[Keep the body away from path fields]
-The body is read last, so it can overwrite anything read before it. Without `json:"-"`, a body of `{"customer":99}` would replace the `7` from the path, because Go's JSON decoder matches `Customer` whatever the case.
-:::
+The URL is read last, so it always wins. Go's JSON decoder matches `Customer` to a `"customer"` key whatever the case, but a body of `{"customer":99,"dry_run":false}` still binds customer `7` and `dry_run=true` from the URL.
 
 `All` doesn't read headers. Bind them with `c.Bind().Header(&in)`:
 
@@ -292,7 +290,7 @@ Change the limit for the whole app in [configuration](/guide/configuration/), or
 
 ### Later sources overwrite earlier ones
 
-`All` always reads path, then query, then body, whatever the body format. If a field is tagged for more than one source, the value read last wins: with `path:"id" query:"id"` on a `/orders/{id}` route, a request to `/orders/7?id=9` gets `9`.
+`All` always reads the body, then query, then path, whatever the body format. If a field is tagged for more than one source, the value read last wins: with `path:"id" query:"id"` on a `/orders/{id}` route, a request to `/orders/7?id=9` gets `7`.
 
 ### Maps, strings and plain text
 

@@ -11,7 +11,7 @@ Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.c
 
 | Method | Reads |
 |---|---|
-| `All(&v)` | Route parameters, then query values, then the body |
+| `All(&v)` | The body, then query values, then route parameters. Later sources win, so the URL beats the body. |
 | `Path(&v)` | Route parameters (`path` tags) |
 | `Query(&v)` | The query string (`query` tags) |
 | `Header(&v)` | Request headers (`header` tags) |

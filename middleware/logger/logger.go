@@ -154,6 +154,10 @@ func defaultLog(logger *slog.Logger) func(*zinc.Context, Values) error {
 		}
 		if v.Error != nil {
 			attrs = append(attrs, slog.String("error", v.Error.Error()))
+		}
+		// The level follows the status the client received: a 404 or a
+		// failed validation is normal traffic, a 5xx is a server fault.
+		if v.Status >= http.StatusInternalServerError {
 			logger.LogAttrs(context.Background(), slog.LevelError, "REQUEST_ERROR", attrs...)
 			return nil
 		}

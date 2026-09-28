@@ -1042,7 +1042,8 @@ func TestBinderAdditionalErrorBranches(t *testing.T) {
 		if !errors.As(err, &bindErr) {
 			t.Fatalf("err=%T", err)
 		}
-		if bindErr.Source != "path" || bindErr.Field != "ID" {
+		// Query binds before path, so the query error is reported first.
+		if bindErr.Source != "query" || bindErr.Field != "Count" {
 			t.Fatalf("bind err=%+v", bindErr)
 		}
 	})
