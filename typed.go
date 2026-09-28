@@ -6,6 +6,7 @@ package zinc
 import (
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 // NoContent is the output type of a typed handler that sends no body. The
@@ -47,10 +48,15 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	}
 	// Compile the binding plan now, so the first request doesn't pay for it.
 	bindingPlanFor(inType)
+	types := handlerTypes{in: inType, out: reflect.TypeFor[Out]()}
 	bindInput := inType.NumField() > 0
 	_, noContent := any(*new(Out)).(NoContent)
 
-	return func(c *Context) error {
+	h := func(c *Context) error {
+		if c.index == describeIndex {
+			c.store[describeKey{}] = types
+			return nil
+		}
 		var in In
 		if bindInput {
 			if err := c.bindTyped(&in); err != nil {
@@ -73,6 +79,40 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 		}
 		return c.JSON(out)
 	}
+	typedPCs.Store(handlerPC(h), struct{}{})
+	return h
+}
+
+// handlerTypes is what a Typed handler declares: its input and output types.
+type handlerTypes struct {
+	in, out reflect.Type
+}
+
+// typedPCs holds the code pointer of every closure Typed returns. Closures
+// from instantiations with the same GC shape share one, so a code pointer
+// can't identify the types, but it does identify a Typed closure: no other
+// code has it. The set is bounded by the number of shapes, not calls.
+var typedPCs sync.Map
+
+// describeIndex marks the Context describeHandler passes. A request's index
+// is never below -1, so no real request can look like it.
+const describeIndex = -2
+
+type describeKey struct{}
+
+// describeHandler asks a Typed handler for its types without running it. A
+// handler that isn't a Typed closure is never called.
+func describeHandler(h HandlerFunc) (handlerTypes, bool) {
+	if h == nil {
+		return handlerTypes{}, false
+	}
+	if _, ok := typedPCs.Load(handlerPC(h)); !ok {
+		return handlerTypes{}, false
+	}
+	c := &Context{index: describeIndex, store: map[any]any{}}
+	_ = h(c)
+	types, ok := c.store[describeKey{}].(handlerTypes)
+	return types, ok
 }
 
 // bindTyped binds like Bind().All and also binds header fields, after the
