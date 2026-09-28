@@ -5,15 +5,15 @@ description: Complete Zinc programs for APIs, existing net/http services, operat
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Every recipe is a complete program rather than an isolated API fragment. Pick
-the outcome you need, copy the example into a module, and run it.
+Each recipe is a complete program you can run: pick the outcome you need, copy the program into a new module, and run `go run .`. Each one shows how to try it and the output you should see.
 
 ## Build an API
 
 <CardGrid>
-  <LinkCard title="CRUD API" description="Create, read, update, and delete an in-memory resource safely." href="/cookbook/crud/" />
+  <LinkCard title="CRUD API" description="Create, list, read, update and delete an in-memory resource." href="/cookbook/crud/" />
   <LinkCard title="Typed CRUD API" description="The same API with typed handlers: structs in, structs out." href="/cookbook/typed-crud/" />
-  <LinkCard title="SQLite CRUD API" description="A to-do API backed by a real SQLite database." href="/cookbook/sqlite-crud-api/" />
+  <LinkCard title="SQLite CRUD API" description="A to-do API that keeps its data in a SQLite file." href="/cookbook/sqlite-crud-api/" />
+  <LinkCard title="Validate Input" description="Check bodies with go-playground/validator and answer 422 with field errors." href="/cookbook/validation/" />
   <LinkCard title="Signed Webhooks" description="Limit, authenticate, decode, and acknowledge webhook deliveries." href="/cookbook/signed-webhook/" />
   <LinkCard title="Health and Readiness" description="Separate process health from dependency readiness." href="/cookbook/health-readiness/" />
   <LinkCard title="Structured Logs with slog" description="Send route, status, latency, and request IDs through Go's logger." href="/cookbook/structured-logging/" />
@@ -23,6 +23,7 @@ the outcome you need, copy the example into a module, and run it.
 
 <CardGrid>
   <LinkCard title="Adopt Zinc in net/http" description="Keep a ServeMux and standard middleware while adding Zinc gradually." href="/cookbook/existing-net-http-service/" />
+  <LinkCard title="Docker and Environment Config" description="Read config from the environment and ship a small image." href="/cookbook/docker-config/" />
   <LinkCard title="Graceful Shutdown" description="Drain active requests within a bounded shutdown window." href="/cookbook/graceful-shutdown/" />
   <LinkCard title="Timeouts" description="Cancel slow request work through the standard request context." href="/cookbook/timeout/" />
   <LinkCard title="Automatic TLS" description="Serve Zinc behind autocert without replacing net/http." href="/cookbook/auto-tls/" />
@@ -36,6 +37,8 @@ the outcome you need, copy the example into a module, and run it.
   <LinkCard title="Embed Resources" description="Compile assets into the binary and serve them through Zinc." href="/cookbook/embed-resources/" />
   <LinkCard title="File Upload" description="Accept multipart files and save them with safe server-owned paths." href="/cookbook/file-upload/" />
   <LinkCard title="File Download" description="Return files with explicit validation and response headers." href="/cookbook/file-download/" />
+  <LinkCard title="Single-Page App" description="Serve a built SPA with index.html for client-side routes." href="/cookbook/spa-fallback/" />
+  <LinkCard title="CORS for a Browser Front End" description="Let a web page on another origin call your API." href="/cookbook/cors-browser-frontend/" />
   <LinkCard title="Templ UI" description="Generate Templ components and render them from Zinc handlers." href="/cookbook/templ-ui/" />
   <LinkCard title="Templated HTML + JS" description="Render HTML, serve assets, and progressively enhance the page." href="/cookbook/templated-html-js-page/" />
 </CardGrid>
@@ -51,6 +54,8 @@ the outcome you need, copy the example into a module, and run it.
 ## Auth and extension
 
 <CardGrid>
-  <LinkCard title="JWT" description="Protect routes and read validated claims in handlers." href="/cookbook/jwt/" />
+  <LinkCard title="JWT" description="Protect routes with bearer tokens and read their claims." href="/cookbook/jwt/" />
+  <LinkCard title="Session Login" description="Log in with a form, keep users logged in with a signed cookie, and log out." href="/cookbook/session-login/" />
+  <LinkCard title="Rate Limiting" description="Limit each client and watch the 429s come back." href="/cookbook/rate-limiting/" />
   <LinkCard title="Custom Middleware" description="Measure status, bytes, and timing without breaking Zinc's error flow." href="/cookbook/middleware/" />
 </CardGrid>
