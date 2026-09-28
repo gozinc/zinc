@@ -79,11 +79,18 @@ func (a *App) dispatch(ctx *Context) error {
 	}
 
 	if a.methodNotAllowed && allowedHeader != "" {
-		if a.methodNA == nil && a.defaultErrors {
-			return ctx.writeDefaultErrorResponse(StatusMethodNotAllowed, allowedHeader)
-		}
 		ctx.Status(StatusMethodNotAllowed)
-		ctx.SetHeader(HeaderAllow, allowedHeader)
+		// Allow and the default error's Content-Type share one allocation: the
+		// spare capacity holds the Content-Type that writeDefaultMiss uses if
+		// the error comes back unhandled. Appending to Allow overwrites it,
+		// which writeDefaultMiss detects by the changed length.
+		header := ctx.responseHeader()
+		if a.defaultErrors {
+			pair := []string{allowedHeader, jsonType}
+			header[HeaderAllow] = pair[:1:2]
+		} else {
+			header[HeaderAllow] = []string{allowedHeader}
+		}
 		if a.methodNA != nil {
 			if err := a.methodNA(ctx); err != nil {
 				return err
@@ -94,10 +101,6 @@ func (a *App) dispatch(ctx *Context) error {
 			return nil
 		}
 		return ErrMethodNotAllowed
-	}
-
-	if a.notFound == nil && a.defaultErrors {
-		return ctx.writeDefaultErrorResponse(StatusNotFound, "")
 	}
 
 	ctx.Status(StatusNotFound)
@@ -145,6 +148,13 @@ func (a *App) handleError(ctx *Context, err error) {
 		}
 		ctx.errorHandled = true
 		ctx.lastErr = err
+		// Routing misses reach every middleware as ErrNotFound or
+		// ErrMethodNotAllowed. When they come back unchanged to the default
+		// handler, write its response directly: the bytes are the same.
+		if a.defaultErrors && (err == ErrNotFound || err == ErrMethodNotAllowed) {
+			ctx.writeDefaultMiss(err.(*HTTPError).Code)
+			return
+		}
 	}
 	a.config.ErrorHandler(ctx, err)
 }

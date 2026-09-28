@@ -21,8 +21,8 @@ type structValidator struct{ v *validator.Validate }
 func (s structValidator) Validate(target any) error { return s.v.Struct(target) }
 
 type CreateUser struct {
-	OrgID  string `path:"org" json:"-"`
-	DryRun bool   `query:"dry_run" json:"-"`
+	OrgID  string `path:"org"`
+	DryRun bool   `query:"dry_run"`
 	Email  string `json:"email" validate:"required,email"`
 }
 

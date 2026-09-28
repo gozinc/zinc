@@ -33,11 +33,11 @@ type Widget struct {
 }
 
 type WidgetID struct {
-	ID int `path:"id" json:"-"` // from the path only; a body can't change it
+	ID int `path:"id"`
 }
 
 type WidgetInput struct {
-	ID   int    `path:"id" json:"-"` // from the path only; a body can't change it
+	ID   int    `path:"id"`
 	Name string `json:"name"`
 }
 
@@ -158,7 +158,7 @@ curl -X POST localhost:8080/widgets -H 'Content-Type: application/json' -d '{}'
 
 - `zinc.Typed(s.create)` turns a `func(*zinc.Context, In) (Out, error)` into a normal handler. It binds `In` from the path, query, headers and body, then writes `Out` as JSON.
 - `path:"id"` fills `ID` from `{id}`. An `id` that isn't a number is a `400` naming the field, before your function runs.
-- `json:"-"` on the path fields stops a body from setting them. Go's JSON decoder ignores case, so without it a body such as `{"ID":2}` on `DELETE /widgets/1` would delete widget 2.
+- The path is bound after the body, so a body such as `{"id":2}` on `PUT /widgets/1` still updates widget 1.
 - `.Status(zinc.StatusCreated)` on the `POST` route makes a successful create answer `201` instead of `200`.
 - `remove` returns `zinc.NoContent`, so a successful delete answers `204` with no body.
 

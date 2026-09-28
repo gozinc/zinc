@@ -6,7 +6,9 @@ package shared
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	"github.com/0mjs/zinc"
 )
@@ -81,4 +83,32 @@ func PathWithRawQuery(path, rawQuery string) string {
 		return path
 	}
 	return path + "?" + rawQuery
+}
+
+// RoutingWarning warns once when middleware that changes which route a
+// request takes, such as redirect or rewrite, runs after a route was already
+// chosen. That happens when it's registered on a group or a route instead of
+// with App.Use or App.UsePrefix: paths without a route never reach it, and a
+// rewrite can no longer change the route.
+type RoutingWarning struct {
+	name   string
+	warned atomic.Bool
+}
+
+// NewRoutingWarning returns a RoutingWarning for the middleware called name.
+func NewRoutingWarning(name string) *RoutingWarning {
+	return &RoutingWarning{name: name}
+}
+
+// Check logs the warning the first time c has a matched route.
+func (w *RoutingWarning) Check(c *zinc.Context) {
+	if w.warned.Load() {
+		return
+	}
+	route := c.FullPath()
+	if route == "" || !w.warned.CompareAndSwap(false, true) {
+		return
+	}
+	slog.Warn(w.name+" middleware runs after routing, so it only sees requests that already matched a route; register it with app.Use or app.UsePrefix",
+		slog.String("middleware", w.name), slog.String("route", route))
 }

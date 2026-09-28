@@ -39,6 +39,12 @@ Register it with `app.Use`, so it runs before routing picks a handler.
 
 :::caution[Not in a group]
 In a group, routing has already chosen a handler by the time `rewrite` runs. The path changes, but the original route's handler still runs. Use `app.Use`, or `app.UsePrefix` for one subtree.
+
+The first request that reaches a misplaced `rewrite` logs a warning through `slog`:
+
+```text
+time=2026-09-28T02:13:48.899+01:00 level=WARN msg="rewrite middleware runs after routing, so it only sees requests that already matched a route; register it with app.Use or app.UsePrefix" middleware=rewrite route=/api/users
+```
 :::
 
 ## Defaults

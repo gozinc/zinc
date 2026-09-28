@@ -53,10 +53,43 @@ func TestBindingAllSourceOrderAcrossStructuredFormats(t *testing.T) {
 			r.Header.Set("Content-Type", tt.kind)
 			w := httptest.NewRecorder()
 			app.ServeHTTP(w, r)
-			if w.Code != 200 || w.Body.String() != "42|body" || calls != 1 {
+			if w.Code != 200 || w.Body.String() != "42|query" || calls != 1 {
 				t.Fatalf("%d %q validation=%d", w.Code, w.Body.String(), calls)
 			}
 		})
+	}
+}
+
+// A body key that matches a path or query field, even without a json tag and
+// in another case, must not replace the value from the URL.
+func TestBindingURLValuesWinOverBody(t *testing.T) {
+	type input struct {
+		Team  string `path:"team"`
+		Force bool   `query:"force"`
+		Name  string `json:"name"`
+	}
+	app := zinc.New()
+	app.Delete("/teams/{team}/members", func(c *zinc.Context) error {
+		var in input
+		if err := c.Bind().All(&in); err != nil {
+			return err
+		}
+		return c.JSON(in)
+	})
+	app.Put("/typed/{team}", zinc.Typed(func(_ *zinc.Context, in input) (input, error) { return in, nil }))
+
+	for _, target := range []string{"/teams/platform/members?force=false", "/typed/platform?force=false"} {
+		method := "DELETE"
+		if strings.HasPrefix(target, "/typed") {
+			method = "PUT"
+		}
+		r := httptest.NewRequest(method, target, strings.NewReader(`{"name":"Ada","TEAM":"billing","force":true}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		if want := `{"Team":"platform","Force":false,"name":"Ada"}` + "\n"; w.Code != 200 || w.Body.String() != want {
+			t.Fatalf("%s %s: %d %q, want %q", method, target, w.Code, w.Body.String(), want)
+		}
 	}
 }
 
