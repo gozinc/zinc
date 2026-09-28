@@ -20,7 +20,7 @@ app := zinc.New(zinc.Config{
 type ErrorHandler func(*zinc.Context, error)
 ```
 
-Called once for every error that reaches the top of the chain. [Errors](/guide/errors/#a-custom-error-handler) has a complete JSON example, including mapping binding errors to `400`.
+Called once for every error that reaches the top of the chain. [Errors](/guide/errors/#change-the-error-format) has a complete JSON example, including mapping binding errors to `400`.
 
 ## Validator
 
