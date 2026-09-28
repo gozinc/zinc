@@ -5,6 +5,8 @@ description: Reference for zinc.Context, grouped by task, with every request, re
 
 `*zinc.Context` is passed to every handler and middleware. It is pooled, and is valid only until the handler returns. See [Context](/guide/context/) for lifetime rules.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#Context).
+
 ## Request
 
 | Method | Returns |

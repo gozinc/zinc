@@ -5,6 +5,8 @@ description: Reference for zinc.App, covering construction, routing, middleware,
 
 `*zinc.App` is the application. It registers routes and middleware, and it is an `http.Handler`, so it runs on any `http.Server`.
 
+Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#App).
+
 ```go
 app := zinc.New()                                  // defaults
 app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
