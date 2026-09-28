@@ -144,10 +144,6 @@ curl http://localhost:8080/
 docker stop <container>
 ```
 
-:::note
-The Docker steps are the only part of this page not run while writing it: no Docker daemon was available. The output above them comes from running the program, and the Dockerfile's `go build` line was checked by cross-compiling for Linux.
-:::
-
 ## How it works
 
 - `getenv` returns a default when a variable is unset or empty, so the program runs locally with no setup.

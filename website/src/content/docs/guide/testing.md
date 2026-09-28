@@ -261,3 +261,4 @@ func TestHealthOverNetwork(t *testing.T) {
 - [Errors](/guide/errors/): the status codes and bodies your tests will see.
 - [Binding](/guide/binding/): what a request needs for binding to succeed.
 - [Zinc and net/http](/guide/http-interoperability/): everything else that works because the app is an `http.Handler`.
+- [Typed Handlers](/guide/typed-handlers/): the next step once the essentials feel familiar.

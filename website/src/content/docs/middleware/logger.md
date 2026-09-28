@@ -134,7 +134,7 @@ app.Use(zinc.Skip(func(c *zinc.Context) bool {
 
 - A request whose chain returned an error is logged at `ERROR` as `REQUEST_ERROR`, with an `error` key. That includes a `4xx` your handler returns, such as `zinc.NotFound(...)`.
 - The `error` key holds the error's own message, which may differ from what the client saw. A plain `errors.New("db down")` logs `error="db down"`, while the client gets `Internal Server Error`.
-- A request that matched no route gets its `404` or `405` without an error, so it logs at `INFO` as `REQUEST`, with no `route` key.
+- With the default error handler, a request that matched no route gets its `404` or `405` without an error, so it logs at `INFO` as `REQUEST`, with no `route` key. With a custom `ErrorHandler`, those misses come back as errors and log at `ERROR` as `REQUEST_ERROR`.
 - An error returned from your `Log` function becomes the request's error.
 
 ## Related

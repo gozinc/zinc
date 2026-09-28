@@ -50,7 +50,7 @@ A group gives routes a shared path prefix and shared middleware. Groups nest, an
 
 ```go
 api := app.Group("/api", requireAPIKey)
-v1 := api.Group("/v1", setVersionHeader("1"))
+v1 := api.Group("/v1", setVersionHeader("1")) // setVersionHeader: your middleware, sets Api-Version
 
 v1.Get("/users", listUsers) // GET /api/v1/users: requireAPIKey → setVersionHeader → listUsers
 ```
@@ -103,9 +103,9 @@ The prefix matches whole path segments, so `/admin` covers `/admin` and `/admin/
 Here's everything together, for a `POST /api/v1/exports`:
 
 ```go
-app.UseHTTP(otelMiddleware)
+app.UseHTTP(otelMiddleware)                           // standard net/http middleware, such as OpenTelemetry
 app.Use(requestid.New(), logger.New(), recover.New())
-app.UsePrefix("/api", rateLimit)
+app.UsePrefix("/api", rateLimit)                      // for example limiter.New(...)
 
 api := app.Group("/api", requireAPIKey)
 v1 := api.Group("/v1", setVersionHeader("1"))
@@ -160,11 +160,11 @@ Return a closure to give middleware options:
 ```go
 func requireRole(roles ...string) zinc.Middleware {
 	return func(c *zinc.Context) error {
-		user, ok := c.Get("user") // set earlier by loadUser, your auth middleware
+		user, ok := zinc.Value[*User](c, "user") // set earlier by loadUser, your auth middleware
 		if !ok {
 			return zinc.ErrUnauthorized
 		}
-		if !user.(*User).HasAnyRole(roles...) { // User is your type
+		if !user.HasAnyRole(roles...) { // User is your type
 			return zinc.ErrForbidden
 		}
 		return c.Next()

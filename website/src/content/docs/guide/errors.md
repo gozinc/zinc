@@ -147,9 +147,9 @@ curl -X POST http://localhost:8080/signup -H 'Content-Type: application/json' -d
 Middleware stops a request by returning an error instead of calling `c.Next()`:
 
 ```go
-func requireAPIKey(c *zinc.Context) error {
-	if c.Header("X-API-Key") == "" {
-		return zinc.Unauthorized("missing API key")
+func requireToken(c *zinc.Context) error {
+	if c.Header("Authorization") == "" {
+		return zinc.Unauthorized("missing token")
 	}
 	return c.Next()
 }
@@ -157,7 +157,7 @@ func requireAPIKey(c *zinc.Context) error {
 
 ```bash
 curl http://localhost:8080/
-# {"error":{"status":401,"message":"missing API key"}}
+# {"error":{"status":401,"message":"missing token"}}
 ```
 
 To send a body of your own instead, write it and return the result: `return c.Status(zinc.StatusForbidden).JSON(body)`.
@@ -216,7 +216,7 @@ It picks statuses and hides internal messages the same way as the default handle
 
 ## Recover from panics
 
-Without help, Go's HTTP server catches a handler panic, logs it, and drops the connection, so the client gets no response at all. Add [Recover](/middleware/recover/) early in the middleware chain:
+Without help, Go's HTTP server catches a handler panic, logs it, and drops the connection, so the client gets no response at all. Add [Recover](/middleware/recover/) right after the Request Logger:
 
 ```go
 app.Use(recover.New())
