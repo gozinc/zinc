@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"mime/multipart"
 	"net/http"
@@ -179,5 +180,77 @@ func TestOpenAPISpecErrorsAndDefaults(t *testing.T) {
 	}
 	if !bytes.Contains(spec, []byte(`"components": {}`)) {
 		t.Fatalf("empty app has components:\n%s", spec)
+	}
+}
+
+// Without a Validator nothing enforces validate tags, so their rules stay
+// out of the spec; doc and example tags still apply.
+func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
+	build := func(cfg Config) string {
+		app := New(cfg)
+		app.Post("/stores/{store}/pets", Typed(func(*Context, oaCreatePet) (oaPet, error) { return oaPet{}, nil }))
+		app.Get("/pets", Typed(func(*Context, oaListPets) ([]oaPet, error) { return nil, nil }))
+		spec, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(spec)
+	}
+	without, with := build(Config{}), build(Config{Validator: oaValidator{}})
+	// The Error envelope's own required fields are a fact about the body, not
+	// a validate rule, so check the pet schemas and the operations only.
+	var doc struct {
+		Components struct{ Schemas map[string]json.RawMessage }
+		Paths      json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(without), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"oaPet", "oaCreatePetBody"} {
+		if strings.Contains(string(doc.Components.Schemas[name]), `"required"`) {
+			t.Errorf("without a Validator, %s has required fields: %s", name, doc.Components.Schemas[name])
+		}
+	}
+	if strings.Contains(string(doc.Paths), `"required": true`) && strings.Count(string(doc.Paths), `"required": true`) != 1 {
+		t.Errorf("without a Validator, more than the path parameter is required:\n%s", doc.Paths)
+	}
+	for _, rule := range []string{`"minLength"`, `"maxLength"`, `"enum"`, `"minimum": 1`, `"422"`} {
+		if !strings.Contains(with, rule) {
+			t.Errorf("with a Validator, the spec lacks %s", rule)
+		}
+		if strings.Contains(without, rule) {
+			t.Errorf("without a Validator, the spec claims %s", rule)
+		}
+	}
+	// Header and path parameters are still listed, just not marked required
+	// by a validate tag (path parameters are always required).
+	if !strings.Contains(without, `"name": "X-Tenant"`) || !strings.Contains(without, `"description": "The pet's ID."`) {
+		t.Fatalf("without a Validator, parameters or doc tags went missing:\n%s", without)
+	}
+}
+
+// Every route documents a 500. The error body is Zinc's envelope only when
+// the default error handler writes it.
+func TestOpenAPIErrorResponses(t *testing.T) {
+	custom := New(Config{ErrorHandler: func(c *Context, err error) { _ = c.Status(500).String("oops") }})
+	custom.Get("/pets/{id}", Typed(func(*Context, oaPetID) (oaPet, error) { return oaPet{}, nil }))
+	custom.Get("/health", func(c *Context) error { return nil })
+	spec, err := custom.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(spec)
+	if strings.Count(s, `"500": {`) != 2 || strings.Count(s, `"400": {`) != 1 {
+		t.Fatalf("want a 500 on both routes and a 400 on the one with input:\n%s", s)
+	}
+	if strings.Contains(s, "#/components/schemas/Error") || strings.Contains(s, `"Error": {`) {
+		t.Fatalf("a custom ErrorHandler's body was described as Zinc's envelope:\n%s", s)
+	}
+
+	def := New()
+	def.Get("/health", func(c *Context) error { return nil })
+	spec, _ = def.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/Error"`) {
+		t.Fatalf("default handler: the 500 lacks the error envelope:\n%s", spec)
 	}
 }

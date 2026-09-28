@@ -66,6 +66,10 @@ var (
 // referenced with $ref, so a type used in many places is described once and
 // recursive types terminate.
 type schemaGen struct {
+	// validation reports whether validate tags reach the schema. The spec
+	// builder turns it off when the app has no Validator, since nothing would
+	// enforce the rules.
+	validation bool
 	components map[string]*schema
 	names      map[reflect.Type]string
 	taken      map[string]reflect.Type
@@ -73,6 +77,7 @@ type schemaGen struct {
 
 func newSchemaGen() *schemaGen {
 	return &schemaGen{
+		validation: true,
 		components: map[string]*schema{},
 		names:      map[reflect.Type]string{},
 		taken:      map[string]reflect.Type{},
@@ -270,7 +275,7 @@ func (g *schemaGen) structSchema(t reflect.Type, body bool) *schema {
 		default:
 			fs = g.schemaFor(f.typ)
 		}
-		required := applyFieldTags(fs, f)
+		required := g.applyFieldTags(fs, f)
 		if fs.ref != "" && (fs.description != "" || len(fs.examples) > 0) {
 			// Keep the component clean: annotations sit beside the $ref.
 			fs = &schema{ref: fs.ref, description: fs.description, examples: fs.examples}
@@ -442,8 +447,9 @@ func hasParamFields(t reflect.Type) bool {
 }
 
 // applyFieldTags adds what the doc, example and validate tags say to fs, and
-// reports whether the field is required.
-func applyFieldTags(fs *schema, f jsonField) bool {
+// reports whether the field is required. Validate tags count only when g
+// includes validation.
+func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	if doc := f.tag.Get("doc"); doc != "" {
 		fs.description = doc
 	}
@@ -455,6 +461,9 @@ func applyFieldTags(fs *schema, f jsonField) bool {
 		if v, ok := parseExample(ex, f.typ, f.asString); ok {
 			fs.examples = []any{v}
 		}
+	}
+	if !g.validation {
+		return false
 	}
 	return applyValidateTag(target, f.tag.Get("validate"), base(f.typ), f.asString)
 }
