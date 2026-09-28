@@ -385,7 +385,7 @@ app.Use(zinc.Skip(func(c *zinc.Context) bool { return c.Path() == "/healthz" }, 
 
 - **JWT** depends on golang-jwt, so it moved to its own module, `github.com/0mjs/contrib/jwtauth`, and Zinc's `go.mod` no longer requires it. The package is named `jwtauth` so it does not clash with golang-jwt, which you import for the token type. The API follows the same shape: `jwtauth.New(jwtauth.Config{KeyFunc: ...})`, `jwtauth.Claims[T](c)`, and `jwtauth.Get(c)` for the token, whose `Raw` field replaces `JWTTokenString`.
 - **Gzip** is now the `compress` package, so it does not clash with the standard library's `compress/gzip`.
-- **Static middleware** is removed; `app.Static` and `app.StaticFS` serve files. To serve files on the same paths as routes, see [Static Files](/guide/static-files/#files-and-routes-on-the-same-paths).
+- **Static middleware** is removed; `app.Static` and `app.StaticFS` serve files. To serve files on the same paths as routes, see [Static Files](/guide/static-files/#share-paths-between-files-and-routes).
 - **Jaeger** is removed. Use [OpenTelemetry](/middleware/open-telemetry/), which exports to Jaeger.
 - **RealIP** is removed. It rewrote `RemoteAddr` from `c.IP()`, which Zinc already computes from `TrustedProxies`; read `c.IP()` instead.
 
