@@ -103,7 +103,7 @@ A nil filesystem panics at registration, like other registration mistakes. Optio
 | `Routes() []RouteInfo` | Every route and mount, in registration order |
 | `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request |
 | `RouteByName(name) (RouteInfo, bool)` | A named route |
-| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Segment values are escaped; a catch-all value is inserted as given. |
+| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Values are escaped; a catch-all value keeps its slashes, with `?`, `#` and `%` escaped. |
 
 ```go
 type RouteInfo struct {
@@ -125,11 +125,11 @@ type RouteInfo struct {
 | `ListenContext(ctx, addr) error` | Serve HTTP until `ctx` ends, then shut down gracefully within `Config.ShutdownTimeout` |
 | `ListenTLS(addr, certFile, keyFile) error` | Serve HTTPS |
 | `Serve(net.Listener) error` | Serve on a listener you created |
-| `Shutdown(ctx) error` | Stop accepting connections, wait for in-flight requests, and release disk-static roots |
-| `Close() error` | Stop the active server and release disk-static roots immediately |
+| `Shutdown(ctx) error` | Stop accepting connections, wait for in-flight requests, and close the folders `Static` keeps open |
+| `Close() error` | Stop the active server and close the folders `Static` keeps open, immediately |
 | `ServeHTTP(w, r)`, `Handler()` | Use the app as an `http.Handler` |
 
-`Listen`, `ListenContext`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `ListenContext` in a complete program. `Shutdown` remains for servers started with `Listen` or `Serve`.
+`Listen`, `ListenContext`, `ListenTLS`, and `Serve` apply the timeouts from [configuration](/guide/configuration/#server). The [Graceful Shutdown](/cookbook/graceful-shutdown/) recipe shows `ListenContext` in a complete program. Use `Shutdown` for servers started with `Listen` or `Serve`.
 
 ## Adapters
 

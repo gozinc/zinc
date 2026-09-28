@@ -29,7 +29,7 @@ Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.c
 | `form` | `` Avatar *multipart.FileHeader `form:"avatar"` `` |
 | `json`, `xml` | Standard encoding tags for the body; a configured decoder uses its library's tags, such as `yaml` |
 
-A field binds from path, query, header, or form only when it has that source's tag. `query:",omitempty"` opts in under the lower-cased field name, and `query:"-"` is the same as no tag.
+A field binds from path, query, header, or form only when it has that source's tag. `query:",omitempty"` uses the field name in lower case, and `query:"-"` is the same as no tag.
 
 Values convert to strings, booleans, signed and unsigned integers, floats, pointers to those, and slices. Multipart fields accept `multipart.FileHeader`, `*multipart.FileHeader`, and slices of either.
 
