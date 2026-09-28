@@ -1,28 +1,66 @@
 ---
 title: Customization
-description: Replace Zinc's error handler, validator, or renderer, and add body formats such as YAML or a faster JSON library.
+description: Swap Zinc's error format, validator, template engine or JSON library, and add body formats such as YAML.
 ---
 
-Each part of Zinc that makes a policy decision can be replaced through configuration: how errors are written, how input is validated, which body formats the app reads and writes, how templates render. Each extension point is a function or a small interface, so a replacement is usually a few lines.
+Zinc's defaults are easy to swap: the error format, the validation library, the template engine, extra body formats such as YAML, or a different JSON package. Each one is a field on `zinc.Config`, so a change is a few lines in the place you create the app.
 
 ```go
 app := zinc.New(zinc.Config{
-	ErrorHandler: writeJSONError,
-	Validator:    structValidator{v: validator.New()},
-	Decoders:     map[string]zinc.Decoder{"application/yaml": yaml.Unmarshal},
-	Renderer:     zinc.NewHTMLTemplateRenderer(views),
+	ErrorHandler: logServerErrors,                                            // your function
+	Validator:    structValidator{v: validator.New()},                        // an adapter, see Binding
+	Decoders:     map[string]zinc.Decoder{"application/yaml": yaml.Unmarshal}, // go.yaml.in/yaml/v3
+	Renderer:     zinc.NewHTMLTemplateRenderer(views),                        // a *template.Template
 })
 ```
 
-## Error handler
+| I want to… | Set | See |
+|---|---|---|
+| Change how errors look, or log them | `ErrorHandler` | [Change the error response](#change-the-error-response) |
+| Validate input after every bind | `Validator` | [Validate every bind](#validate-every-bind) |
+| Accept or send YAML, TOML or another format | `Decoders`, `Encoders` | [Body formats](#body-formats) |
+| Use a faster JSON library | `Decoders`, `Encoders` | [Use a different JSON library](#use-a-different-json-library) |
+| Render HTML templates | `Renderer` | [Render templates](#render-templates) |
+
+## Change the error response
+
+An error handler runs once for each request whose handler or middleware returns an error. It has this shape:
 
 ```go
 type ErrorHandler func(*zinc.Context, error)
 ```
 
-Called once for every error that reaches the top of the chain. [Errors](/guide/errors/#a-custom-error-handler) has a complete JSON example, including mapping binding errors to `400`.
+To add to the default behavior, do your work and then call `zinc.DefaultErrorHandler`. This one logs server errors and keeps the usual JSON response:
 
-## Validator
+```go
+app := zinc.New(zinc.Config{
+	ErrorHandler: func(c *zinc.Context, err error) {
+		if zinc.StatusCode(err) >= 500 {
+			slog.Error("request failed", "path", c.Path(), "err", err)
+		}
+		zinc.DefaultErrorHandler(c, err)
+	},
+})
+
+app.Get("/report", func(c *zinc.Context) error {
+	return errors.New("database is down")
+})
+```
+
+```bash
+curl http://localhost:8080/report
+# {"error":{"status":500,"message":"Internal Server Error"}}
+```
+
+```text
+2026/09/28 10:15:02 ERROR request failed path=/report err="database is down"
+```
+
+`zinc.StatusCode(err)` returns the status the default handler would send. For plain-text error bodies, set `ErrorHandler: zinc.TextErrors`. [Errors](/guide/errors/) shows a handler that writes your own JSON shape.
+
+## Validate every bind
+
+A validator runs after every successful bind. It's any type with this method:
 
 ```go
 type Validator interface {
@@ -30,23 +68,59 @@ type Validator interface {
 }
 ```
 
-Runs after every successful bind. An adapter for go-playground/validator is three lines, shown in [Binding](/guide/binding/#validation).
+This small one calls a `Validate() error` method on the input, if the type has one:
+
+```go
+type selfValidator struct{}
+
+func (selfValidator) Validate(v any) error {
+	if s, ok := v.(interface{ Validate() error }); ok {
+		return s.Validate()
+	}
+	return nil
+}
+
+type Signup struct {
+	Email string `json:"email"`
+}
+
+func (s *Signup) Validate() error {
+	if s.Email == "" {
+		return errors.New("email is required")
+	}
+	return nil
+}
+
+app := zinc.New(zinc.Config{Validator: selfValidator{}})
+```
+
+```bash
+curl -X POST http://localhost:8080/signup -H 'Content-Type: application/json' -d '{"email":""}'
+# {"error":{"status":422,"message":"validation failed"}}
+```
+
+For go-playground/validator, [Binding](/guide/binding/) has a three-line adapter and shows how to name the failing fields in the response.
 
 ## Body formats
 
-Zinc reads and writes JSON, XML, forms, multipart, and plain text itself, using only the standard library. Any other format is two map entries away, and so is a different JSON library:
+Zinc reads and writes JSON, XML, forms, multipart and plain text with the standard library. For any other format, or a different JSON library, add a decoder, an encoder or both:
 
 ```go
 type Decoder func(data []byte, v any) error // the shape of json.Unmarshal
 type Encoder func(v any) ([]byte, error)    // the shape of json.Marshal
 ```
 
-Because those are the shapes of every library's own `Unmarshal` and `Marshal`, you pass them in directly, with no adapter.
+Most libraries' `Unmarshal` and `Marshal` functions already have these shapes, so you pass them in directly.
 
-### YAML, TOML, and others
+### Read and write YAML
 
 ```go
 import "go.yaml.in/yaml/v3"
+
+type Settings struct {
+	Name  string `json:"name" yaml:"name"`
+	Debug bool   `json:"debug" yaml:"debug"`
+}
 
 app := zinc.New(zinc.Config{
 	Decoders: map[string]zinc.Decoder{
@@ -56,28 +130,38 @@ app := zinc.New(zinc.Config{
 	},
 	Encoders: map[string]zinc.Encoder{"application/yaml": yaml.Marshal},
 })
-```
 
-Then `c.Bind().Body` and `c.Bind().All` pick the decoder from the request's `Content-Type`, and so do [typed handlers](/guide/typed-handlers/). Write a response with `c.Encode`, or offer it through `c.Negotiate`:
-
-```go
-return c.Encode("application/yaml", config)
-
-return c.Negotiate(map[string]any{
-	"application/json": config,
-	"application/yaml": config,
+app.Post("/settings", func(c *zinc.Context) error {
+	var s Settings
+	if err := c.Bind().Body(&s); err != nil {
+		return err
+	}
+	return c.Negotiate(map[string]any{
+		"application/json": s,
+		"application/yaml": s,
+	})
 })
 ```
 
-Keys match on the base media type, case-insensitively and without parameters, so `application/yaml; charset=utf-8` finds the `application/yaml` entry. Formats can travel under several media types, as YAML does, so list each one you accept.
+```bash
+curl -X POST http://localhost:8080/settings \
+  -H 'Content-Type: application/yaml' -H 'Accept: application/yaml' \
+  --data-binary $'name: api\ndebug: true\n'
+# name: api
+# debug: true
+```
 
-A YAML body binds through the library's own tags, usually `yaml:"name"`, not `json:"name"`. A struct that accepts both formats needs both tags.
+`c.Bind().Body` and `c.Bind().All` pick the decoder from the request's `Content-Type`, and so do [typed handlers](/guide/typed-handlers/). To send YAML whatever the client asks for, use `c.Encode("application/yaml", s)`.
 
-An error from a decoder answers `400 Bad Request` with the message "invalid request body"; the error itself is kept for logs, not sent to the client. Return a Zinc error, such as `zinc.InternalServerError(...)`, when the failure is yours rather than the client's.
+A YAML body binds through the library's own tags, usually `yaml:"name"`, not `json:"name"`. A struct that accepts both formats needs both tags, as `Settings` has.
 
-### A different JSON library
+:::note[List every media type]
+YAML travels under several media types, so the example lists each one. A `Content-Type` with no matching entry isn't decoded as YAML.
+:::
 
-An entry for `application/json` replaces `encoding/json` everywhere Zinc reads or writes JSON: binding, `c.JSON`, `c.JSONPretty`, and server-sent events.
+### Use a different JSON library
+
+An entry for `application/json` replaces `encoding/json` everywhere Zinc reads or writes JSON: binding, `c.JSON`, `c.JSONPretty` and server-sent events.
 
 ```go
 import "github.com/bytedance/sonic"
@@ -88,11 +172,11 @@ app := zinc.New(zinc.Config{
 })
 ```
 
-The same works for `application/xml`. Zinc writes an encoder's bytes exactly as returned: the built-in JSON encoder ends each body with a newline, and a custom one may not. `c.JSONPretty` indents a custom encoder's output with `json.Indent`.
+An `application/xml` entry replaces `encoding/xml` the same way.
 
-Without an `application/json` entry, Zinc uses its own JSON path, and an app with no `Decoders` or `Encoders` never consults either map.
+### Reject unknown JSON fields
 
-To reject unknown fields, wrap `encoding/json` yourself:
+Wrap `encoding/json` in your own decoder:
 
 ```go
 func strictJSON(data []byte, v any) error {
@@ -106,7 +190,15 @@ app := zinc.New(zinc.Config{
 })
 ```
 
-## Renderer
+```bash
+curl -X POST http://localhost:8080/settings \
+  -H 'Content-Type: application/json' -d '{"name":"api","colour":"red"}'
+# {"error":{"status":400,"message":"invalid request body"}}
+```
+
+## Render templates
+
+A renderer turns a template name and data into a response for `c.Render`:
 
 ```go
 type Renderer interface {
@@ -114,20 +206,40 @@ type Renderer interface {
 }
 ```
 
-Zinc's template renderers cover `html/template`, `text/template`, and any engine with an `ExecuteTemplate` method. See [Templates](/guide/templates/).
-
-## Owning the server
-
-For listeners, TLS, and lifecycle, you do not need configuration at all. The app is an `http.Handler`:
+You rarely write one. Zinc's built-in renderers cover `html/template`, `text/template` and any engine with an `ExecuteTemplate` method:
 
 ```go
-server := &http.Server{Addr: ":8443", Handler: app, TLSConfig: tlsConfig}
-log.Fatal(server.ListenAndServeTLS("", ""))
+views := template.Must(template.ParseGlob("views/*.html"))
+
+app := zinc.New(zinc.Config{Renderer: zinc.NewHTMLTemplateRenderer(views)})
 ```
 
-`app.Serve(listener)` runs the app on a listener you created, such as a systemd socket or a Unix socket.
+[Templates](/guide/templates/) covers the rest.
+
+## Good to know
+
+### How media types match
+
+`Decoders` and `Encoders` keys match the base media type, ignoring case and parameters. So `application/yaml; charset=utf-8` finds the `application/yaml` entry.
+
+### Decoder errors are the client's
+
+A decoder's error answers `400` with `invalid request body`. The error itself is kept for your logs, not sent to the client. If the failure is yours rather than the client's, return a Zinc error such as `zinc.InternalServerError(...)` and that status is used instead.
+
+### Encoder output is sent as is
+
+Zinc writes an encoder's bytes exactly as it returns them. The built-in JSON encoder ends each body with a newline; `json.Marshal` and most libraries don't. `c.JSONPretty` indents a custom encoder's output with `json.Indent`.
+
+### An unknown format is a server error
+
+`c.Encode` with a media type that has no encoder returns an error, and the client gets a `500`. JSON and XML always work: without an entry, Zinc uses the standard library for them.
+
+### Mistakes stop the app at startup
+
+`zinc.New` panics on a key that isn't a media type (such as `"yaml"`), on a `nil` decoder or encoder, and on a decoder for `application/x-www-form-urlencoded` or `multipart/form-data`. Forms are bound field by field, so they can't be replaced.
 
 ## Next steps
 
-- [Configuration](/guide/configuration/) for every setting and its default.
-- [Zinc and net/http](/guide/http-interoperability/) for standard middleware and handlers.
+- [Configuration](/guide/configuration/): every setting and its default.
+- [Errors](/guide/errors/): the default error response and how to shape your own.
+- [Zinc and net/http](/guide/http-interoperability/): run the app on your own `http.Server`, with your own TLS and listeners.
