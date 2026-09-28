@@ -133,7 +133,7 @@ curl http://localhost:8080/profile -d name=Ada -d age=old
 app.Post("/documents", func(c *zinc.Context) error {
 	file, err := c.FormFile("document")
 	if errors.Is(err, http.ErrMissingFile) || errors.Is(err, http.ErrNotMultipart) {
-		return zinc.BadRequest("document is required")
+		return zinc.UnprocessableEntity("document is required")
 	}
 	if err != nil {
 		return err // for example 413 when the upload is over the body limit
@@ -153,7 +153,7 @@ curl http://localhost:8080/documents -F document=@report.pdf
 # {"saved":"report.pdf"}
 
 curl http://localhost:8080/documents -d x=1
-# {"error":{"status":400,"message":"document is required"}}
+# {"error":{"status":422,"message":"document is required"}}
 ```
 
 `c.SaveFile` creates the `uploads` directory if it doesn't exist. Use `c.FormFiles("documents")` for several files under one field, and `c.MultipartForm()` for every value and file at once. The [File Upload](/cookbook/file-upload/) recipe shows a complete program.

@@ -1,22 +1,13 @@
 ---
 title: Server-Rendered UI with Templ UI
-description: Render real Templ UI components from Zinc handlers and build their styles with Tailwind CSS.
+description: Render Templ UI components from Zinc handlers, style them with Tailwind CSS, and handle a form post.
 ---
 
-This recipe renders a real [Templ UI](https://templui.io) Button from a Zinc handler. It uses Templ UI's import workflow, Templ for generated Go components, and the standalone Tailwind CSS v4 CLI.
+This program renders a subscribe form built with a [Templ UI](https://templui.io) button, and answers the form post with a confirmation. You'd use it for server-rendered pages built from typed Go components instead of template files. The Zinc part is small: pass `c.Context()` and `c.Writer()` to a `templ.Component`, and serve the Tailwind stylesheet with `app.Static`.
 
-The Zinc integration is deliberately small: pass `c.Context()` and `c.Writer()` to any `templ.Component`, and serve the generated stylesheet with `app.Static`.
+## Run it
 
-## What you get
-
-- a real `button.Button` imported from Templ UI
-- `POST /subscribe` with normal form parsing and a server-rendered confirmation
-- Tailwind output served from `/static/app.css`
-- a reusable `render(c, component)` helper
-
-## Setup
-
-Create a module and add Zinc, Templ, and Templ UI:
+Create a module and add Zinc, [Templ](https://templ.guide) and Templ UI. The last `go get` adds the Templ code generator as a module tool, so you can run it with `go tool templ`:
 
 ```bash
 go mod init zinc-templ
@@ -28,11 +19,7 @@ go get -tool github.com/a-h/templ/cmd/templ@latest
 mkdir -p views assets/css public
 ```
 
-Zinc already requires Go 1.25 or newer, so the tool directive is available. It
-keeps the Templ generator attached to the module and makes it available as
-`go tool templ`.
-
-Download the Tailwind v4.1+ standalone binary for your OS and architecture. This example uses macOS arm64:
+Download the Tailwind CSS v4.1+ standalone binary for your OS and architecture. For macOS on Apple silicon:
 
 ```bash
 curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-macos-arm64
@@ -40,7 +27,7 @@ chmod +x tailwindcss-macos-arm64
 mv tailwindcss-macos-arm64 tailwindcss
 ```
 
-## Project layout
+When you're done, the project looks like this:
 
 ```text
 .
@@ -56,9 +43,9 @@ mv tailwindcss-macos-arm64 tailwindcss
 └── tailwindcss
 ```
 
-## Tailwind input
+### Tell Tailwind where the classes are
 
-Templ UI lives in the Go module cache, which Tailwind does not scan automatically. Import a small generated source file alongside the page templates:
+Tailwind builds CSS only for the classes it finds in your files. Templ UI's components live in the Go module cache, which Tailwind doesn't scan, so point it there with a generated file:
 
 ```css title="assets/css/input.css"
 @import "tailwindcss";
@@ -67,14 +54,14 @@ Templ UI lives in the Go module cache, which Tailwind does not scan automaticall
 @source "../../views/**/*.templ";
 ```
 
-Generate the external source path from the installed module instead of hard-coding a machine-specific Go module cache path:
-
 ```bash
 TEMPLUI_PATH="$(go list -m -f '{{.Dir}}' github.com/templui/templui)"
 printf '@source "%s/components/**/*.templ";\n' "$TEMPLUI_PATH" > ./assets/css/sources.generated.css
 ```
 
-## Page component
+Generating the path keeps your machine's module cache location out of the repository.
+
+### Write the page component
 
 ```templ title="views/home.templ"
 package views
@@ -122,9 +109,9 @@ templ Home(flash string) {
 }
 ```
 
-Templ UI components take typed props and their visible content as children. For example, a submit button uses `button.TypeSubmit`; it does not use a free-form string field for its label.
+Templ UI components take typed props, and their visible content as children. The submit button sets `Type: button.TypeSubmit`; its label, `Subscribe`, goes between the braces.
 
-## Application
+## The program
 
 ```go title="main.go" check=false
 package main
@@ -138,6 +125,7 @@ import (
 	"zinc-templ/views"
 )
 
+// render writes a Templ component as the HTML response.
 func render(c *zinc.Context, component templ.Component) error {
 	c.Type("html")
 	return component.Render(c.Context(), c.Writer())
@@ -153,13 +141,9 @@ func main() {
 	})
 
 	app.Post("/subscribe", func(c *zinc.Context) error {
-		if err := c.Request().ParseForm(); err != nil {
-			return err
-		}
-
-		email := c.Request().FormValue("email")
+		email := c.FormValue("email")
 		if email == "" {
-			return zinc.BadRequest("email is required")
+			return zinc.UnprocessableEntity("email is required")
 		}
 
 		return render(c, views.Home("Subscribed "+email+"."))
@@ -169,34 +153,55 @@ func main() {
 }
 ```
 
-## Build and run
+`views.Home` comes from `views/home_templ.go`, which `go tool templ generate` writes in the next step.
 
-Generate the Go component and stylesheet before starting the server:
+## Try it
+
+Generate the Go component and the stylesheet, then start the server:
 
 ```bash
 go tool templ generate
-
-TEMPLUI_PATH="$(go list -m -f '{{.Dir}}' github.com/templui/templui)"
-printf '@source "%s/components/**/*.templ";\n' "$TEMPLUI_PATH" > ./assets/css/sources.generated.css
-
 ./tailwindcss -i ./assets/css/input.css -o ./public/app.css --minify
 go mod tidy
 go run .
 ```
 
-Visit `http://localhost:8080`, or test the form directly:
+Open `http://localhost:8080` and submit the form. Or post it with curl:
 
 ```bash
-curl -X POST http://localhost:8080/subscribe \
+curl -i -X POST http://localhost:8080/subscribe \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode "email=matt@example.com"
+  --data-urlencode "email=ada@example.com"
+# HTTP/1.1 200 OK
+# Content-Type: text/html; charset=utf-8
+#
+# <!doctype html><html lang="en"><head>...
+# <p class="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Subscribed ada@example.com.</p>
+# ...<button class="... w-full ... bg-slate-900 ..." type="submit">Subscribe</button>...
 ```
 
-The response contains `Subscribed matt@example.com.` and a real Templ UI `<button type="submit">`.
+An empty email is refused:
 
-## Development loop
+```bash
+curl -i -X POST http://localhost:8080/subscribe -d "email="
+# HTTP/1.1 422 Unprocessable Entity
+#
+# {"error":{"status":422,"message":"email is required"}}
+```
 
-For live development, run these in separate terminals:
+## How it works
+
+- `c.Type("html")` sets `Content-Type: text/html; charset=utf-8`. It has to come first, because headers are sent with the first byte the component writes.
+- `component.Render(c.Context(), c.Writer())` writes the HTML straight to the response. `c.Context()` carries request cancellation and request-scoped values into the component.
+- `c.FormValue("email")` reads the posted form field.
+- `{ flash }` in the component escapes the text, so an email address full of markup is shown, not run.
+- `app.Static("/static", "./public")` serves the Tailwind output at `/static/app.css`.
+
+## Good to know
+
+### Work on the page with live reload
+
+Run each of these in its own terminal:
 
 ```bash
 go tool templ generate --watch
@@ -210,12 +215,18 @@ go tool templ generate --watch
 go run .
 ```
 
-Restart `go run .` after generated Go code changes, or place it behind your existing Go reload tool.
+Restart `go run .` after the generated Go code changes, or run it under your usual Go reload tool.
 
-## Notes
+### Components with JavaScript
 
-- `c.Context()` carries request cancellation and request-scoped values into Templ.
-- `c.Writer()` is the standard `http.ResponseWriter` used by `templ.Component.Render`.
-- Set the content type before rendering because the first rendered byte commits the headers.
-- The Button used here is non-interactive and needs no JavaScript. Templ UI components with client behavior also require their `Script()` component and script routes; follow Templ UI's current component documentation when adding one.
-- For a single-file deployment, embed the generated stylesheet and serve it with `app.StaticFS`.
+The button here needs no JavaScript. Templ UI components with client behavior also need their `Script()` component and the routes that serve their scripts. Follow Templ UI's documentation for the component you add.
+
+### Ship one binary
+
+To deploy without a `public/` folder, embed the generated stylesheet and serve it with `app.StaticFS`. See [Embed Resources](/cookbook/embed-resources/).
+
+## See also
+
+- [Templates](/guide/templates/): renderers, and how Templ fits alongside `html/template`.
+- [Templated HTML + JS Page](/cookbook/templated-html-js-page/): the same idea with `html/template` and no build step.
+- [Static Files](/guide/static-files/): serving `public/` and its options.
