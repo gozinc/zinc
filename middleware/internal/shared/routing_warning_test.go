@@ -30,32 +30,53 @@ func TestRoutingWarningOnlyAfterRouting(t *testing.T) {
 		},
 	}
 	for name, mw := range middlewares {
-		for _, placement := range []string{"use", "prefix", "group"} {
+		// Before routing: no warning.
+		for _, placement := range []string{"use", "prefix"} {
 			logs.Reset()
 			app := zinc.New()
-			switch placement {
-			case "use":
+			if placement == "use" {
 				app.Use(mw())
-			case "prefix":
+			} else {
 				app.UsePrefix("/api", mw())
 			}
-			api := app.Group("/api")
-			if placement == "group" {
-				api.Use(mw())
-			}
-			api.Get("/users", func(c *zinc.Context) error { return c.String("ok") })
+			app.Group("/api").Get("/users", func(c *zinc.Context) error { return c.String("ok") })
 			for range 3 {
 				app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/users", nil))
 			}
-
-			warnings := strings.Count(logs.String(), "level=WARN")
-			if placement == "group" {
-				if warnings != 1 || !strings.Contains(logs.String(), "middleware="+name) || !strings.Contains(logs.String(), "route=/api/users") {
-					t.Fatalf("%s on a group: want one warning, got %q", name, logs.String())
-				}
-			} else if warnings != 0 {
+			if strings.Contains(logs.String(), "level=WARN") {
 				t.Fatalf("%s with %s: unexpected warning %q", name, placement, logs.String())
 			}
+		}
+
+		// On a group, in any of the three ways to give it middleware:
+		// registration panics.
+		want := name + ` middleware on group "/api" would run after routing`
+		for placement, register := range map[string]func(app *zinc.App){
+			"Group.Use":   func(app *zinc.App) { app.Group("/api").Use(mw()) },
+			"App.Group":   func(app *zinc.App) { app.Group("/api", mw()) },
+			"child Group": func(app *zinc.App) { app.Group("/").Group("/api", mw()) },
+			"App.Route":   func(app *zinc.App) { app.Route("/api", nil, mw()) },
+		} {
+			func() {
+				defer func() {
+					got, _ := recover().(string)
+					if !strings.Contains(got, want) || !strings.Contains(got, `app.UsePrefix("/api", ...)`) {
+						t.Fatalf("%s via %s: panic %q, want it to contain %q", name, placement, got, want)
+					}
+				}()
+				register(zinc.New())
+			}()
+		}
+
+		// On one route it works for that path, so it only warns, once.
+		logs.Reset()
+		app := zinc.New()
+		app.Get("/api/users", mw(), func(c *zinc.Context) error { return c.String("ok") })
+		for range 3 {
+			app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/users", nil))
+		}
+		if warnings := strings.Count(logs.String(), "level=WARN"); warnings != 1 || !strings.Contains(logs.String(), "middleware="+name) {
+			t.Fatalf("%s on a route: want one warning, got %q", name, logs.String())
 		}
 	}
 }

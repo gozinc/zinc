@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/0mjs/zinc/internal/prerouting"
 )
 
 // Group applies a shared path prefix and middleware chain to related routes.
@@ -30,6 +32,7 @@ func newGroup(app *App, prefix string, handlers ...HandlerFunc) *Group {
 	if prefix == "/" {
 		prefix = ""
 	}
+	mustRunAfterRouting(prefix, handlers)
 	return &Group{
 		app:        app,
 		prefix:     prefix,
@@ -48,8 +51,24 @@ func (g *Group) Use(handlers ...HandlerFunc) *Group {
 		}
 		panic(fmt.Sprintf("zinc: Use on group %q after %s; register group middleware before its routes and child groups", prefix, g.sealedBy))
 	}
+	mustRunAfterRouting(g.prefix, handlers)
 	g.middleware = append(g.middleware, handlers...)
 	return g
+}
+
+// mustRunAfterRouting panics on middleware that only works before routing,
+// such as redirect or rewrite. On a group it runs after a route has matched:
+// a redirect never sees paths without a route, and a rewrite can't change
+// the route any more.
+func mustRunAfterRouting(prefix string, handlers []HandlerFunc) {
+	for _, h := range handlers {
+		if name, ok := prerouting.Name(h); ok {
+			if prefix == "" {
+				prefix = "/"
+			}
+			panic(fmt.Sprintf("zinc: %s middleware on group %q would run after routing, where it can't work; register it with app.Use, or app.UsePrefix(%q, ...) for the group's paths", name, prefix, prefix))
+		}
+	}
 }
 
 // seal records the first registration that captured the middleware chain.
@@ -63,6 +82,7 @@ func (g *Group) seal(kind, target string) {
 // Group creates a child that inherits the parent's middleware in order.
 func (g *Group) Group(prefix string, handlers ...HandlerFunc) *Group {
 	fullPrefix := joinPaths(g.prefix, prefix)
+	mustRunAfterRouting(fullPrefix, handlers)
 	g.seal("child group", fullPrefix)
 	sub := newGroup(g.app, fullPrefix)
 	sub.middleware = append(sub.middleware, g.middleware...)
