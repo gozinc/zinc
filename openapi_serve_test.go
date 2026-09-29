@@ -127,3 +127,67 @@ func TestOpenAPIErrorsAndMiddleware(t *testing.T) {
 		t.Fatalf("with a key: %d", w.Code)
 	}
 }
+
+func TestOpenAPIServedByDefault(t *testing.T) {
+	app := New(Config{OpenAPI: OpenAPIConfig{Title: "Shop", Version: "2"}})
+	app.Get("/pets", func(c *Context) error { return nil })
+	rec := getSpec(t, app, "GET", "/openapi.json", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"title": "Shop"`) || !strings.Contains(rec.Body.String(), `"/pets"`) {
+		t.Fatalf("default spec: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), `"/openapi.json"`) {
+		t.Fatal("the spec lists itself")
+	}
+	if rec := getSpec(t, app, "HEAD", "/openapi.json", nil); rec.Code != http.StatusOK {
+		t.Fatalf("HEAD: %d", rec.Code)
+	}
+	if rec := getSpec(t, app, "POST", "/openapi.json", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST: %d", rec.Code)
+	}
+
+	// App middleware runs for it, so it can be protected like any route.
+	guarded := New()
+	guarded.Use(func(c *Context) error {
+		if c.Header("X-Key") != "k" {
+			return ErrUnauthorized
+		}
+		return c.Next()
+	})
+	if rec := getSpec(t, guarded, "GET", "/openapi.json", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unguarded: %d", rec.Code)
+	}
+	if rec := getSpec(t, guarded, "GET", "/openapi.json", http.Header{"X-Key": {"k"}}); rec.Code != http.StatusOK {
+		t.Fatalf("guarded: %d", rec.Code)
+	}
+}
+
+func TestOpenAPIDefaultGivesWay(t *testing.T) {
+	off := New(Config{OpenAPIPath: "-"})
+	if rec := getSpec(t, off, "GET", "/openapi.json", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf(`"-": %d`, rec.Code)
+	}
+
+	moved := New(Config{OpenAPIPath: "/api/spec.json"})
+	if getSpec(t, moved, "GET", "/api/spec.json", nil).Code != http.StatusOK || getSpec(t, moved, "GET", "/openapi.json", nil).Code != http.StatusNotFound {
+		t.Fatal("OpenAPIPath not used")
+	}
+
+	// A route at the path wins.
+	own := New()
+	own.Get("/openapi.json", func(c *Context) error { return c.String("mine") })
+	if rec := getSpec(t, own, "GET", "/openapi.json", nil); rec.Body.String() != "mine" {
+		t.Fatalf("route: %s", rec.Body)
+	}
+
+	// App.OpenAPI replaces the default.
+	explicit := New()
+	explicit.OpenAPI("/docs/openapi.json", OpenAPIConfig{})
+	if getSpec(t, explicit, "GET", "/openapi.json", nil).Code != http.StatusNotFound || getSpec(t, explicit, "GET", "/docs/openapi.json", nil).Code != http.StatusOK {
+		t.Fatal("App.OpenAPI didn't replace the default")
+	}
+
+	mustPanicWith(t, `Config.OpenAPIPath "spec.json" must start with /`, func() { New(Config{OpenAPIPath: "spec.json"}) })
+	mustPanicWith(t, "needs Flows", func() {
+		New(Config{OpenAPI: OpenAPIConfig{SecuritySchemes: map[string]OpenAPISecurityScheme{"o": {Type: "oauth2"}}}})
+	})
+}

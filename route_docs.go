@@ -24,9 +24,10 @@ type routeDoc struct {
 	responses   []docResponse
 	// errors are statuses the route answers through the error handler.
 	errors []int
-	// security names schemes from the spec config. securitySet tells an
-	// explicit empty list (a public route) from no setting at all.
-	security    []string
+	// security lists requirements, each the schemes that must all pass;
+	// any one requirement is enough. securitySet tells an explicit empty
+	// list (a public route) from no setting at all.
+	security    [][]string
 	securitySet bool
 }
 
@@ -150,12 +151,31 @@ func (r Route) Errors(statuses ...int) Route {
 }
 
 // Security names the security schemes that protect the route, replacing its
-// group's. With no names, the route is marked public.
+// group's. Any one of them is enough; SecurityAll needs them all. A name can
+// carry a scope after a colon, such as "oauth:pets:read". With no names, the
+// route is marked public.
 func (r Route) Security(schemes ...string) Route {
 	doc := r.doc("Security")
-	doc.security = append([]string{}, schemes...)
+	doc.security = eachAlone(schemes)
 	doc.securitySet = true
 	return r
+}
+
+// SecurityAll is Security for schemes that must all pass together, such as
+// an API key and a bearer token, replacing the group's.
+func (r Route) SecurityAll(schemes ...string) Route {
+	doc := r.doc("SecurityAll")
+	doc.security = allTogether(schemes)
+	doc.securitySet = true
+	return r
+}
+
+// allTogether is one requirement listing every scheme, or none for none.
+func allTogether(schemes []string) [][]string {
+	if len(schemes) == 0 {
+		return [][]string{}
+	}
+	return [][]string{append([]string(nil), schemes...)}
 }
 
 // declaredType validates a value passed to Input or Output.
@@ -182,8 +202,9 @@ func appendNew(list, values []string) []string {
 // groupDocs holds the OpenAPI defaults a group gives its routes.
 type groupDocs struct {
 	tags        []string
-	security    []string
+	security    [][]string
 	securitySet bool
+	hidden      bool
 }
 
 // Tags adds tags to every route registered in the group from now on, and to
@@ -200,8 +221,25 @@ func (g *Group) Tags(tags ...string) *Group {
 // Route.Security. Like Use, it panics once the group has routes.
 func (g *Group) Security(schemes ...string) *Group {
 	g.mustBeOpen("Security")
-	g.docs.security = append([]string{}, schemes...)
+	g.docs.security = eachAlone(schemes)
 	g.docs.securitySet = true
+	return g
+}
+
+// SecurityAll is Security for schemes that must all pass together.
+func (g *Group) SecurityAll(schemes ...string) *Group {
+	g.mustBeOpen("SecurityAll")
+	g.docs.security = allTogether(schemes)
+	g.docs.securitySet = true
+	return g
+}
+
+// Hidden leaves every route registered in the group from now on, and its
+// child groups' routes, out of the spec. Like Use, it panics once the group
+// has routes.
+func (g *Group) Hidden() *Group {
+	g.mustBeOpen("Hidden")
+	g.docs.hidden = true
 	return g
 }
 
@@ -219,22 +257,35 @@ func (g *Group) mustBeOpen(method string) {
 
 // apply copies the group's defaults onto a route it registered.
 func (d groupDocs) apply(r Route) {
-	if len(d.tags) == 0 && !d.securitySet {
+	if len(d.tags) == 0 && !d.securitySet && !d.hidden {
 		return
 	}
 	doc := r.table.doc(r.index)
 	doc.tags = appendNew(append([]string(nil), d.tags...), doc.tags)
 	if d.securitySet && !doc.securitySet {
-		doc.security = append([]string{}, d.security...)
+		doc.security = cloneRequirements(d.security)
 		doc.securitySet = true
 	}
+	doc.hidden = doc.hidden || d.hidden
 }
 
 // inherit copies the defaults into a child group.
 func (d groupDocs) inherit() groupDocs {
 	return groupDocs{
 		tags:        append([]string(nil), d.tags...),
-		security:    append([]string(nil), d.security...),
+		security:    cloneRequirements(d.security),
 		securitySet: d.securitySet,
+		hidden:      d.hidden,
 	}
+}
+
+func cloneRequirements(reqs [][]string) [][]string {
+	if reqs == nil {
+		return nil
+	}
+	out := make([][]string, len(reqs))
+	for i, req := range reqs {
+		out[i] = append([]string(nil), req...)
+	}
+	return out
 }

@@ -3,14 +3,16 @@ title: API Docs
 description: Serve a browsable reference page for your API's OpenAPI spec, with Scalar, Swagger UI, Stoplight Elements or ReDoc.
 ---
 
-API Docs serves a reference page for your API that people can read and try requests from. It renders the OpenAPI spec that [`app.OpenAPI`](https://pkg.go.dev/github.com/0mjs/zinc#App.OpenAPI) serves, so the page is always in step with your routes.
+API Docs serves a reference page for your API that people can read and try requests from. It renders the [OpenAPI](/guide/openapi/) spec every Zinc app serves at `/openapi.json`, so the page is always in step with your routes.
 
 ## Usage
 
 ```go
 import "github.com/0mjs/zinc/middleware/apidocs"
 
-app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"})
+app := zinc.New(zinc.Config{
+	OpenAPI: zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"},
+})
 app.Get("/docs", apidocs.New()).Hidden()
 ```
 
@@ -91,7 +93,7 @@ When the page loads but shows no routes, the browser couldn't fetch the spec. Ch
 
 ## Security
 
-- **Hiding the docs isn't access control.** Anyone who can reach your routes can call them. Protect private APIs with auth middleware, and protect `/docs` and `/openapi.json` too if their contents are private. `app.OpenAPI` takes middleware for its route: `app.OpenAPI("/openapi.json", cfg, requireAPIKey)`.
+- **Hiding the docs isn't access control.** Anyone who can reach your routes can call them. Protect private APIs with auth middleware, and protect `/docs` and `/openapi.json` too if their contents are private. `app.OpenAPI` serves the spec behind middleware in place of the default: `app.OpenAPI("/openapi.json", cfg, requireAPIKey)`.
 - **Scripts from a CDN.** Every file is pinned to one version and loaded with a Subresource Integrity hash, so the browser refuses a file that has changed. Serve the files yourself with `AssetsURL` if you'd rather not depend on the CDN at all.
 - **Content-Security-Policy.** Scalar and Swagger UI start with a short inline script. It's the same for every page, so a policy can allow it by hash rather than with `'unsafe-inline'`. The renderers also inject styles and load fonts and images, so start from a policy that works in your browser's console and tighten it from there. [Secure Headers](/middleware/secure/) sets the header.
 

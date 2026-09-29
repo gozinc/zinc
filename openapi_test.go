@@ -49,9 +49,17 @@ type oaPetID struct {
 }
 
 type oaListPets struct {
-	Page  int      `query:"page" validate:"min=1"`
-	Kinds []string `query:"kind"`
+	Page    int      `query:"page" validate:"min=1"`
+	Kinds   []string `query:"kind" enum:"cat,dog"`
+	Limit   int8     `query:"limit" default:"20"`
+	Sort    oaSort   `query:"sort" default:"name"`
+	Session string   `cookie:"session"`
 }
+
+// oaSort lists its values, so it becomes an enum component.
+type oaSort string
+
+func (oaSort) Enum() []any { return []any{"name", "age"} }
 
 type oaUpload struct {
 	Caption string                `form:"caption" validate:"required"`
@@ -89,6 +97,11 @@ func oaFixture() *App {
 
 	app.Post("/pets/{id}/photo", Typed(func(*Context, oaUpload) (NoContent, error) { return NoContent{}, nil }))
 	app.Get("/files/{path...}", func(c *Context) error { return nil })
+	app.Post("/pets/{id}/adopt", Typed(func(*Context, oaPetID) (NoContent, error) { return NoContent{}, nil })).
+		SecurityAll("apiKey", "oauth:pets:write")
+
+	admin := app.Group("/admin").Hidden()
+	admin.Get("/stats", func(c *Context) error { return nil })
 
 	// Left out: hidden routes, methods OpenAPI 3.1 has no field for, mounts.
 	app.Get("/internal/metrics", func(c *Context) error { return nil }).Hidden()
@@ -99,13 +112,22 @@ func oaFixture() *App {
 
 func oaFixtureConfig() OpenAPIConfig {
 	return OpenAPIConfig{
-		Title:       "Pet Store",
-		Version:     "1.2.0",
-		Description: "The fixture for Zinc's OpenAPI golden test.",
-		Servers:     []OpenAPIServer{{URL: "https://api.example.com", Description: "Production"}},
+		Title:          "Pet Store",
+		Version:        "1.2.0",
+		Description:    "The fixture for Zinc's OpenAPI golden test.",
+		TermsOfService: "https://example.com/terms",
+		Contact:        &OpenAPIContact{Name: "API team", Email: "api@example.com"},
+		License:        &OpenAPILicense{Name: "MIT", Identifier: "MIT"},
+		ExternalDocs:   &OpenAPIExternalDocs{URL: "https://example.com/docs"},
+		Servers:        []OpenAPIServer{{URL: "https://api.example.com", Description: "Production"}},
+		Tags:           []OpenAPITag{{Name: "pets", Description: "Everything about pets"}},
 		SecuritySchemes: map[string]OpenAPISecurityScheme{
 			"apiKey": {Type: "apiKey", In: "header", Name: "X-API-Key"},
 			"bearer": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
+			"oauth": {Type: "oauth2", Flows: &OpenAPIOAuthFlows{ClientCredentials: &OpenAPIOAuthFlow{
+				TokenURL: "https://id.example.com/token",
+				Scopes:   map[string]string{"pets:write": "Change pets"},
+			}}},
 		},
 		Security: []string{"bearer"},
 	}
@@ -222,7 +244,23 @@ func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
 	if strings.Contains(string(doc.Paths), `"required": true`) && strings.Count(string(doc.Paths), `"required": true`) != 1 {
 		t.Errorf("without a Validator, more than the path parameter is required:\n%s", doc.Paths)
 	}
-	for _, rule := range []string{`"minLength"`, `"maxLength"`, `"enum"`, `"minimum": 1`, `"422"`} {
+	// oneof becomes an enum only with a validator; the enum tag and
+	// EnumProvider always document their values.
+	kindEnum := func(spec string) bool {
+		var d struct {
+			Components struct {
+				Schemas map[string]struct {
+					Properties map[string]map[string]any `json:"properties"`
+				} `json:"schemas"`
+			} `json:"components"`
+		}
+		_ = json.Unmarshal([]byte(spec), &d)
+		return d.Components.Schemas["oaPet"].Properties["kind"]["enum"] != nil
+	}
+	if !kindEnum(with) || kindEnum(without) {
+		t.Errorf("oaPet.kind's oneof: with a validator %v, without %v", kindEnum(with), kindEnum(without))
+	}
+	for _, rule := range []string{`"minLength"`, `"maxLength"`, `"minimum": 1`, `"422"`} {
 		if !strings.Contains(with, rule) {
 			t.Errorf("with a Validator, the spec lacks %s", rule)
 		}
@@ -399,4 +437,97 @@ func mustPanicWith(t *testing.T, want string, f func()) {
 		}
 	}()
 	f()
+}
+
+func TestOpenAPISecurityRequirementsAndAuthResponses(t *testing.T) {
+	cfg := OpenAPIConfig{
+		Title: "T", Version: "1",
+		SecuritySchemes: map[string]OpenAPISecurityScheme{
+			"key":    {Type: "apiKey", In: "header", Name: "X-Key"},
+			"bearer": {Type: "http", Scheme: "bearer"},
+		},
+	}
+	app := New()
+	app.Get("/either", func(c *Context) error { return nil }).Security("key", "bearer")
+	app.Get("/both", func(c *Context) error { return nil }).SecurityAll("key", "bearer:admin")
+	app.Get("/open", func(c *Context) error { return nil })
+	spec := func(cfg OpenAPIConfig) map[string]any {
+		t.Helper()
+		raw, err := app.OpenAPISpec(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		_ = json.Unmarshal(raw, &doc)
+		return doc
+	}
+	op := func(doc map[string]any, path string) map[string]any {
+		return doc["paths"].(map[string]any)[path].(map[string]any)["get"].(map[string]any)
+	}
+	statuses := func(op map[string]any) string {
+		return strings.Join(slices.Sorted(maps.Keys(op["responses"].(map[string]any))), " ")
+	}
+	doc := spec(cfg)
+	if got := fmt.Sprint(op(doc, "/either")["security"]); got != "[map[key:[]] map[bearer:[]]]" {
+		t.Errorf("either: %s", got)
+	}
+	if got := fmt.Sprint(op(doc, "/both")["security"]); got != "[map[bearer:[admin] key:[]]]" {
+		t.Errorf("both: %s", got)
+	}
+	for path, want := range map[string]string{"/either": "401 500 default", "/both": "401 403 500 default", "/open": "500 default"} {
+		if got := statuses(op(doc, path)); got != want {
+			t.Errorf("%s: responses %s, want %s", path, got, want)
+		}
+	}
+	cfg.NoAuthResponses = true
+	if got := statuses(op(spec(cfg), "/both")); got != "500 default" {
+		t.Errorf("NoAuthResponses: %s", got)
+	}
+	cfg.NoAuthResponses = false
+	cfg.Security = []string{"key"}
+	if got := statuses(op(spec(cfg), "/open")); got != "401 500 default" {
+		t.Errorf("default security: %s", got)
+	}
+}
+
+func TestOpenAPITagsAndInfo(t *testing.T) {
+	app := New()
+	app.Get("/a", func(c *Context) error { return nil }).Tags("zebra", "pets")
+	app.Get("/b", func(c *Context) error { return nil }).Tags("apple")
+	admin := app.Group("/admin").Tags("admin").Hidden()
+	admin.Get("/x", func(c *Context) error { return nil })
+	admin.Group("/deep").Get("/y", func(c *Context) error { return nil })
+	raw, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1", Tags: []OpenAPITag{{Name: "pets", Description: "Pets."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Tags  []OpenAPITag   `json:"tags"`
+		Paths map[string]any `json:"paths"`
+	}
+	_ = json.Unmarshal(raw, &doc)
+	// Configured tags first, then the others in the order routes use them;
+	// a hidden group's tags aren't listed.
+	if got := fmt.Sprint(doc.Tags); got != "[{pets Pets. <nil>} {zebra  <nil>} {apple  <nil>}]" {
+		t.Errorf("tags: %s", got)
+	}
+	if doc.Paths["/admin/x"] != nil || doc.Paths["/admin/deep/y"] != nil {
+		t.Errorf("hidden group listed: %v", slices.Collect(maps.Keys(doc.Paths)))
+	}
+
+	for _, tt := range []struct {
+		cfg  OpenAPIConfig
+		want string
+	}{
+		{OpenAPIConfig{License: &OpenAPILicense{Identifier: "MIT"}}, "License needs Name"},
+		{OpenAPIConfig{License: &OpenAPILicense{Name: "MIT", Identifier: "MIT", URL: "https://x"}}, "not both"},
+		{OpenAPIConfig{ExternalDocs: &OpenAPIExternalDocs{}}, "ExternalDocs needs URL"},
+		{OpenAPIConfig{Tags: []OpenAPITag{{Description: "x"}}}, "needs Name"},
+		{OpenAPIConfig{Security: []string{"nope:read"}}, `security scheme "nope:read"`},
+	} {
+		if _, err := New().OpenAPISpec(tt.cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%+v: err = %v, want %q", tt.cfg, err, tt.want)
+		}
+		mustPanicWith(t, tt.want, func() { New().OpenAPI("/openapi.json", tt.cfg) })
+	}
 }

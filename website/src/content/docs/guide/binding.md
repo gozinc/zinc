@@ -38,10 +38,11 @@ Struct tags say where each field comes from, and Zinc converts the text to the f
 | `path:"id"` | Route parameters | `Path` |
 | `query:"page"` | Query string | `Query` |
 | `header:"X-Tenant"` | Request headers | `Header` |
+| `cookie:"session"` | Cookies | `Cookie` |
 | `form:"name"` | URL-encoded or multipart form | `Form` |
 | `json`, `xml` | Request body | `JSON`, `XML`, or `Body` for [other formats](/guide/customization/#body-formats) |
 
-A field is set from the path, query, headers or a form only if it has that tag. A field with no `query` tag can't be set from the query string, even by `All`.
+A field is set from the path, query, headers, cookies or a form only if it has that tag. A field with no `query` tag can't be set from the query string, even by `All`.
 
 :::tip[Bind into an input struct]
 Declare a struct for each handler's input rather than binding into your database model. Then a client can only set the fields you list, and not, say, an `IsAdmin` column.
@@ -110,7 +111,7 @@ if err := c.Bind().JSON(&in); err != nil {
 }
 ```
 
-The methods are `All`, `Path`, `Query`, `Header`, `Form`, `Body` (chosen by `Content-Type`), and the explicit body formats `JSON`, `XML` and `Text`. For YAML, TOML or any other format, configure a [decoder](/guide/customization/#body-formats) and use `Body` or `All`.
+The methods are `All`, `Path`, `Query`, `Header`, `Cookie`, `Form`, `Body` (chosen by `Content-Type`), and the explicit body formats `JSON`, `XML` and `Text`. For YAML, TOML or any other format, configure a [decoder](/guide/customization/#body-formats) and use `Body` or `All`.
 
 :::caution[Each call runs the validator]
 `Path`, `Query`, `JSON` and the other single-source methods each validate straight away. If you call `Path` and then `JSON` on the same struct, the first call validates before the body is read, so a `required` body field fails:
@@ -122,6 +123,22 @@ PUT /users/5  {"name":"Ada"}
 
 Use `All` for input that spans sources. It validates once, after everything is read.
 :::
+
+## Default values
+
+A `default` tag gives a query, header, cookie or form field the value to use when the request leaves it out:
+
+```go
+type ListPets struct {
+	Limit int      `query:"limit" default:"20"`
+	Sort  string   `query:"sort" default:"name"`
+	Kinds []string `query:"kind" default:"cat,dog"`
+}
+```
+
+A request to `/pets` gets `Limit` 20, `Sort` "name" and `Kinds` `[cat dog]`; `/pets?limit=5&kind=bird` gets 5, "name" and `[bird]`. A slice's default separates its values with commas.
+
+The default is checked against the field's type when the struct is first used: at registration for a [typed handler](/guide/typed-handlers/), so `default:"lots"` on an `int` panics at startup. [OpenAPI](/guide/openapi/) specs list each default.
 
 ## Tell a missing value from zero
 
