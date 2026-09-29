@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/internal/prerouting"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -21,9 +22,10 @@ type Config struct {
 }
 
 // New redirects requests whose path matches a rule, keeping the original
-// query string. Register it with App.Use or App.UsePrefix: on a group or a
-// route it only sees paths that have a route, and logs a warning the first
-// time it runs there.
+// query string. Register it with App.Use or App.UsePrefix, so it runs before
+// routing. Registering it on a group panics, since it would only see paths
+// that already have a route; on a single route it logs a warning the first
+// time it runs.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("redirect", configs)
 	rules := shared.CloneRewriteRules(config.Rules)
@@ -33,7 +35,7 @@ func New(configs ...Config) zinc.Middleware {
 	}
 	placement := shared.NewRoutingWarning("redirect")
 
-	return func(c *zinc.Context) error {
+	mw := func(c *zinc.Context) error {
 		placement.Check(c)
 		req := c.Request()
 		if req == nil || req.URL == nil {
@@ -46,4 +48,7 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return c.Status(statusCode).Redirect(shared.PathWithRawQuery(target, req.URL.RawQuery))
 	}
+	// Mark this instance: on a group it would run after routing, so Group.Use panics.
+	prerouting.Mark(mw, "redirect")
+	return mw
 }

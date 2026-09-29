@@ -6,6 +6,7 @@ package rewrite
 
 import (
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/internal/prerouting"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -19,14 +20,15 @@ type Config struct {
 
 // New changes the routed path of matching requests without a redirect.
 // Query parameters remain untouched. Register it with App.Use or
-// App.UsePrefix: on a group or a route it runs after routing, when the route
-// can no longer change, and logs a warning the first time.
+// App.UsePrefix, so it runs before routing. Registering it on a group panics,
+// since the route can no longer change there; on a single route it logs a
+// warning the first time it runs.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("rewrite", configs)
 	rules := shared.CloneRewriteRules(config.Rules)
 	placement := shared.NewRoutingWarning("rewrite")
 
-	return func(c *zinc.Context) error {
+	mw := func(c *zinc.Context) error {
 		placement.Check(c)
 		req := c.Request()
 		if req == nil || req.URL == nil {
@@ -38,4 +40,7 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return c.Next()
 	}
+	// Mark this instance: on a group it would run after routing, so Group.Use panics.
+	prerouting.Mark(mw, "rewrite")
+	return mw
 }

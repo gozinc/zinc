@@ -38,13 +38,14 @@ The handler sees the new path in `c.Path()`, and `c.OriginalURL()` still returns
 Register it with `app.Use`, so it runs before routing picks a handler.
 
 :::caution[Not in a group]
-In a group, routing has already chosen a handler by the time `rewrite` runs. The path changes, but the original route's handler still runs. Use `app.Use`, or `app.UsePrefix` for one subtree.
+In a group, routing has already chosen a handler by the time `rewrite` runs: the path would change, but the original route's handler would still run. Registering it on a group panics at startup:
 
-The first request that reaches a misplaced `rewrite` logs a warning through `slog`:
-
-```text
-time=2026-09-28T02:13:48.899+01:00 level=WARN msg="rewrite middleware runs after routing, so it only sees requests that already matched a route; register it with app.Use or app.UsePrefix" middleware=rewrite route=/api/users
+```go
+app.Group("/api").Use(rewrite.New(cfg))
+// panic: zinc: rewrite middleware on group "/api" would run after routing, where it can't work; register it with app.Use, or app.UsePrefix("/api", ...) for the group's paths
 ```
+
+On a single route it can't change the route either, and logs a warning through `slog` the first time it runs.
 :::
 
 ## Defaults
