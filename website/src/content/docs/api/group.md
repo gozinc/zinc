@@ -25,7 +25,9 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 | `Add`, `Match`, `All` | Routes for custom or multiple methods |
 | `TryHandle(spec) error` | A route from configuration, returning problems as errors |
 | `Tags(tags...) *Group` | [OpenAPI](/guide/openapi/) tags for every route registered in the group from now on, and its child groups. Panics once the group has routes or child groups, like `Use` |
-| `Security(schemes...) *Group` | The security schemes that protect every route registered in the group from now on, in the spec; `Route.Security` overrides it |
+| `Security(schemes...) *Group` | The security schemes that protect every route registered in the group from now on, in the spec; any one is enough. `Route.Security` overrides it |
+| `SecurityAll(schemes...) *Group` | Like `Security`, but every scheme is needed |
+| `Hidden() *Group` | Leaves every route registered in the group from now on, and its child groups' routes, out of the spec |
 | `UseHTTP(middleware...) *Group` | Standard `func(http.Handler) http.Handler` middleware for this group, through `zinc.FromHTTP` |
 | `HandleHTTP(pattern, http.Handler) Route` | A standard handler below the prefix |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree below the prefix |

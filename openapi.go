@@ -6,6 +6,7 @@ package zinc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -28,14 +29,62 @@ type OpenAPIConfig struct {
 	Version string
 	// Description may use Markdown.
 	Description string
+	// TermsOfService is a URL.
+	TermsOfService string
+	Contact        *OpenAPIContact
+	License        *OpenAPILicense
+	// ExternalDocs links to documentation beyond the spec.
+	ExternalDocs *OpenAPIExternalDocs
 	// Servers lists base URLs the API is served from.
 	Servers []OpenAPIServer
+	// Tags describes tags, in the order docs pages list them. Tags that
+	// routes use but Tags leaves out follow, in the order routes use them.
+	Tags []OpenAPITag
 	// SecuritySchemes defines the schemes Route.Security, Group.Security and
 	// Security refer to, by name.
 	SecuritySchemes map[string]OpenAPISecurityScheme
 	// Security names the schemes that protect every route that doesn't set
-	// its own with Route.Security or Group.Security.
+	// its own with Route.Security or Group.Security. Any one of them is
+	// enough. A name can carry a scope: "oauth:pets:read".
 	Security []string
+	// NoAuthResponses leaves out the 401, and the 403 for a route that needs
+	// scopes, that Zinc adds to every secured route.
+	NoAuthResponses bool
+	// Schemas gives a schema to a type Zinc can't describe and you can't add
+	// a SchemaProvider to, such as a type from another module:
+	//
+	//	Schemas: map[reflect.Type]map[string]any{
+	//		reflect.TypeFor[decimal.Decimal](): {"type": "string", "format": "decimal"},
+	//	}
+	Schemas map[reflect.Type]map[string]any
+}
+
+// OpenAPIContact is who to contact about the API.
+type OpenAPIContact struct {
+	Name  string `json:"name,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Email string `json:"email,omitempty"`
+}
+
+// OpenAPILicense is the API's license. Name is required; set Identifier, an
+// SPDX expression such as "MIT", or URL, not both.
+type OpenAPILicense struct {
+	Name       string `json:"name"`
+	Identifier string `json:"identifier,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+// OpenAPIExternalDocs links to documentation outside the spec.
+type OpenAPIExternalDocs struct {
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url"`
+}
+
+// OpenAPITag describes a tag routes use.
+type OpenAPITag struct {
+	Name         string               `json:"name"`
+	Description  string               `json:"description,omitempty"`
+	ExternalDocs *OpenAPIExternalDocs `json:"externalDocs,omitempty"`
 }
 
 // OpenAPIServer is a base URL the API is served from.
@@ -181,8 +230,9 @@ func (a *App) OpenAPISpec(cfg OpenAPIConfig) ([]byte, error) {
 }
 
 // OpenAPI serves the app's OpenAPI 3.1 spec as JSON at path, with GET, and
-// returns the route. It's off unless you call it, so an app never exposes its
-// API's shape by accident.
+// returns the route, in place of the spec an app serves at
+// Config.OpenAPIPath. Use it to protect the spec with middleware, or to
+// serve several specs.
 //
 //	app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{Title: "Shop", Version: "1.4.0"})
 //
@@ -196,14 +246,10 @@ func (a *App) OpenAPISpec(cfg OpenAPIConfig) ([]byte, error) {
 // Hiding the spec isn't access control: protect it, and the API, with auth
 // middleware if the API is private.
 func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc) Route {
-	if _, err := checkSecuritySchemes(cfg.SecuritySchemes); err != nil {
+	if err := checkOpenAPIConfig(cfg); err != nil {
 		panic(err.Error())
 	}
-	for _, name := range cfg.Security {
-		if _, ok := cfg.SecuritySchemes[name]; !ok {
-			panic(fmt.Sprintf("zinc: OpenAPIConfig.Security names security scheme %q, which OpenAPIConfig.SecuritySchemes doesn't define", name))
-		}
-	}
+	a.spec, a.specPath = nil, ""
 	spec := &servedSpec{app: a, cfg: cfg}
 	handlers := append(append([]HandlerFunc(nil), middleware...), spec.serve)
 	return a.Get(path, handlers...).Hidden()
@@ -259,18 +305,23 @@ var oaMethods = []string{
 }
 
 type oaDocument struct {
-	OpenAPI    string                               `json:"openapi"`
-	Info       oaInfo                               `json:"info"`
-	Servers    []OpenAPIServer                      `json:"servers,omitempty"`
-	Security   []map[string][]string                `json:"security,omitempty"`
-	Paths      orderedMap[orderedMap[*oaOperation]] `json:"paths"`
-	Components oaComponents                         `json:"components"`
+	OpenAPI      string                               `json:"openapi"`
+	Info         oaInfo                               `json:"info"`
+	Servers      []OpenAPIServer                      `json:"servers,omitempty"`
+	Security     []map[string][]string                `json:"security,omitempty"`
+	Tags         []OpenAPITag                         `json:"tags,omitempty"`
+	ExternalDocs *OpenAPIExternalDocs                 `json:"externalDocs,omitempty"`
+	Paths        orderedMap[orderedMap[*oaOperation]] `json:"paths"`
+	Components   oaComponents                         `json:"components"`
 }
 
 type oaInfo struct {
-	Title       string `json:"title"`
-	Version     string `json:"version"`
-	Description string `json:"description,omitempty"`
+	Title          string          `json:"title"`
+	Version        string          `json:"version"`
+	Description    string          `json:"description,omitempty"`
+	TermsOfService string          `json:"termsOfService,omitempty"`
+	Contact        *OpenAPIContact `json:"contact,omitempty"`
+	License        *OpenAPILicense `json:"license,omitempty"`
 }
 
 type oaComponents struct {
@@ -374,25 +425,31 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	if cfg.Version != "" {
 		version = cfg.Version
 	}
-	doc := &oaDocument{
-		OpenAPI: "3.1.0",
-		Info:    oaInfo{Title: title, Version: version, Description: cfg.Description},
-		Servers: cfg.Servers,
-	}
-	checkScheme := func(where string, names []string) error {
-		for _, name := range names {
-			if _, ok := cfg.SecuritySchemes[name]; !ok {
-				return fmt.Errorf("zinc: %s names security scheme %q, which OpenAPIConfig.SecuritySchemes doesn't define", where, name)
-			}
-		}
-		return nil
-	}
-	if err := checkScheme("OpenAPIConfig.Security", cfg.Security); err != nil {
+	if err := checkOpenAPIConfig(cfg); err != nil {
 		return nil, err
 	}
-	doc.Security = securityRequirements(cfg.Security)
+	doc := &oaDocument{
+		OpenAPI: "3.1.0",
+		Info: oaInfo{
+			Title: title, Version: version, Description: cfg.Description,
+			TermsOfService: cfg.TermsOfService, Contact: cfg.Contact, License: cfg.License,
+		},
+		Servers:      cfg.Servers,
+		ExternalDocs: cfg.ExternalDocs,
+		Tags:         append([]OpenAPITag(nil), cfg.Tags...),
+	}
+	global, globalScoped, err := securityRequirements(cfg, "OpenAPIConfig.Security", eachAlone(cfg.Security))
+	if err != nil {
+		return nil, err
+	}
+	doc.Security = global
+	tagged := map[string]bool{}
+	for _, tag := range cfg.Tags {
+		tagged[tag.Name] = true
+	}
 
 	g := newSchemaGen()
+	g.types = cfg.Schemas
 	// Without a Validator nothing enforces validate tags, so the spec doesn't
 	// claim their rules.
 	g.validation = a.config.Validator != nil
@@ -409,17 +466,35 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 		if rd.hidden {
 			continue
 		}
-		op, errs := buildOperation(g, a, meta, rd)
-		usesErrors = usesErrors || errs
+		// A secured route can be refused, so it documents 401, and 403
+		// when it needs scopes.
+		reqs, scoped := global, globalScoped
 		if rd.securitySet {
-			if err := checkScheme(fmt.Sprintf("%s %s", meta.method, meta.path), rd.security); err != nil {
+			reqs, scoped, err = securityRequirements(cfg, fmt.Sprintf("%s %s", meta.method, meta.path), rd.security)
+			if err != nil {
 				return nil, err
 			}
-			reqs := securityRequirements(rd.security)
+		}
+		var authErrors []int
+		if len(reqs) > 0 && !cfg.NoAuthResponses {
+			authErrors = append(authErrors, http.StatusUnauthorized)
+			if scoped {
+				authErrors = append(authErrors, http.StatusForbidden)
+			}
+		}
+		op, errs := buildOperation(g, a, meta, rd, authErrors)
+		usesErrors = usesErrors || errs
+		if rd.securitySet {
 			if reqs == nil {
 				reqs = []map[string][]string{}
 			}
 			op.Security = &reqs
+		}
+		for _, tag := range op.Tags {
+			if !tagged[tag] {
+				tagged[tag] = true
+				doc.Tags = append(doc.Tags, OpenAPITag{Name: tag})
+			}
 		}
 		path := oaPath(meta.path)
 		item, _ := doc.Paths.get(path)
@@ -450,7 +525,7 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 
 // buildOperation describes one route, and reports whether it can answer with
 // Zinc's error envelope.
-func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOperation, bool) {
+func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErrors []int) (*oaOperation, bool) {
 	op := &oaOperation{
 		Tags:        rd.tags,
 		Summary:     rd.summary,
@@ -477,7 +552,11 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 	paramSchema := func(f bindingField) (*schema, bool) {
 		sf := fields[f.index]
 		s := g.inputSchemaFor(base(sf.Type))
+		if s.ref != "" {
+			s = &schema{ref: s.ref} // annotations sit beside a shared $ref
+		}
 		required := g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag})
+		s.def = defaultValue(sf.Type, f.def)
 		return s, required
 	}
 	for _, name := range meta.params {
@@ -504,6 +583,11 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 		for _, f := range plan.headerFields {
 			s, required := paramSchema(f)
 			op.Parameters = append(op.Parameters, oaParameter{Name: f.headerName, In: "header", Required: required, Schema: s})
+			hasInput = true
+		}
+		for _, f := range plan.cookieFields {
+			s, required := paramSchema(f)
+			op.Parameters = append(op.Parameters, oaParameter{Name: f.name, In: "cookie", Required: required, Schema: s})
 			hasInput = true
 		}
 	}
@@ -560,6 +644,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 		}
 	}
 	usesErrors := errorBody
+	for _, status := range authErrors {
+		responses[status] = errorResponse(status, errorBody)
+	}
 	for _, status := range rd.errors {
 		responses[status] = errorResponse(status, errorBody)
 	}
@@ -634,6 +721,10 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		for _, f := range plan.formFields {
 			sf := st.Field(f.index)
 			s := g.inputSchemaFor(sf.Type)
+			if s.ref != "" {
+				s = &schema{ref: s.ref}
+			}
+			s.def = defaultValue(sf.Type, f.def)
 			if g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag}) {
 				form.required = append(form.required, f.name)
 				required = true
@@ -658,6 +749,29 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	}
 	body.Required = required
 	return body
+}
+
+// defaultValue writes a default tag's inputs as a JSON value of the field's
+// type: a list for a slice, a string for a type that parses text itself.
+func defaultValue(t reflect.Type, def []string) any {
+	if def == nil {
+		return nil
+	}
+	t = base(t)
+	one := func(text string, t reflect.Type) any {
+		if v, ok := parseScalar(text, t, false); ok {
+			return v
+		}
+		return text
+	}
+	if t.Kind() == reflect.Slice && compileFieldSetter(t).usesAllValues() {
+		out := make([]any, len(def))
+		for i, text := range def {
+			out[i] = one(text, base(t.Elem()))
+		}
+		return out
+	}
+	return one(def[0], t)
 }
 
 // errorResponse describes an error status, with Zinc's error envelope as its
@@ -699,15 +813,76 @@ func oaPath(pattern string) string {
 	return strings.ReplaceAll(pattern, "...}", "}")
 }
 
-func securityRequirements(names []string) []map[string][]string {
-	if len(names) == 0 {
-		return nil
-	}
-	out := make([]map[string][]string, len(names))
+// eachAlone turns scheme names that each suffice into requirements.
+func eachAlone(names []string) [][]string {
+	out := make([][]string, len(names))
 	for i, name := range names {
-		out[i] = map[string][]string{name: {}}
+		out[i] = []string{name}
 	}
 	return out
+}
+
+// securityRequirements writes requirements, each a list of schemes that
+// must all pass, as OpenAPI security requirement objects. A name that isn't
+// a scheme but starts with one and a colon carries a scope:
+// "oauth:pets:read" is scheme oauth with scope pets:read. It reports whether
+// any requirement has a scope.
+func securityRequirements(cfg OpenAPIConfig, where string, reqs [][]string) ([]map[string][]string, bool, error) {
+	if len(reqs) == 0 {
+		return nil, false, nil
+	}
+	scoped := false
+	out := make([]map[string][]string, 0, len(reqs))
+	for _, req := range reqs {
+		m := map[string][]string{}
+		for _, name := range req {
+			scheme, scope := name, ""
+			if _, ok := cfg.SecuritySchemes[name]; !ok {
+				if before, after, found := strings.Cut(name, ":"); found {
+					scheme, scope = before, after
+				}
+			}
+			if _, ok := cfg.SecuritySchemes[scheme]; !ok {
+				return nil, false, fmt.Errorf("zinc: %s names security scheme %q, which OpenAPIConfig.SecuritySchemes doesn't define", where, name)
+			}
+			scopes := m[scheme]
+			if scopes == nil {
+				scopes = []string{}
+			}
+			if scope != "" && !slices.Contains(scopes, scope) {
+				scopes = append(scopes, scope)
+				scoped = true
+			}
+			m[scheme] = scopes
+		}
+		out = append(out, m)
+	}
+	return out, scoped, nil
+}
+
+// checkOpenAPIConfig reports a config the spec can't be valid with.
+func checkOpenAPIConfig(cfg OpenAPIConfig) error {
+	if _, err := checkSecuritySchemes(cfg.SecuritySchemes); err != nil {
+		return err
+	}
+	if _, _, err := securityRequirements(cfg, "OpenAPIConfig.Security", eachAlone(cfg.Security)); err != nil {
+		return err
+	}
+	if l := cfg.License; l != nil && (l.Name == "" || (l.Identifier != "" && l.URL != "")) {
+		return errors.New("zinc: OpenAPIConfig.License needs Name, and Identifier or URL but not both")
+	}
+	if cfg.ExternalDocs != nil && cfg.ExternalDocs.URL == "" {
+		return errors.New("zinc: OpenAPIConfig.ExternalDocs needs URL")
+	}
+	for _, tag := range cfg.Tags {
+		if tag.Name == "" {
+			return errors.New("zinc: every OpenAPIConfig.Tags entry needs Name")
+		}
+		if tag.ExternalDocs != nil && tag.ExternalDocs.URL == "" {
+			return fmt.Errorf("zinc: tag %q: ExternalDocs needs URL", tag.Name)
+		}
+	}
+	return nil
 }
 
 // defaultOpenAPIInfo takes a title and version from the main module.

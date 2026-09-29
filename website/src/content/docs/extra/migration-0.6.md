@@ -1,19 +1,35 @@
 ---
 title: Upgrading to 0.6
-description: What changed in Zinc 0.6. Most apps need no code changes; one misuse of redirect or rewrite now fails at startup.
+description: What changed in Zinc 0.6. Every app now serves an OpenAPI spec at /openapi.json, which a private API must turn off or protect; one misuse of redirect or rewrite now fails at startup.
 slug: extra/migration-0.6
 ---
 
-Most apps move from 0.5 to 0.6 with no code changes. Update the module and run your tests:
+Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
 go get github.com/0mjs/zinc@v0.6.0
 go test ./...
 ```
 
-0.6 adds [OpenAPI](/guide/openapi/): Zinc describes your API from the types you already write, and serves the spec and a docs page if you ask it to. Nothing about how routes serve requests changes, and nothing is served until you call `app.OpenAPI`.
+0.6 adds [OpenAPI](/guide/openapi/): Zinc describes your API from the types you already write, and serves the spec. Nothing about how your routes serve requests changes.
 
 ## What might need a change
+
+### Every app serves its spec at /openapi.json
+
+An app now answers `GET /openapi.json` with an OpenAPI spec that lists every route that isn't hidden, including admin and internal ones. **If your API is private, or you don't want its shape public, you need to change this before you deploy 0.6.** Turn it off:
+
+```go
+app := zinc.New(zinc.Config{OpenAPIPath: "-"})
+```
+
+or protect it with middleware, which replaces the default spec:
+
+```go
+app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{}, requireAPIKey) // requireAPIKey: your middleware
+```
+
+Middleware added with `app.Use` also runs for the default spec, so an app whose every request needs auth is already protected. A route of your own at `/openapi.json` still wins. To keep a route out of the spec, use `.Hidden()` on it, or on its group.
 
 ### Redirect and rewrite on a group fail at startup
 
@@ -28,10 +44,11 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 
 ## What's new
 
-- [OpenAPI](/guide/openapi/): `app.OpenAPI(path, cfg)` serves an OpenAPI 3.1 spec; `app.OpenAPISpec(cfg)` returns it for tests and tooling. Typed handlers are described with no extra code.
-- New `Route` methods for the spec: `Summary`, `Description`, `Tags`, `Deprecated`, `Hidden`, `Input`, `Output`, `Response`, `Errors` and `Security`. `Group` gains `Tags` and `Security`. `Name` also sets the operation ID.
+- [OpenAPI](/guide/openapi/): every app serves an OpenAPI 3.1 spec, described by `Config.OpenAPI`; `app.OpenAPI(path, cfg)` serves it elsewhere or behind middleware, and `app.OpenAPISpec(cfg)` returns it for tests and tooling. Typed handlers are described with no extra code.
+- New `Route` methods for the spec: `Summary`, `Description`, `Tags`, `Deprecated`, `Hidden`, `Input`, `Output`, `Response`, `Errors`, `Security` and `SecurityAll`. `Group` gains `Tags`, `Security`, `SecurityAll` and `Hidden`. `Name` also sets the operation ID.
+- [Binding](/guide/binding/) reads cookies with a `cookie` tag (in typed handlers and `c.Bind().Cookie`), and fills a `default` tag's value when the request leaves a field out.
 - [API Docs](/middleware/apidocs/): a browsable page for the spec, with Scalar, Swagger UI, Stoplight Elements or ReDoc.
-- `zinc.SchemaProvider`, for a type that describes its own JSON Schema.
+- `zinc.SchemaProvider`, for a type that describes its own JSON Schema, and `zinc.EnumProvider`, for a named type that lists its values.
 - [Generate an API Client](/cookbook/openapi-client/): a recipe for a typed Go client with oapi-codegen.
 
 ## Benchmarks are scored with ties

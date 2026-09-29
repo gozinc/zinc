@@ -60,11 +60,16 @@ func securityScenarios() []scenario {
 		{id: "S07", area: "Security", title: "Two schemes on one route",
 			build: secured(map[string]zinc.OpenAPISecurityScheme{"key": {Type: "apiKey", In: "header", Name: "X-API-Key"}, "bearer": {Type: "http", Scheme: "bearer"}}, nil, func(app *zinc.App) {
 				app.Get("/either", noContent).Security("key", "bearer")
+				app.Get("/both", noContent).SecurityAll("key", "bearer")
 			}),
 			expect: func(f *findings, s spec) {
-				f.add("info: Security(key, bearer) means either one: %v", s.op("GET", "/either")["security"])
-			},
-			note: "There's no way to require both schemes together."},
+				if either := asList(s.op("GET", "/either")["security"]); len(either) != 2 {
+					f.add("Security(key, bearer) should be two alternatives: %v", either)
+				}
+				if both := asList(s.op("GET", "/both")["security"]); len(both) != 1 || len(both[0].(map[string]any)) != 2 {
+					f.add("SecurityAll(key, bearer) should be one requirement with both: %v", both)
+				}
+			}},
 		{id: "S08", area: "Security", title: "Unknown scheme name",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
@@ -111,22 +116,22 @@ func metadataScenarios() []scenario {
 				app := zinc.New()
 				g := app.Group("/pets").Tags("pets")
 				g.Get("", noContent).Tags("read")
-				return app, zinc.OpenAPIConfig{}
+				return app, zinc.OpenAPIConfig{Tags: []zinc.OpenAPITag{{Name: "pets", Description: "Everything about pets"}}}
 			},
 			expect: func(f *findings, s spec) {
 				tags := asList(s.op("GET", "/pets")["tags"])
 				if len(tags) != 2 || tags[0] != "pets" {
 					f.add("tags should be [pets read]: %v", tags)
 				}
-				if s.raw["tags"] == nil {
-					f.add("no way to describe a tag (top-level tags)")
+				if tags := asList(s.raw["tags"]); len(tags) != 2 || tags[0].(map[string]any)["description"] != "Everything about pets" {
+					f.add("top-level tags should describe pets, then list read: %v", s.raw["tags"])
 				}
 			}},
 		{id: "M04", area: "Metadata", title: "Hidden route and hidden group",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
 				app.Get("/internal", noContent).Hidden()
-				admin := app.Group("/admin")
+				admin := app.Group("/admin").Hidden()
 				admin.Get("/a", noContent)
 				admin.Get("/b", noContent)
 				return app, zinc.OpenAPIConfig{}
@@ -135,13 +140,18 @@ func metadataScenarios() []scenario {
 				if s.hasPath("/internal") {
 					f.add("hidden route listed")
 				}
-				f.add("info: no Group.Hidden, so /admin/a and /admin/b each need .Hidden(); listed: %v", s.hasPath("/admin/a"))
+				if s.hasPath("/admin/a") || s.hasPath("/admin/b") {
+					f.add("hidden group listed")
+				}
 			}},
-		{id: "M05", area: "Metadata", title: "Info: defaults, description, servers",
+		{id: "M05", area: "Metadata", title: "Info: description, contact, license, terms, servers",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
 				app.Get("/a", noContent)
-				return app, zinc.OpenAPIConfig{Title: "Shop", Version: "2.1.0", Description: "An API.", Servers: []zinc.OpenAPIServer{{URL: "https://api.example.com", Description: "prod"}, {URL: "http://localhost:8080"}}}
+				return app, zinc.OpenAPIConfig{Title: "Shop", Version: "2.1.0", Description: "An API.",
+					Contact: &zinc.OpenAPIContact{Email: "api@example.com"}, License: &zinc.OpenAPILicense{Name: "MIT", Identifier: "MIT"},
+					TermsOfService: "https://example.com/terms", ExternalDocs: &zinc.OpenAPIExternalDocs{URL: "https://example.com/docs"},
+					Servers: []zinc.OpenAPIServer{{URL: "https://api.example.com", Description: "prod"}, {URL: "http://localhost:8080"}}}
 			}},
 		{id: "M06", area: "Metadata", title: "Example on a body field",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
@@ -227,6 +237,28 @@ func servingScenarios() []scenario {
 				return app, zinc.OpenAPIConfig{}
 			},
 			note: "Expected: a registration panic, like any duplicate route."},
+		{id: "V07", area: "Serving", title: "Spec served by default",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New(zinc.Config{OpenAPI: zinc.OpenAPIConfig{Title: "Default", Version: "1"}})
+				app.Get("/a", noContent)
+				if body := fetch(app, "/openapi.json").Body.String(); !strings.Contains(body, `"Default"`) || !strings.Contains(body, `"/a"`) {
+					panic("no spec at /openapi.json: " + body)
+				}
+				off := zinc.New(zinc.Config{OpenAPIPath: "-"})
+				if fetch(off, "/openapi.json").Code != http.StatusNotFound {
+					panic(`OpenAPIPath "-" still serves a spec`)
+				}
+				return app, zinc.OpenAPIConfig{}
+			}},
+		{id: "V08", area: "Serving", title: "A route at /openapi.json beats the default spec",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/openapi.json", func(c *zinc.Context) error { return c.String("mine") })
+				if fetch(app, "/openapi.json").Body.String() != "mine" {
+					panic("the default spec replaced the app's route")
+				}
+				return app, zinc.OpenAPIConfig{}
+			}},
 		{id: "V06", area: "Serving", title: "An app with no routes",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) { return zinc.New(), zinc.OpenAPIConfig{} }},
 	}

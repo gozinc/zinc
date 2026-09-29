@@ -93,6 +93,16 @@ type Config struct {
 	// Nil means DefaultErrorHandler.
 	ErrorHandler ErrorHandler
 
+	// OpenAPIPath is where the app serves its OpenAPI spec, for GET and HEAD
+	// requests that no route or mount answers. Empty means
+	// DefaultOpenAPIPath; "-" serves no spec, as does calling App.OpenAPI.
+	// The spec lists every route that isn't hidden, so for a private API,
+	// protect it with middleware or turn it off.
+	OpenAPIPath string
+	// OpenAPI describes the API in the served spec: its title, version,
+	// security schemes and more.
+	OpenAPI OpenAPIConfig
+
 	// Deprecated: RouteCacheSize is ignored. Zinc 0.5 removed the route
 	// cache: the route tree matches faster than the cache could look a path
 	// up on realistic traffic, and the cache slowed parallel requests.

@@ -162,6 +162,9 @@ const (
 	kindDog kind = "dog"
 )
 
+// Enum lists kind's values: Go can't list a type's constants at run time.
+func (kind) Enum() []any { return []any{kindCat, kindDog} }
+
 type withConstEnum struct {
 	Kind kind `json:"kind"`
 }
@@ -379,7 +382,7 @@ func typeScenarios() []scenario {
 			build: serveValue("/v", withConstEnum{Kind: kindCat}), probes: []probe{get("/v")},
 			expect: func(f *findings, s spec) {
 				_ = kindDog
-				if prop(s.responseSchema("GET", "/v", 200), "kind")["enum"] == nil {
+				if s.resolve(prop(s.responseSchema("GET", "/v", 200), "kind"))["enum"] == nil {
 					f.add("a named string type with const values isn't documented as an enum")
 				}
 			}},
