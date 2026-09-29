@@ -88,10 +88,13 @@ type handlerTypes struct {
 	in, out reflect.Type
 }
 
-// typedPCs holds the code pointer of every closure Typed returns. Closures
-// from instantiations with the same GC shape share one, so a code pointer
-// can't identify the types, but it does identify a Typed closure: no other
-// code has it. The set is bounded by the number of shapes, not calls.
+// typedPCs holds the code pointer of every closure Typed returns, recorded as
+// each is made. Closures from instantiations with the same GC shape share
+// one, so a code pointer can't identify the types, but it does identify a
+// Typed closure: no other code has it. Where the compiler inlines Typed, a
+// call site gets its own copy of the code and so its own pointer; recording
+// each closure as it's made covers that. The set grows with shapes and
+// inlined call sites, not with calls.
 var typedPCs sync.Map
 
 // describeIndex marks the Context describeHandler passes. A request's index
