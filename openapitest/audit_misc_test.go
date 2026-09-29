@@ -153,6 +153,21 @@ func metadataScenarios() []scenario {
 					TermsOfService: "https://example.com/terms", ExternalDocs: &zinc.OpenAPIExternalDocs{URL: "https://example.com/docs"},
 					Servers: []zinc.OpenAPIServer{{URL: "https://api.example.com", Description: "prod"}, {URL: "http://localhost:8080"}}}
 			}},
+		{id: "M07", area: "Metadata", title: "A validator that enforces no tag rules",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				type out struct {
+					Name string `json:"name" validate:"min=3"`
+				}
+				app := zinc.New(zinc.Config{Validator: noopValidator{}})
+				app.Get("/v", zinc.Typed(func(*zinc.Context, struct{}) (out, error) { return out{Name: "x"}, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/v")},
+			expect: func(f *findings, s spec) {
+				if prop(s.responseSchema("GET", "/v", 200), "name")["minLength"] != nil {
+					f.add("the spec claims minLength from a tag no validator enforces")
+				}
+			}},
 		{id: "M06", area: "Metadata", title: "Example on a body field",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				type in struct {
@@ -250,6 +265,17 @@ func servingScenarios() []scenario {
 				}
 				return app, zinc.OpenAPIConfig{}
 			}},
+		{id: "V09", area: "Serving", title: "Metadata changed after the first spec request",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				route := app.Get("/x", noContent)
+				fetch(app, "/openapi.json")
+				route.Hidden()
+				if strings.Contains(fetch(app, "/openapi.json").Body.String(), `"/x"`) {
+					panic("the served spec still lists a route hidden after the first request")
+				}
+				return app, zinc.OpenAPIConfig{}
+			}},
 		{id: "V08", area: "Serving", title: "A route at /openapi.json beats the default spec",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
@@ -263,3 +289,9 @@ func servingScenarios() []scenario {
 			build: func() (*zinc.App, zinc.OpenAPIConfig) { return zinc.New(), zinc.OpenAPIConfig{} }},
 	}
 }
+
+// noopValidator accepts everything: it implements Validator but enforces no
+// validate tags.
+type noopValidator struct{}
+
+func (noopValidator) Validate(any) error { return nil }
