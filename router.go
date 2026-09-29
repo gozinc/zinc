@@ -37,6 +37,10 @@ type routeTable struct {
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
 	staticLongMethods methodMask
+	// routeDocs holds OpenAPI metadata by route index, for documented routes
+	// only. Dispatch never reads it, and it's the last field so adding it
+	// moved nothing dispatch does read.
+	routeDocs map[uint32]*routeDoc
 }
 
 // Add registers handlers for method and path.
@@ -110,6 +114,10 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		r.addStaticSpellings(method, mask, path, route)
 	}
 	r.routeInfos = append(r.routeInfos, info)
+	if types, ok := describeHandler(finalHandler); ok {
+		doc := r.doc(infoIndex)
+		doc.in, doc.out, doc.typed = types.in, types.out, true
+	}
 	r.recordNamedRoute(name, infoIndex)
 	return infoIndex, nil
 }
