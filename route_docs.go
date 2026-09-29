@@ -22,6 +22,8 @@ type routeDoc struct {
 	deprecated  bool
 	hidden      bool
 	responses   []docResponse
+	// errors are statuses the route answers through the error handler.
+	errors []int
 	// security names schemes from the spec config. securitySet tells an
 	// explicit empty list (a public route) from no setting at all.
 	security    []string
@@ -126,6 +128,24 @@ func (r Route) Response(status int, v any) Route {
 		}
 	}
 	doc.responses = append(doc.responses, response)
+	return r
+}
+
+// Errors declares error statuses the route can answer by returning an error,
+// such as zinc.NewError(http.StatusConflict, ...). The spec describes each
+// with the body the error handler writes: Zinc's error envelope with the
+// default handler, or the status alone with a custom one. Use Response for a
+// status the handler writes itself.
+func (r Route) Errors(statuses ...int) Route {
+	doc := r.doc("Errors")
+	for _, status := range statuses {
+		if status < 400 || status > 599 {
+			panic(fmt.Sprintf("zinc: Errors status %d is not an error status", status))
+		}
+		if !slices.Contains(doc.errors, status) {
+			doc.errors = append(doc.errors, status)
+		}
+	}
 	return r
 }
 

@@ -127,6 +127,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             page("Typed Handlers", "/guide/typed-handlers/"),
+            page("OpenAPI", "/guide/openapi/"),
             page("Context", "/guide/context/"),
             page("Templates", "/guide/templates/"),
             page("Static Files", "/guide/static-files/"),
@@ -183,6 +184,7 @@ export default defineConfig({
             page("Typed CRUD API", "/cookbook/typed-crud/"),
             page("SQLite CRUD API", "/cookbook/sqlite-crud-api/"),
             page("Validate Input", "/cookbook/validation/"),
+            page("Generate an API Client", "/cookbook/openapi-client/"),
             page("Signed Webhooks", "/cookbook/signed-webhook/"),
             page("Health and Readiness Checks", "/cookbook/health-readiness/"),
             page("Structured Request Logs with slog", "/cookbook/structured-logging/"),
@@ -231,6 +233,7 @@ export default defineConfig({
             {
               label: "Upgrading",
               items: [
+                page("To 0.6", "/extra/migration-0.6/"),
                 page("To 0.5", "/extra/migration-0.5/"),
                 page("To 0.4", "/extra/migration-0.4/"),
                 page("To 0.3", "/extra/migration-0.3/"),
