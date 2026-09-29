@@ -15,6 +15,7 @@ Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.c
 | `Path(&v)` | Route parameters (`path` tags) |
 | `Query(&v)` | The query string (`query` tags) |
 | `Header(&v)` | Request headers (`header` tags) |
+| `Cookie(&v)` | Cookies (`cookie` tags) |
 | `Form(&v)` | URL-encoded or multipart forms (`form` tags) |
 | `Body(&v)` | The body, decoded according to `Content-Type` |
 | `JSON(&v)`, `XML(&v)`, `Text(&v)` | The body in one format, regardless of `Content-Type`. An empty body is an error. |
@@ -26,10 +27,12 @@ Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.c
 | `path` | `` ID int `path:"id"` `` |
 | `query` | `` Page int `query:"page"` `` |
 | `header` | `` Tenant string `header:"X-Tenant"` `` |
+| `cookie` | `` Session string `cookie:"session"` `` |
+| `default` | `` Limit int `query:"limit" default:"20"` ``: the value when the request leaves the field out; commas separate a slice's values |
 | `form` | `` Avatar *multipart.FileHeader `form:"avatar"` `` |
 | `json`, `xml` | Standard encoding tags for the body; a configured decoder uses its library's tags, such as `yaml` |
 
-A field binds from path, query, header, or form only when it has that source's tag. `query:",omitempty"` uses the field name in lower case, and `query:"-"` is the same as no tag.
+A field binds from path, query, header, cookie, or form only when it has that source's tag. `query:",omitempty"` uses the field name in lower case, and `query:"-"` is the same as no tag.
 
 Values convert to strings, booleans, signed and unsigned integers, floats, pointers to those, and slices. Multipart fields accept `multipart.FileHeader`, `*multipart.FileHeader`, and slices of either.
 
@@ -37,7 +40,7 @@ Values convert to strings, booleans, signed and unsigned integers, floats, point
 
 ```go
 type BindError struct {
-	Source string // "path", "query", "header", "form", or "body"
+	Source string // "path", "query", "header", "cookie", "form", or "body"
 	Field  string // the Go struct field, for logs
 	Name   string // the request-facing name: the tag value, or the JSON field path
 	Reason string // a client-safe description, such as "must be an integer"

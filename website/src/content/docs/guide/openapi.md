@@ -1,9 +1,9 @@
 ---
 title: OpenAPI
-description: Describe your API as an OpenAPI 3.1 spec from the types you already write, serve it, and show a docs page. No comments to maintain.
+description: Zinc describes your API as an OpenAPI 3.1 spec from the types you already write, serves it, and can show a docs page. No comments to maintain.
 ---
 
-Zinc can describe your API as an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) spec: every route, its parameters, request body and responses. Use it to show a browsable docs page, generate client code, or check a change doesn't break your API's shape.
+Zinc describes your API as an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) spec: every route, its parameters, request body and responses. Every app serves it at `/openapi.json`. Use it to show a browsable docs page, generate client code, or check a change doesn't break your API's shape.
 
 The spec comes from your code, not from comments. A typed handler already says what it takes and returns, so it needs nothing extra:
 
@@ -31,13 +31,14 @@ type CreatePet struct {
 }
 
 func main() {
-	app := zinc.New()
+	app := zinc.New(zinc.Config{
+		OpenAPI: zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"},
+	})
 
 	app.Post("/stores/{store}/pets", zinc.Typed(func(c *zinc.Context, in CreatePet) (Pet, error) {
 		return Pet{ID: 7, Name: in.Name, Kind: in.Kind}, nil
 	})).Status(http.StatusCreated).Summary("Add a pet").Tags("pets")
 
-	app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"})
 	app.Get("/docs", apidocs.New()).Hidden()
 
 	log.Fatal(app.Listen(":8080"))
@@ -70,14 +71,14 @@ curl http://localhost:8080/openapi.json
 }
 ```
 
-The spec is off until you call `app.OpenAPI`, so an app never exposes its routes' shape by accident.
+The spec is public by default. For a private API, [protect it or turn it off](#serve-the-spec).
 
 ## What a typed handler gives the spec
 
 | From | Becomes |
 |---|---|
 | `path:"store"` fields | Path parameters, with the field's type. Every `{name}` in the route is listed, as a string if no field binds it. |
-| `query` and `header` fields | Query and header parameters. `validate:"required"` makes one required. |
+| `query`, `header` and `cookie` fields | Query, header and cookie parameters. `validate:"required"` makes one required, and `default:"20"` documents the value [binding](/guide/binding/#default-values) fills in when the request leaves it out. |
 | `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required only with `validate:"required"` and a validator. |
 | `form` fields | A form body, or `multipart/form-data` when a field holds a file. A field tagged both `json` and `form` is in both bodies, since binding reads it from either. |
 | The output type | The success response. `zinc.NoContent` gives `204` with no body. Fields without `omitempty` are required, since they're always sent. |
@@ -155,12 +156,27 @@ cfg := zinc.OpenAPIConfig{
 	},
 }
 
+app := zinc.New(zinc.Config{OpenAPI: cfg})
 admin := app.Group("/admin", requireToken).Tags("admin").Security("bearer") // requireToken: your auth middleware
 admin.Delete("/pets/{id}", zinc.Typed(deletePet))
-app.OpenAPI("/openapi.json", cfg)
 ```
 
 `Security` only documents how the route is protected. Enforcing it is your middleware's job, here `requireToken`. A scheme name that isn't in `SecuritySchemes` is an error when the spec is built.
+
+| Call | Means |
+|---|---|
+| `.Security("key", "bearer")` | Either scheme is enough |
+| `.SecurityAll("key", "bearer")` | Both are needed, together |
+| `.Security("oauth:pets:read")` | Scheme `oauth`, with scope `pets:read` |
+| `.Security()` | Public, overriding the group's or the default |
+
+A secured route documents a `401`, and a `403` when it needs a scope, since its auth answers with them. Set `NoAuthResponses` in `OpenAPIConfig` to leave them out.
+
+`Hidden` on a group leaves its routes, and its child groups' routes, out of the spec:
+
+```go
+internal := app.Group("/internal").Hidden()
+```
 
 An OAuth 2 scheme lists its flows:
 
@@ -178,22 +194,44 @@ A scheme missing something its type needs, such as an `oauth2` scheme without fl
 
 ## Serve the spec
 
-`app.OpenAPI(path, cfg)` adds a hidden `GET` route for the spec. The spec is built on the first request and kept; routes you register later are picked up on the next one.
-
-Pass middleware to protect it:
+Every app serves its spec at `/openapi.json`, for `GET` and `HEAD`. Describe the API with `Config.OpenAPI`:
 
 ```go
-app.OpenAPI("/openapi.json", cfg, requireAPIKey) // requireAPIKey: your middleware
+app := zinc.New(zinc.Config{
+	OpenAPI: zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"},
+})
 ```
+
+The spec is built on the first request and kept; routes you register later are picked up on the next one. The spec isn't a route: a route of your own at the same path wins, and it isn't listed in the spec. Middleware added with `app.Use` runs for it like any request.
+
+:::caution[The spec is public by default]
+The spec lists every route that isn't hidden, including admin and internal ones. For a private API, protect it or turn it off.
+:::
+
+| To | Do |
+|---|---|
+| Serve it at another path | `zinc.Config{OpenAPIPath: "/api/openapi.json"}` |
+| Serve no spec | `zinc.Config{OpenAPIPath: "-"}` |
+| Protect it with middleware | `app.OpenAPI("/openapi.json", cfg, requireAPIKey)` (`requireAPIKey`: your middleware). It replaces the default spec. |
+| Serve several specs | Call `app.OpenAPI` once for each path and config |
 
 | `OpenAPIConfig` field | Default | Meaning |
 |---|---|---|
 | `Title` | Your main module's name | The API's name |
 | `Version` | Your main module's version, or `0.0.0` | Your API's version, not Zinc's |
 | `Description` | none | Markdown |
+| `TermsOfService` | none | A URL |
+| `Contact` | none | `&zinc.OpenAPIContact{Name, URL, Email}` |
+| `License` | none | `&zinc.OpenAPILicense{Name: "MIT", Identifier: "MIT"}`; an SPDX `Identifier` or a `URL`, not both |
+| `ExternalDocs` | none | `&zinc.OpenAPIExternalDocs{URL: "https://example.com/docs"}` |
 | `Servers` | none | Base URLs, such as `{URL: "https://api.example.com"}` |
+| `Tags` | none | Tag descriptions, in the order docs pages list them. Tags that routes use but `Tags` leaves out follow, in the order they're used |
 | `SecuritySchemes` | none | The schemes `Security` refers to, by name |
 | `Security` | none | Schemes for every route that doesn't set its own |
+| `NoAuthResponses` | `false` | Leaves out the `401` and `403` that secured routes get |
+| `Schemas` | none | Schemas for types from other packages; see [below](#types-from-other-packages) |
+
+A config the spec can't be valid with, such as a license without a name, panics in `zinc.New` and `app.OpenAPI`, and is an error from `app.OpenAPISpec`.
 
 To show the spec as a page, add [API Docs](/middleware/apidocs/).
 
@@ -220,7 +258,7 @@ The output is the same for the same routes, so the file only changes when the AP
 | Go | Schema |
 |---|---|
 | `string`, `bool` | `string`, `boolean` |
-| integers | `integer` with format `int32` or `int64`; unsigned types have `minimum: 0`, and `uint`, `uint64` and `uintptr` have no format, since `int64` can't hold their largest values |
+| integers | `integer` with format `int32` or `int64`. 8- and 16-bit types, and `uint32`, have their range as `minimum` and `maximum`; unsigned types have `minimum: 0`; `uint`, `uint64` and `uintptr` have no format, since `int64` can't hold their largest values |
 | `float32`, `float64` | `number` with format `float` or `double` |
 | `[]T`, `[N]T` | `array`; in a response, a slice can also be `null` |
 | `[]byte` | a base64 string |
@@ -228,7 +266,10 @@ The output is the same for the same routes, so the file only changes when the AP
 | `*T` | T, or `null` |
 | `time.Time` | a `date-time` string |
 | `json.Number` | `number` |
-| named structs | a shared schema under `components/schemas`, referenced with `$ref` |
+| `uuid.UUID` ([google](https://pkg.go.dev/github.com/google/uuid) or [gofrs](https://pkg.go.dev/github.com/gofrs/uuid)) | a `uuid` string |
+| `*big.Int`, `netip.Addr`, `net.IP`, `decimal.Decimal` | `integer` for `big.Int`; the others are strings |
+| other types with `MarshalText` | a string |
+| named structs | a shared schema under `components/schemas`, referenced with `$ref`. A generic one is named after its arguments: `Page[User]` is `PageUser` |
 
 Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embedded structs. Fields promoted from an embedded pointer aren't required in a response, since a nil pointer leaves them out. Three more tags add detail:
 
@@ -237,6 +278,7 @@ Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embe
 | `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices. Only when the app has a validator. With `omitempty`, the zero value is allowed too, as the validator allows it. |
 | `doc:"The pet's ID."` | A description |
 | `example:"7"` | An example value |
+| `enum:"s,m,l"` | The values the field takes, or its elements for a slice. It documents them; `validate:"oneof=s m l"` enforces them |
 
 With a [validator](/guide/binding/#validation) configured, the `Pet` above becomes:
 
@@ -254,6 +296,27 @@ With a [validator](/guide/binding/#validation) configured, the `Pet` above becom
 
 Without a validator, the same schema keeps `description` and `examples` but drops `minLength`, `maxLength`, `enum` and `required`: nothing would enforce them.
 
+### Enums
+
+Go can't list a type's constants at run time, so a named type lists its values with an `Enum` method. It becomes one shared schema, which every field of the type refers to:
+
+```go
+type Kind string
+
+const (
+	Cat Kind = "cat"
+	Dog Kind = "dog"
+)
+
+func (Kind) Enum() []any { return []any{Cat, Dog} }
+```
+
+```json
+"Kind": { "type": "string", "enum": ["cat", "dog"] }
+```
+
+### Describe a type yourself
+
 When a type's JSON doesn't match its Go shape, such as one with its own `MarshalJSON`, describe it yourself with `zinc.SchemaProvider`:
 
 ```go
@@ -263,6 +326,20 @@ func (Date) OpenAPISchema() map[string]any {
 	return map[string]any{"type": "string", "format": "date"}
 }
 ```
+
+### Types from other packages
+
+A type from another module can't gain a method. Give it a schema in `OpenAPIConfig.Schemas` instead:
+
+```go
+cfg := zinc.OpenAPIConfig{
+	Schemas: map[reflect.Type]map[string]any{
+		reflect.TypeFor[money.Amount](): {"type": "string", "format": "decimal"}, // money: another module
+	},
+}
+```
+
+An entry there wins over everything else, including the types Zinc knows, such as `uuid.UUID`.
 
 ## Good to know
 

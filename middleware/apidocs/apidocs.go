@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
 
 // Package apidocs serves a browsable reference page for an OpenAPI spec,
-// such as the one App.OpenAPI serves.
+// such as the one every Zinc app serves at /openapi.json.
 package apidocs
 
 import (
@@ -27,8 +27,8 @@ const (
 	Redoc     UI = "redoc"      // redoc 2.5.4
 )
 
-// DefaultSpec is the spec URL used when Config.Spec is empty. It's where the
-// docs suggest serving the spec with App.OpenAPI.
+// DefaultSpec is the spec URL used when Config.Spec is empty. It's where a
+// Zinc app serves its spec unless zinc.Config.OpenAPIPath says otherwise.
 const DefaultSpec = "/openapi.json"
 
 // Config controls the docs page.
@@ -151,7 +151,7 @@ func Files(ui UI) []Asset {
 // New renders the docs page once and serves it. Register it on a GET route
 // and hide that route from the spec:
 //
-//	app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{Title: "Shop"})
+//	app := zinc.New(zinc.Config{OpenAPI: zinc.OpenAPIConfig{Title: "Shop"}})
 //	app.Get("/docs", apidocs.New()).Hidden()
 //
 // It panics on an unknown UI.

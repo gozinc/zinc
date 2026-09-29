@@ -68,6 +68,12 @@ func (a *App) dispatch(ctx *Context) error {
 		return mount.serve(ctx)
 	}
 
+	// The default spec is checked only after routing missed, so matched
+	// requests pay nothing for it.
+	if a.spec != nil && path == a.specPath && (method == MethodGet || method == MethodHead) {
+		return a.spec.serve(ctx)
+	}
+
 	if handled, err := a.handleRouteNotFound(ctx); handled {
 		return err
 	}

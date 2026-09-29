@@ -98,6 +98,7 @@ The input is a struct, and each field's tag says where its value comes from:
 | `path:"org"` | A route parameter |
 | `query:"dry_run"` | The query string |
 | `header:"X-Trace-ID"` | A request header |
+| `cookie:"session"` | A cookie |
 | `json:"email"` (or `xml`, `form`) | The body |
 
 Only tagged fields are filled. [Binding](/guide/binding/) covers the supported types and tag options.
@@ -233,7 +234,7 @@ A status you set inside the function with `c.Status(...)` wins over the one decl
 
 ### Headers bind only in typed handlers
 
-`c.Bind().All` fills path, query and body fields. A typed handler fills `header` fields as well. To read headers into a struct in a plain handler, call `c.Bind().Header`.
+`c.Bind().All` fills path, query and body fields. A typed handler fills `header` and `cookie` fields as well. To read them into a struct in a plain handler, call `c.Bind().Header` or `c.Bind().Cookie`.
 
 ### Mistakes show up at startup
 
@@ -241,7 +242,7 @@ A status you set inside the function with `c.Status(...)` wins over the one decl
 
 ### An empty body is allowed
 
-A request with no body still binds path, query and header fields, then runs the validator. A `required` body field comes back as a `422`, not a `400`.
+A request with no body still binds path, query, header and cookie fields, then runs the validator. A `required` body field comes back as a `422`, not a `400`.
 
 ## Next steps
 

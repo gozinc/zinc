@@ -21,6 +21,10 @@ import (
 // DefaultListenAddr is used when Listen receives no address or an empty one.
 const DefaultListenAddr = ":8080"
 
+// DefaultOpenAPIPath is where an app serves its OpenAPI spec unless
+// Config.OpenAPIPath says otherwise.
+const DefaultOpenAPIPath = "/openapi.json"
+
 // Map is a concise map type for dynamic JSON and template data.
 type Map map[string]any
 
@@ -215,6 +219,10 @@ type App struct {
 	autoHead         bool
 	autoOptions      bool
 	methodNotAllowed bool
+	// spec is the spec served at specPath when no route matches it; nil when
+	// Config.OpenAPIPath is "-" or App.OpenAPI took over.
+	spec     *servedSpec
+	specPath string
 }
 
 // New creates an App. With no Config, or with a zero-valued field, Zinc's
@@ -250,6 +258,16 @@ func New(config ...Config) *App {
 	if cfg.ServerHeader != "" {
 		app.serverHeader = []string{cfg.ServerHeader}
 	}
+	if cfg.OpenAPIPath != "-" {
+		if !strings.HasPrefix(cfg.OpenAPIPath, "/") {
+			panic(fmt.Sprintf("zinc: Config.OpenAPIPath %q must start with / or be \"-\"", cfg.OpenAPIPath))
+		}
+		if err := checkOpenAPIConfig(cfg.OpenAPI); err != nil {
+			panic(err.Error())
+		}
+		app.spec = &servedSpec{app: app, cfg: cfg.OpenAPI}
+		app.specPath = cfg.OpenAPIPath
+	}
 	return app
 }
 
@@ -263,6 +281,9 @@ func normalizeConfig(cfg Config) Config {
 	cfg.ShutdownTimeout = orDefault(cfg.ShutdownTimeout, DefaultShutdownTimeout)
 	if cfg.ProxyHeader == "" {
 		cfg.ProxyHeader = DefaultProxyHeader
+	}
+	if cfg.OpenAPIPath == "" {
+		cfg.OpenAPIPath = DefaultOpenAPIPath
 	}
 	if cfg.ErrorHandler == nil {
 		cfg.ErrorHandler = DefaultErrorHandler

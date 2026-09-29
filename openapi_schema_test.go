@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"encoding/json"
+	"math/big"
 	"net/netip"
 	"reflect"
 	"strings"
@@ -32,8 +33,9 @@ func TestSchemaScalarsAndContainers(t *testing.T) {
 		{reflect.TypeFor[named](), `{"type":"string"}`},
 		{reflect.TypeFor[int](), `{"type":"integer","format":"int64"}`},
 		{reflect.TypeFor[int32](), `{"type":"integer","format":"int32"}`},
-		{reflect.TypeFor[uint8](), `{"type":"integer","format":"int32","minimum":0}`},
-		{reflect.TypeFor[uint32](), `{"type":"integer","format":"int64","minimum":0}`},
+		{reflect.TypeFor[int8](), `{"type":"integer","format":"int32","minimum":-128,"maximum":127}`},
+		{reflect.TypeFor[uint8](), `{"type":"integer","format":"int32","minimum":0,"maximum":255}`},
+		{reflect.TypeFor[uint32](), `{"type":"integer","format":"int64","minimum":0,"maximum":4294967295}`},
 		{reflect.TypeFor[uint64](), `{"type":"integer","minimum":0}`}, // no format holds it
 		{reflect.TypeFor[float32](), `{"type":"number","format":"float"}`},
 		{reflect.TypeFor[float64](), `{"type":"number","format":"double"}`},
@@ -267,7 +269,7 @@ func TestSchemaNamesAndRecursion(t *testing.T) {
 	g := newSchemaGen()
 	g.schemaFor(reflect.TypeFor[schemaPage[schemaUser]]())
 	g.schemaFor(reflect.TypeFor[schemaNode]())
-	for _, name := range []string{"schemaPage_zinc.schemaUser", "schemaNode", "schemaUser", "schemaAddress"} {
+	for _, name := range []string{"schemaPageSchemaUser", "schemaNode", "schemaUser", "schemaAddress"} {
 		if g.components[name] == nil {
 			t.Fatalf("missing component %q; have %v", name, keysOf(g.components))
 		}
@@ -306,10 +308,14 @@ func keysOf(m map[string]*schema) []string {
 
 func TestSanitizeComponentName(t *testing.T) {
 	for in, want := range map[string]string{
-		"User":                                   "User",
-		"Page[example.com/shop.User]":            "Page_shop.User",
-		"Pair[int,github.com/a/b.Thing]":         "Pair_int_b.Thing",
-		"Map[string,map[string]example.com/x.Y]": "Map_string_map_string_x.Y",
+		"User":                                        "User",
+		"Page[example.com/shop.User]":                 "PageUser",
+		"Pair[int,github.com/a/b.Thing]":              "PairIntThing",
+		"Map[string,map[string]example.com/x.Y]":      "MapStringMapStringY",
+		"Page[[]*example.com/shop.User]":              "PageListUser",
+		"Box[[4]int]":                                 "BoxArrayInt",
+		"Page[example.com/x.Box[example.com/y.Item]]": "PageBoxItem",
+		"Wrap[github.com/satori/go.uuid.UUID]":        "WrapUUID",
 	} {
 		if got := sanitizeComponentName(in); got != want {
 			t.Errorf("%q: got %q, want %q", in, got, want)
@@ -334,5 +340,32 @@ func TestSchemaValidateOmitEmptyAllowsZero(t *testing.T) {
 	want := `{"type":"object","properties":{"kind":{"type":"string","enum":["cat","dog",""]},"email":{"type":"string","maxLength":80},"age":{"type":"integer","format":"int64","maximum":30},"size":{"type":"integer","format":"int64","enum":[1,2,0]},"tags":{"type":"array","items":{"type":"integer","format":"int64"}},"code":{"type":"string","enum":["a","b"]}}}`
 	if got := schemaJSON(t, g.components[name]); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+}
+
+type schemaLevel int
+
+func (schemaLevel) Enum() []any { return []any{1, 2, 3} }
+
+type schemaMoneyAmount struct{ Units int64 }
+
+func TestSchemaEnumsAndTypeMap(t *testing.T) {
+	type holder struct {
+		Level  schemaLevel       `json:"level"`
+		Levels []schemaLevel     `json:"levels"`
+		Size   string            `json:"size" enum:"s, m, l"`
+		Sizes  []int             `json:"sizes" enum:"1,2"`
+		Price  schemaMoneyAmount `json:"price"`
+		Big    *big.Int          `json:"big"`
+	}
+	g := newSchemaGen()
+	g.types = map[reflect.Type]map[string]any{reflect.TypeFor[schemaMoneyAmount](): {"type": "string", "format": "decimal"}}
+	g.schemaFor(reflect.TypeFor[holder]())
+	want := `{"type":"object","properties":{"level":{"$ref":"#/components/schemas/schemaLevel"},"levels":{"type":["array","null"],"items":{"$ref":"#/components/schemas/schemaLevel"}},"size":{"type":"string","enum":["s","m","l"]},"sizes":{"type":["array","null"],"items":{"type":"integer","format":"int64","enum":[1,2]}},"price":{"format":"decimal","type":"string"},"big":{"type":["integer","null"]}},"required":["level","levels","size","sizes","price","big"]}`
+	if got := schemaJSON(t, g.components["holder"]); got != want {
+		t.Errorf("\n got %s\nwant %s", got, want)
+	}
+	if got := schemaJSON(t, g.components["schemaLevel"]); got != `{"type":"integer","enum":[1,2,3]}` {
+		t.Errorf("enum component: %s", got)
 	}
 }

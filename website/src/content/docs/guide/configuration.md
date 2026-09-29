@@ -34,6 +34,7 @@ For limits and timeouts, `0` means the default and a negative value, such as `-1
 | Read the client's IP behind a load balancer | [`TrustedProxies`](#proxies) |
 | Treat `/Users` and `/users` as different routes | [`CaseSensitive`](#routing) |
 | Give every cookie a `SameSite` mode | [`CookieSameSite`](#cookies) |
+| Name the API in its spec, or stop serving the spec | [`OpenAPI`, `OpenAPIPath`](#openapi) |
 | Change the error format, validator, templates or body formats | [`ErrorHandler`, `Validator`, `Renderer`, `Decoders`, `Encoders`](#replace-a-built-in-default) |
 
 ## Routing
@@ -121,6 +122,17 @@ curl -i http://localhost:8080/login
 | `TrustedProxies` | none | IP addresses or CIDRs allowed to set that header. With none, forwarding headers are ignored. |
 
 [Client IP and Proxies](/guide/ip-address/) explains how to set these safely.
+
+## OpenAPI
+
+Every app serves an [OpenAPI](/guide/openapi/) spec of its routes.
+
+| Field | Default | Effect |
+|---|---|---|
+| `OpenAPIPath` | `"/openapi.json"` | Where the spec is served, for `GET` and `HEAD`. `"-"` serves none. |
+| `OpenAPI` | Your module's name and version | The spec's title, version, security schemes and more: an `OpenAPIConfig`. |
+
+The spec lists every route that isn't hidden. For a private API, protect it with middleware or set `OpenAPIPath: "-"`.
 
 ## Replace a built-in default
 

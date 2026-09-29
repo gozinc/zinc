@@ -64,7 +64,11 @@ type headerRequired struct {
 }
 
 type queryDefault struct {
-	Limit int `query:"limit"` // the handler defaults it to 20
+	Limit int `query:"limit" default:"20"`
+}
+
+type cookieInput struct {
+	Session string `cookie:"session" validate:"required"`
 }
 
 type pathAndQuery struct {
@@ -219,28 +223,24 @@ func paramScenarios() []scenario {
 			}},
 		{id: "P13", area: "Parameters", title: "Cookie read in the handler",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
-				app := zinc.New()
-				app.Get("/me", func(c *zinc.Context) error {
-					ck, err := c.Request().Cookie("session")
-					if err != nil {
-						return zinc.ErrUnauthorized
-					}
-					return c.JSON(map[string]string{"session": ck.Value})
-				}).Output(map[string]string{}).Errors(http.StatusUnauthorized)
+				app := zinc.New(validated())
+				app.Get("/me", zinc.Typed(func(_ *zinc.Context, in cookieInput) (map[string]string, error) {
+					return map[string]string{"session": in.Session}, nil
+				}))
 				return app, zinc.OpenAPIConfig{}
 			},
-			probes: []probe{{method: "GET", target: "/me", header: http.Header{"Cookie": {"session=abc"}}, status: 200}},
+			probes: []probe{{method: "GET", target: "/me", header: http.Header{"Cookie": {"session=abc"}}, status: 200}, {method: "GET", target: "/me", status: 422}},
 			expect: func(f *findings, s spec) {
-				if s.param("GET", "/me", "cookie", "session") == nil {
-					f.add("no way to document a cookie parameter")
+				if p := s.param("GET", "/me", "cookie", "session"); p == nil || p["required"] != true {
+					f.add("session should be a required cookie parameter: %v", p)
 				}
 			}},
 		{id: "P14", area: "Parameters", title: "Query parameter with a default",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
 				app.Get("/q", zinc.Typed(func(_ *zinc.Context, in queryDefault) (queryDefault, error) {
-					if in.Limit == 0 {
-						in.Limit = 20
+					if in.Limit != 20 {
+						panic("the default didn't bind")
 					}
 					return in, nil
 				}))

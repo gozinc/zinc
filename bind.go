@@ -31,7 +31,7 @@ type Bind struct {
 
 // BindError identifies the request source and struct field that failed.
 type BindError struct {
-	// Source is "path", "query", "header", "form", or "body".
+	// Source is "path", "query", "header", "cookie", "form", or "body".
 	Source string
 	// Field is the Go struct field, for logs.
 	Field string
@@ -55,6 +55,7 @@ var bindSourceNouns = map[string]string{
 	"path":   "path parameter",
 	"query":  "query parameter",
 	"header": "header",
+	"cookie": "cookie",
 	"form":   "form field",
 }
 
@@ -101,9 +102,10 @@ func bindAll(c *Context, v any) error {
 	return bindRequest(c, v, false)
 }
 
-// bindRequest fills v from the body first, then headers when withHeaders is
-// set, then query values, then path parameters, and validates once at the
-// end. Later sources overwrite earlier ones, so a value from the URL always
+// bindRequest fills v from the body first, then headers and cookies when
+// withHeaders is set, then query values, then path parameters, and validates
+// once at the end. Default tags fill their fields before any source. Later
+// sources overwrite earlier ones, so a value from the URL always
 // wins over a body key that happens to match the same field: encoding/json
 // matches keys case-insensitively, so {"id": ...} would otherwise replace a
 // `path:"id"` field.
@@ -126,6 +128,14 @@ func bindRequest(c *Context, v any, withHeaders bool) error {
 	if err != nil {
 		return err
 	}
+	if plan.hasDefaults {
+		applyDefaults(val, plan.formFields)
+		applyDefaults(val, plan.queryFields)
+		if withHeaders {
+			applyDefaults(val, plan.headerFields)
+			applyDefaults(val, plan.cookieFields)
+		}
+	}
 	if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
 		return err
 	}
@@ -133,6 +143,11 @@ func bindRequest(c *Context, v any, withHeaders bool) error {
 	if withHeaders && len(plan.headerFields) > 0 && req != nil {
 		if err := bindFieldsFromHeader(val, plan.headerFields, req.Header); err != nil {
 			return wrapBindError("header", err)
+		}
+	}
+	if withHeaders && len(plan.cookieFields) > 0 {
+		if err := bindFieldsFromCookies(val, plan.cookieFields, req); err != nil {
+			return wrapBindError("cookie", err)
 		}
 	}
 	if len(plan.queryFields) > 0 && req != nil && req.URL != nil && req.URL.RawQuery != "" {
@@ -246,6 +261,9 @@ func bindQuery(c *Context, v any) error {
 	if err != nil {
 		return err
 	}
+	if plan.hasDefaults {
+		applyDefaults(val, plan.queryFields)
+	}
 	if err := bindFieldsFromValues(val, plan.queryFields, c.QueryValues()); err != nil {
 		return wrapBindError("query", err)
 	}
@@ -265,6 +283,9 @@ func bindForm(c *Context, v any) error {
 	}
 	if err := c.limitFormBody(); err != nil {
 		return wrapBindError("form", err)
+	}
+	if plan.hasDefaults {
+		applyDefaults(val, plan.formFields)
 	}
 	if requestMediaType(c.Header(HeaderContentType)) == "multipart/form-data" {
 		if err := bindMultipartForm(val, plan, req); err != nil {
@@ -288,8 +309,26 @@ func bindHeader(c *Context, v any) error {
 	if err != nil {
 		return err
 	}
+	if plan.hasDefaults {
+		applyDefaults(val, plan.headerFields)
+	}
 	if err := bindFieldsFromHeader(val, plan.headerFields, c.Request().Header); err != nil {
 		return wrapBindError("header", err)
+	}
+	return c.Validate(v)
+}
+
+// bindCookie binds request cookies, then validates v.
+func bindCookie(c *Context, v any) error {
+	val, plan, err := bindTargetPlan(v)
+	if err != nil {
+		return err
+	}
+	if plan.hasDefaults {
+		applyDefaults(val, plan.cookieFields)
+	}
+	if err := bindFieldsFromCookies(val, plan.cookieFields, c.Request()); err != nil {
+		return wrapBindError("cookie", err)
 	}
 	return c.Validate(v)
 }
@@ -382,6 +421,11 @@ func (b *Bind) Query(v any) error {
 // Header binds request headers, then validates v.
 func (b *Bind) Header(v any) error {
 	return bindHeader(b.c, v)
+}
+
+// Cookie binds request cookies into fields tagged cookie, then validates v.
+func (b *Bind) Cookie(v any) error {
+	return bindCookie(b.c, v)
 }
 
 // Path binds route parameters, then validates v.
