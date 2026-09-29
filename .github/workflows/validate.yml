@@ -23,13 +23,18 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
-          cache-dependency-path: benchmarks/go.sum
+          cache-dependency-path: |
+            benchmarks/go.sum
+            openapitest/go.sum
       - run: go test -race ./...
       - name: Allocation checks, without -race
         run: go test -run 'Alloc' ./...
       - run: go vet ./...
       - run: go test -race ./...
         working-directory: benchmarks
+      # The generated OpenAPI spec must be valid 3.1 (testdata/openapi/golden.json).
+      - run: go vet ./... && go test ./...
+        working-directory: openapitest
       - run: go test -race -run '^$' -bench '^BenchmarkParallel' -benchtime 100x ./...
         working-directory: benchmarks
       - if: matrix.go == '1.27.x'

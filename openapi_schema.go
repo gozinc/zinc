@@ -14,11 +14,6 @@ import (
 	"time"
 )
 
-// P2 adds the schema generator; P3's spec builder is its first caller.
-// P3 removes this directive, and staticcheck flags it if it doesn't.
-//
-//lint:file-ignore U1000 used by the OpenAPI spec builder from 0.6 P3
-
 // SchemaProvider lets a type describe itself in the OpenAPI spec when the
 // schema Zinc derives from its Go shape would be wrong, such as a type with a
 // custom MarshalJSON. OpenAPISchema returns a JSON Schema 2020-12 object,
@@ -36,6 +31,7 @@ type schema struct {
 	format               string
 	description          string
 	contentEncoding      string
+	contentMediaType     string
 	properties           []property
 	required             []string
 	additionalProperties *schema
@@ -345,7 +341,9 @@ func jsonFields(t reflect.Type) []jsonField {
 				depth:  depth,
 				tagged: name != "",
 				index:  append(slices.Clone(index), i),
-				param:  isParamField(f.Tag),
+				// Binding reads only top-level fields, so a tagged field in
+				// an embedded struct is still a body field.
+				param: depth == 0 && isParamField(f.Tag),
 			}
 			if jf.name == "" {
 				jf.name = f.Name
@@ -641,6 +639,9 @@ func (s *schema) MarshalJSON() ([]byte, error) {
 	if s.contentEncoding != "" {
 		field("contentEncoding", s.contentEncoding)
 	}
+	if s.contentMediaType != "" {
+		field("contentMediaType", s.contentMediaType)
+	}
 	if s.description != "" {
 		field("description", s.description)
 	}
@@ -677,7 +678,7 @@ func (s *schema) MarshalJSON() ([]byte, error) {
 	if s.maxItems != nil {
 		field("maxItems", *s.maxItems)
 	}
-	if s.properties != nil || (len(s.typ) > 0 && s.typ[0] == "object" && s.additionalProperties == nil) {
+	if s.properties != nil {
 		if !first {
 			b.WriteByte(',')
 		}
