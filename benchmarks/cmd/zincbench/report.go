@@ -60,19 +60,19 @@ func writeReport(w io.Writer, run *Run) error {
 
 	p("## Summary\n\n")
 	p("Zinc is scored in two tables. **Frameworks** is the headline: Gin and Echo, on every scenario. **Routers** puts Zinc's routing against two bare routers, BunRouter and Chi, on the routing scenarios they can run. A bare router does less per request than a framework, so the second table is a stricter test of the router alone.\n\n")
-	p("The distance column is the geometric mean, over the table's scenarios, of how far each framework's median is above the fastest median in that scenario. 0%% would mean fastest everywhere.\n\n")
+	p("A framework is fastest in a scenario when its median beats every other framework's by %.0f%% or more. Closer than that is a tie: within one run's noise, and too small to matter to an application. The distance column is the geometric mean, over the table's scenarios, of how far each framework's median is above the fastest median in that scenario. 0%% would mean fastest everywhere.\n\n", TieBand)
 	for _, t := range tiers {
 		fws := append([]string{"Zinc"}, t.Rivals...)
 		names := tierScenarios(run, t)
 		p("### %s (%d scenarios)\n\n", t.Name, len(names))
-		p("| Framework | Fastest in | Distance from the fastest |\n| --- | ---: | ---: |\n")
+		p("| Framework | Fastest in | Tied for fastest | Distance from the fastest |\n| --- | ---: | ---: | ---: |\n")
 		for _, fw := range fws {
-			wins, geo := frameworkScore(run, names, fws, fw)
+			wins, ties, geo := frameworkScore(run, names, fws, fw)
 			name := fw
 			if fw == "Zinc" {
 				name = "**Zinc**"
 			}
-			p("| %s | %d / %d | +%.1f%% |\n", name, wins, len(names), geo)
+			p("| %s | %d / %d | %d | +%.1f%% |\n", name, wins, len(names), ties, geo)
 		}
 		p("\n")
 	}
@@ -81,7 +81,7 @@ func writeReport(w io.Writer, run *Run) error {
 		fws := append([]string{"Zinc"}, t.Rivals...)
 		names := tierScenarios(run, t)
 		p("## %s: every scenario\n\n", t.Name)
-		p("Median ns/op. The winner has the lowest median in the row.\n\n")
+		p("Median ns/op. The winner beats the next fastest by %.0f%% or more; closer than that, the row is a tie between them.\n\n", TieBand)
 		p("| Benchmark | %s | Winner |\n| --- |%s --- |\n", strings.Join(fws, " | "), strings.Repeat(" ---: |", len(fws)))
 		for _, name := range names {
 			sc := run.Scenarios[name]
@@ -89,40 +89,52 @@ func writeReport(w io.Writer, run *Run) error {
 			for i, fw := range fws {
 				cells[i] = formatNS(median(sc[fw].NS))
 			}
-			p("| `%s` | %s | %s |\n", name, strings.Join(cells, " | "), fastest(sc, fws))
+			p("| `%s` | %s | %s |\n", name, strings.Join(cells, " | "), winnerLabel(sc, fws))
 		}
 		p("\n")
 	}
 
 	p("## Where Zinc is slower\n\n")
-	p("Zinc's median against the fastest rival in the same table. A gap under 5%% is within the noise of one run: treat it as a tie.\n\n")
+	p("Zinc's median against the fastest rival in the same table, for every scenario Zinc doesn't win. Gaps under %.0f%% are ties, listed after the losses.\n\n", TieBand)
 	for _, t := range tiers {
-		fws := append([]string{"Zinc"}, t.Rivals...)
-		type loss struct {
+		type row struct {
 			name, rival string
 			gap         float64
 		}
-		var losses []loss
+		var losses, ties []row
 		for _, name := range tierScenarios(run, t) {
 			sc := run.Scenarios[name]
-			z := median(sc["Zinc"].NS)
-			best := fastest(sc, fws)
-			if best == "Zinc" {
-				continue
+			rival := fastest(sc, t.Rivals)
+			r := row{name, rival, gapPct(median(sc["Zinc"].NS), median(sc[rival].NS))}
+			switch t.outcome(sc) {
+			case Loss:
+				losses = append(losses, r)
+			case Tie:
+				ties = append(ties, r)
 			}
-			losses = append(losses, loss{name, best, (z/median(sc[best].NS) - 1) * 100})
 		}
 		sort.Slice(losses, func(i, j int) bool { return losses[i].gap > losses[j].gap })
-		p("### %s: Zinc slower in %d\n\n", t.Name, len(losses))
-		if len(losses) == 0 {
-			p("Zinc is fastest in every scenario of this table.\n\n")
+		sort.Slice(ties, func(i, j int) bool { return ties[i].gap > ties[j].gap })
+		p("### %s: Zinc slower in %d, tied in %d\n\n", t.Name, len(losses), len(ties))
+		if len(losses)+len(ties) == 0 {
+			p("Zinc wins every scenario of this table.\n\n")
 			continue
 		}
-		p("| Benchmark | Winner | Zinc slower by |\n| --- | --- | ---: |\n")
-		for _, l := range losses {
-			p("| `%s` | %s | %.1f%% |\n", l.name, l.rival, l.gap)
+		if len(losses) > 0 {
+			p("| Benchmark | Fastest | Zinc slower by |\n| --- | --- | ---: |\n")
+			for _, l := range losses {
+				p("| `%s` | %s | %.1f%% |\n", l.name, l.rival, l.gap)
+			}
+			p("\n")
 		}
-		p("\n")
+		if len(ties) > 0 {
+			p("Ties (a negative gap means Zinc is ahead, by less than %.0f%%):\n\n", TieBand)
+			p("| Benchmark | Fastest rival | Zinc's gap |\n| --- | --- | ---: |\n")
+			for _, l := range ties {
+				p("| `%s` | %s | %+.1f%% |\n", l.name, l.rival, l.gap)
+			}
+			p("\n")
+		}
 	}
 
 	p("## Scope and reproducibility\n\n")
@@ -147,38 +159,53 @@ func tierScenarios(run *Run, t Tier) []string {
 	return names
 }
 
-// frameworkScore is one framework's strict wins and geometric-mean distance
-// from the fastest over names, among fws.
-func frameworkScore(run *Run, names, fws []string, fw string) (int, float64) {
-	wins, logs := 0, 0.0
+// frameworkScore is one framework's wins, ties for fastest and
+// geometric-mean distance from the fastest over names, among fws. A win beats
+// every other framework by TieBand or more; a tie is within TieBand of the
+// fastest other one.
+func frameworkScore(run *Run, names, fws []string, fw string) (wins, ties int, geo float64) {
+	logs := 0.0
 	for _, name := range names {
 		sc := run.Scenarios[name]
 		mine := median(sc[fw].NS)
-		best, strict := mine, true
+		others := math.Inf(1)
 		for _, other := range fws {
-			if other == fw {
-				continue
-			}
-			m := median(sc[other].NS)
-			best = math.Min(best, m)
-			if m <= mine {
-				strict = false
+			if other != fw {
+				others = math.Min(others, median(sc[other].NS))
 			}
 		}
-		if strict {
+		gap := gapPct(mine, others)
+		switch {
+		case math.Abs(gap) < TieBand:
+			ties++
+		case gap < 0:
 			wins++
 		}
-		if best > 0 {
+		if best := math.Min(mine, others); best > 0 {
 			logs += math.Log(mine / best)
 		}
 	}
 	if len(names) == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
-	return wins, (math.Exp(logs/float64(len(names))) - 1) * 100
+	return wins, ties, (math.Exp(logs/float64(len(names))) - 1) * 100
 }
 
-// fastest names the framework with the lowest median; ties go to the first.
+// winnerLabel names the row's winner, or the frameworks tied for fastest.
+func winnerLabel(sc Scenario, fws []string) string {
+	best := fastest(sc, fws)
+	tied := []string{best}
+	for _, fw := range fws {
+		if fw != best && gapPct(median(sc[fw].NS), median(sc[best].NS)) < TieBand {
+			tied = append(tied, fw)
+		}
+	}
+	if len(tied) == 1 {
+		return best
+	}
+	return "Tie: " + strings.Join(tied, ", ")
+}
+
 func fastest(sc Scenario, fws []string) string {
 	best := fws[0]
 	for _, fw := range fws[1:] {
