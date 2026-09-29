@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // OpenAPIConfig describes the API as a whole in the OpenAPI spec. Every field
@@ -81,6 +83,73 @@ func (a *App) OpenAPISpec(cfg OpenAPIConfig) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// OpenAPI serves the app's OpenAPI 3.1 spec as JSON at path, with GET, and
+// returns the route. It's off unless you call it, so an app never exposes its
+// API's shape by accident.
+//
+//	app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{Title: "Shop", Version: "1.4.0"})
+//
+// The spec is built on the first request and sent as pre-encoded bytes after
+// that. Routes registered later are picked up on the next request. The spec
+// route itself is hidden from the spec. It panics when cfg.Security names a
+// scheme cfg.SecuritySchemes doesn't define; a route naming an unknown scheme
+// makes the request fail with a 500 and the error.
+//
+// Hiding the spec isn't access control: protect it, and the API, with auth
+// middleware if the API is private.
+func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc) Route {
+	for _, name := range cfg.Security {
+		if _, ok := cfg.SecuritySchemes[name]; !ok {
+			panic(fmt.Sprintf("zinc: OpenAPIConfig.Security names security scheme %q, which OpenAPIConfig.SecuritySchemes doesn't define", name))
+		}
+	}
+	spec := &servedSpec{app: a, cfg: cfg}
+	handlers := append(append([]HandlerFunc(nil), middleware...), spec.serve)
+	return a.Get(path, handlers...).Hidden()
+}
+
+// servedSpec caches the encoded spec with the number of routes it describes.
+type servedSpec struct {
+	app    *App
+	cfg    OpenAPIConfig
+	mu     sync.Mutex
+	cached atomic.Pointer[encodedSpec]
+}
+
+type encodedSpec struct {
+	routes int
+	body   []byte
+}
+
+func (s *servedSpec) serve(c *Context) error {
+	body, err := s.bytes()
+	if err != nil {
+		return err
+	}
+	return c.Data(MIMEJSON, body)
+}
+
+// bytes returns the encoded spec, rebuilding it when routes were registered
+// since it was built. Registration isn't concurrent with serving, so reading
+// the route count here is safe.
+func (s *servedSpec) bytes() ([]byte, error) {
+	routes := len(s.app.router.routeInfos)
+	if cached := s.cached.Load(); cached != nil && cached.routes == routes {
+		return cached.body, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cached := s.cached.Load(); cached != nil && cached.routes == routes {
+		return cached.body, nil
+	}
+	body, err := s.app.OpenAPISpec(s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.cached.Store(&encodedSpec{routes: routes, body: body})
+	return body, nil
 }
 
 // oaMethods are the methods OpenAPI 3.1 has operation fields for, in the
