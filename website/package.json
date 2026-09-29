@@ -25,5 +25,10 @@
   },
   "devDependencies": {
     "wrangler": "4.138.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.30.0"
+    }
   }
 }
