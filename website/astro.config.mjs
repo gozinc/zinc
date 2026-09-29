@@ -151,6 +151,7 @@ export default defineConfig({
             page("Context Timeout", "/middleware/timeout/"),
             page("Rate Limiter", "/middleware/limiter/"),
             page("Health Check", "/middleware/healthcheck/"),
+            page("API Docs", "/middleware/apidocs/"),
             page("Basic Auth", "/middleware/basicauth/"),
             page("Key Auth", "/middleware/keyauth/"),
             page("JWT", "/middleware/jwtauth/"),

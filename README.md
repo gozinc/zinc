@@ -134,7 +134,7 @@ Each middleware is its own package under `github.com/0mjs/zinc/middleware`, with
 | Contain | `recover`, `timeout`, `bodylimit`, `limiter` |
 | Shape | `redirect`, `trailingslash`, `rewrite`, `methodoverride` |
 | Guard | `secure`, `cors`, `contenttype`, `session`, `csrf`, `basicauth`, `keyauth`, `casbin`, contrib `jwtauth` |
-| Carry | `decompress`, `compress`, `nocache`, `headers`, `proxy`, `pprof` |
+| Carry | `decompress`, `compress`, `nocache`, `headers`, `proxy`, `pprof`, `apidocs` |
 
 OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middleware docs](https://zinc.carbonsoft.sh/middleware/overview/) cover configuration for each.
 
