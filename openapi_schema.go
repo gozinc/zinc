@@ -65,33 +65,62 @@ var (
 // schemaGen turns Go types into schemas. Named structs become components,
 // referenced with $ref, so a type used in many places is described once and
 // recursive types terminate.
+// schemaMode says which direction a schema describes. A field without
+// omitempty is always in a response, so it's required there; a request can
+// leave any field out unless a validator requires it.
+type schemaMode int
+
+const (
+	modeOutput schemaMode = iota // a response
+	modeInput                    // a request value
+	modeBody                     // a request body: input, without parameter fields
+)
+
+type componentKey struct {
+	t    reflect.Type
+	mode schemaMode
+}
+
 type schemaGen struct {
 	// validation reports whether validate tags reach the schema. The spec
 	// builder turns it off when the app has no Validator, since nothing would
 	// enforce the rules.
 	validation bool
 	components map[string]*schema
-	names      map[reflect.Type]string
-	taken      map[string]reflect.Type
+	names      map[componentKey]string
+	taken      map[string]componentKey
+	// differs caches whether a type's input schema differs from its output
+	// schema, so they need separate components.
+	differs map[reflect.Type]bool
 }
 
 func newSchemaGen() *schemaGen {
 	return &schemaGen{
 		validation: true,
 		components: map[string]*schema{},
-		names:      map[reflect.Type]string{},
-		taken:      map[string]reflect.Type{},
+		names:      map[componentKey]string{},
+		taken:      map[string]componentKey{},
+		differs:    map[reflect.Type]bool{},
 	}
 }
 
-// schemaFor returns the schema for values of t, as encoding/json writes them.
-func (g *schemaGen) schemaFor(t reflect.Type) *schema {
+// schemaFor returns the schema for values of t in a response, as
+// encoding/json writes them.
+func (g *schemaGen) schemaFor(t reflect.Type) *schema { return g.schema(t, modeOutput) }
+
+// inputSchemaFor returns the schema for values of t in a request.
+func (g *schemaGen) inputSchemaFor(t reflect.Type) *schema { return g.schema(t, modeInput) }
+
+func (g *schemaGen) schema(t reflect.Type, mode schemaMode) *schema {
+	if mode == modeBody {
+		mode = modeInput // only the top-level body leaves parameters out
+	}
 	if s, ok := g.special(t); ok {
 		return s
 	}
 	switch t.Kind() {
 	case reflect.Pointer:
-		inner := g.schemaFor(t.Elem())
+		inner := g.schema(t.Elem(), mode)
 		return nullable(inner)
 	case reflect.Bool:
 		return &schema{typ: []string{"boolean"}}
@@ -113,17 +142,17 @@ func (g *schemaGen) schemaFor(t reflect.Type) *schema {
 		if t.Elem().Kind() == reflect.Uint8 && !reflect.PointerTo(t.Elem()).Implements(textMarshalerType) {
 			return &schema{typ: []string{"string"}, contentEncoding: "base64"}
 		}
-		return &schema{typ: []string{"array"}, items: g.schemaFor(t.Elem())}
+		return &schema{typ: []string{"array"}, items: g.schema(t.Elem(), mode)}
 	case reflect.Array:
 		n := t.Len()
-		return &schema{typ: []string{"array"}, items: g.schemaFor(t.Elem()), minItems: &n, maxItems: &n}
+		return &schema{typ: []string{"array"}, items: g.schema(t.Elem(), mode), minItems: &n, maxItems: &n}
 	case reflect.Map:
-		return &schema{typ: []string{"object"}, additionalProperties: g.schemaFor(t.Elem())}
+		return &schema{typ: []string{"object"}, additionalProperties: g.schema(t.Elem(), mode)}
 	case reflect.Struct:
 		if t.Name() == "" {
-			return g.structSchema(t, false)
+			return g.structSchema(t, mode)
 		}
-		return &schema{ref: "#/components/schemas/" + g.component(t, false)}
+		return &schema{ref: "#/components/schemas/" + g.component(t, mode)}
 	default:
 		// Interfaces can hold anything; channels, funcs and complex numbers
 		// don't encode, and struct fields of those kinds are skipped.
@@ -137,12 +166,12 @@ func (g *schemaGen) schemaFor(t reflect.Type) *schema {
 // would be ignored anyway.
 func (g *schemaGen) bodySchemaFor(t reflect.Type) *schema {
 	if t.Kind() != reflect.Struct || !hasParamFields(t) {
-		return g.schemaFor(t)
+		return g.inputSchemaFor(t)
 	}
 	if t.Name() == "" {
-		return g.structSchema(t, true)
+		return g.structSchema(t, modeBody)
 	}
-	return &schema{ref: "#/components/schemas/" + g.component(t, true)}
+	return &schema{ref: "#/components/schemas/" + g.component(t, modeBody)}
 }
 
 // special handles types whose JSON form isn't their Go shape.
@@ -186,31 +215,36 @@ func schemaProviderFor(t reflect.Type) SchemaProvider {
 	return provider
 }
 
-// component names t, building its schema the first time it's seen. The name
-// is reserved before building, so a recursive type refers to itself.
-func (g *schemaGen) component(t reflect.Type, body bool) string {
-	key := t
-	if body {
-		// The body variant of an input struct is a different schema, so it
-		// gets its own name: a type standing for itself can't be a map key
-		// twice, so key it by a pointer-to-pointer type nobody else uses.
-		key = reflect.PointerTo(reflect.PointerTo(t))
+// component names t's schema in mode, building it the first time. The name
+// is reserved before building, so a recursive type refers to itself. An
+// input schema that matches the output one shares its component.
+func (g *schemaGen) component(t reflect.Type, mode schemaMode) string {
+	if mode == modeInput && !g.inputDiffers(t) {
+		mode = modeOutput
 	}
+	if mode == modeBody && !hasParamFields(t) {
+		return g.component(t, modeInput)
+	}
+	key := componentKey{t, mode}
 	if name, ok := g.names[key]; ok {
 		return name
 	}
-	name := g.uniqueName(t, body)
+	name := g.uniqueName(t, mode)
 	g.names[key] = name
 	g.taken[name] = key
-	g.components[name] = g.structSchema(t, body)
+	g.components[name] = g.structSchema(t, mode)
 	return name
 }
 
 // uniqueName is the type's name, sanitized for a component key, with its
-// package added when another type already has the name.
-func (g *schemaGen) uniqueName(t reflect.Type, body bool) string {
+// package added when another type already has the name. Input variants end
+// in Input, and request bodies without their parameter fields in Body.
+func (g *schemaGen) uniqueName(t reflect.Type, mode schemaMode) string {
 	suffix := ""
-	if body {
+	switch mode {
+	case modeInput:
+		suffix = "Input"
+	case modeBody:
 		suffix = "Body"
 	}
 	name := sanitizeComponentName(t.Name()) + suffix
@@ -233,6 +267,66 @@ func (g *schemaGen) uniqueName(t reflect.Type, body bool) string {
 		}
 		name = base + strconv.Itoa(i)
 	}
+}
+
+// inputDiffers reports whether t's input schema differs from its output
+// schema: a field required in one direction but not the other, or a nested
+// struct whose own input schema differs.
+func (g *schemaGen) inputDiffers(t reflect.Type) bool {
+	if d, ok := g.differs[t]; ok {
+		return d
+	}
+	g.differs[t] = false // a recursive type doesn't differ through itself
+	d := false
+	for _, f := range jsonFields(t) {
+		if !f.omit != g.validateRequired(f) {
+			d = true
+			break
+		}
+		if st := nestedStruct(f.typ); st != nil && g.inputDiffers(st) {
+			d = true
+			break
+		}
+	}
+	g.differs[t] = d
+	return d
+}
+
+// nestedStruct returns the struct inside t, through pointers, slices, arrays
+// and maps, unless its JSON isn't its Go shape.
+func nestedStruct(t reflect.Type) reflect.Type {
+	for {
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			t = t.Elem()
+			continue
+		case reflect.Struct:
+			if t == timeType || schemaProviderFor(t) != nil || t.Implements(jsonMarshalerType) ||
+				reflect.PointerTo(t).Implements(jsonMarshalerType) || t.Implements(textMarshalerType) ||
+				reflect.PointerTo(t).Implements(textMarshalerType) {
+				return nil
+			}
+			return t
+		}
+		return nil
+	}
+}
+
+// validateRequired reports whether a validator would require the field.
+func (g *schemaGen) validateRequired(f jsonField) bool {
+	if !g.validation {
+		return false
+	}
+	for _, token := range strings.Split(f.tag.Get("validate"), ",") {
+		key, _, _ := strings.Cut(strings.TrimSpace(token), "=")
+		if key == "dive" {
+			return false
+		}
+		if key == "required" {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeComponentName keeps the characters OpenAPI allows in component
@@ -262,10 +356,10 @@ func sanitizeComponentName(name string) string {
 
 // structSchema describes a struct's JSON object. With body set, fields bound
 // from the path, query, headers or a form are left out.
-func (g *schemaGen) structSchema(t reflect.Type, body bool) *schema {
+func (g *schemaGen) structSchema(t reflect.Type, mode schemaMode) *schema {
 	s := &schema{typ: []string{"object"}}
 	for _, f := range jsonFields(t) {
-		if body && f.param {
+		if mode == modeBody && f.param {
 			continue
 		}
 		var fs *schema
@@ -273,9 +367,13 @@ func (g *schemaGen) structSchema(t reflect.Type, body bool) *schema {
 		case f.asString:
 			fs = &schema{typ: []string{"string"}}
 		default:
-			fs = g.schemaFor(f.typ)
+			fs = g.schema(f.typ, mode)
 		}
 		required := g.applyFieldTags(fs, f)
+		if mode == modeOutput {
+			// encoding/json always writes a field without omitempty.
+			required = !f.omit
+		}
 		if fs.ref != "" && (fs.description != "" || len(fs.examples) > 0) {
 			// Keep the component clean: annotations sit beside the $ref.
 			fs = &schema{ref: fs.ref, description: fs.description, examples: fs.examples}
@@ -290,7 +388,9 @@ func (g *schemaGen) structSchema(t reflect.Type, body bool) *schema {
 
 // jsonField is a struct field as encoding/json sees it.
 type jsonField struct {
-	name     string
+	name string
+	// omit is set by omitempty or omitzero: the field can be left out.
+	omit     bool
 	typ      reflect.Type
 	tag      reflect.StructTag
 	asString bool
@@ -349,6 +449,7 @@ func jsonFields(t reflect.Type) []jsonField {
 				// Binding reads only top-level fields, so a tagged field in
 				// an embedded struct is still a body field.
 				param: depth == 0 && isParamField(f.Tag),
+				omit:  hasOption(opts, "omitempty") || hasOption(opts, "omitzero"),
 			}
 			if jf.name == "" {
 				jf.name = f.Name

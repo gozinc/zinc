@@ -73,7 +73,7 @@ func oaFixture() *App {
 		Response(http.StatusConflict, oaConflict{})
 
 	app.Get("/pets", Typed(func(*Context, oaListPets) ([]oaPet, error) { return nil, nil })).Name("pets.list")
-	app.Get("/pets/{id}", Typed(func(*Context, oaPetID) (*oaPet, error) { return nil, nil })).Tags("pets")
+	app.Get("/pets/{id}", Typed(func(*Context, oaPetID) (*oaPet, error) { return nil, nil })).Tags("pets").Errors(http.StatusNotFound)
 	app.Delete("/pets/{id}", Typed(func(*Context, oaPetID) (NoContent, error) { return NoContent{}, nil })).Deprecated()
 
 	// A plain handler that documents itself, and one that doesn't.
@@ -206,10 +206,15 @@ func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
 	if err := json.Unmarshal([]byte(without), &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"oaPet", "oaCreatePetBody"} {
+	// Request schemas: nothing required without a Validator. oaPet is a
+	// response schema, so its required list comes from omitempty instead.
+	for _, name := range []string{"oaCreatePetBody"} {
 		if strings.Contains(string(doc.Components.Schemas[name]), `"required"`) {
 			t.Errorf("without a Validator, %s has required fields: %s", name, doc.Components.Schemas[name])
 		}
+	}
+	if !strings.Contains(string(doc.Components.Schemas["oaPet"]), `"required"`) {
+		t.Errorf("the response schema oaPet lost its always-sent fields: %s", doc.Components.Schemas["oaPet"])
 	}
 	if strings.Contains(string(doc.Paths), `"required": true`) && strings.Count(string(doc.Paths), `"required": true`) != 1 {
 		t.Errorf("without a Validator, more than the path parameter is required:\n%s", doc.Paths)
