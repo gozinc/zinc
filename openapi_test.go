@@ -7,10 +7,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -258,4 +261,142 @@ func TestOpenAPIErrorResponses(t *testing.T) {
 	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/Error"`) {
 		t.Fatalf("default handler: the 500 lacks the error envelope:\n%s", spec)
 	}
+}
+
+// A plain handler's response is unknown unless the route describes it, so the
+// spec says "default: any body" rather than inventing a 200.
+func TestOpenAPIUndescribedResponses(t *testing.T) {
+	app := New()
+	plain := func(c *Context) error { return c.String("hi") }
+	app.Get("/plain", plain)
+	app.Post("/status", plain).Status(http.StatusCreated)
+	app.Post("/declared", plain).Response(http.StatusCreated, oaPet{})
+	app.Get("/output", plain).Output(oaPet{})
+	responses := func(path, method string) map[string]any {
+		var doc map[string]any
+		spec, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.Unmarshal(spec, &doc)
+		op := doc["paths"].(map[string]any)[path].(map[string]any)[method].(map[string]any)
+		return op["responses"].(map[string]any)
+	}
+	keys := func(m map[string]any) string {
+		out := slices.Sorted(maps.Keys(m))
+		return strings.Join(out, " ")
+	}
+	for _, tt := range []struct{ path, method, want string }{
+		{"/plain", "get", "500 default"},
+		{"/status", "post", "201 500"},
+		{"/declared", "post", "201 500"},
+		{"/output", "get", "200 500"},
+	} {
+		if got := keys(responses(tt.path, tt.method)); got != tt.want {
+			t.Errorf("%s %s: responses %s, want %s", tt.method, tt.path, got, tt.want)
+		}
+	}
+	def := responses("/plain", "get")["default"].(map[string]any)
+	if content := def["content"].(map[string]any); len(content) != 1 || content["*/*"] == nil {
+		t.Fatalf("default content: %v", def)
+	}
+}
+
+type oaOptionalQuery struct {
+	Limit *int `query:"limit"`
+}
+
+type oaEither struct {
+	Name string `json:"name" form:"name"`
+}
+
+type oaFormOnly struct {
+	Name string `form:"name"`
+}
+
+func TestOpenAPIParametersAndBodies(t *testing.T) {
+	app := New()
+	app.Get("/q", Typed(func(*Context, oaOptionalQuery) (NoContent, error) { return NoContent{}, nil }))
+	app.Post("/either", Typed(func(*Context, oaEither) (NoContent, error) { return NoContent{}, nil }))
+	app.Post("/form", Typed(func(*Context, oaFormOnly) (NoContent, error) { return NoContent{}, nil }))
+	spec, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(spec)
+	// A query value is absent or a number; it's never null.
+	if !strings.Contains(s, `"name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",`) {
+		t.Fatalf("pointer query parameter:\n%s", s)
+	}
+	var doc struct {
+		Paths map[string]map[string]struct {
+			RequestBody struct {
+				Content map[string]any `json:"content"`
+			} `json:"requestBody"`
+		} `json:"paths"`
+	}
+	_ = json.Unmarshal(spec, &doc)
+	media := func(path string) string {
+		return strings.Join(slices.Sorted(maps.Keys(doc.Paths[path]["post"].RequestBody.Content)), " ")
+	}
+	// Binding decodes JSON into a form field too.
+	if got := media("/either"); got != "application/json application/x-www-form-urlencoded" {
+		t.Fatalf("/either accepts %s", got)
+	}
+	if got := media("/form"); got != "application/x-www-form-urlencoded" {
+		t.Fatalf("/form accepts %s", got)
+	}
+}
+
+func TestOpenAPISecuritySchemeChecks(t *testing.T) {
+	oauth := OpenAPISecurityScheme{Type: "oauth2", Flows: &OpenAPIOAuthFlows{
+		ClientCredentials: &OpenAPIOAuthFlow{TokenURL: "https://id.example.com/token"},
+	}}
+	app := New()
+	app.Get("/me", func(c *Context) error { return nil }).Security("oauth")
+	spec, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1", SecuritySchemes: map[string]OpenAPISecurityScheme{"oauth": oauth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// OpenAPI requires the scopes object, even when there are none.
+	if !strings.Contains(string(spec), `"clientCredentials": {
+            "tokenUrl": "https://id.example.com/token",
+            "scopes": {}`) {
+		t.Fatalf("oauth2 flows:\n%s", spec)
+	}
+	if oauth.Flows.ClientCredentials.Scopes != nil {
+		t.Fatal("the caller's flow was modified")
+	}
+
+	for _, tt := range []struct {
+		scheme OpenAPISecurityScheme
+		want   string
+	}{
+		{OpenAPISecurityScheme{Type: "oauth2"}, `type "oauth2" needs Flows`},
+		{OpenAPISecurityScheme{Type: "oauth2", Flows: &OpenAPIOAuthFlows{AuthorizationCode: &OpenAPIOAuthFlow{TokenURL: "/t"}}}, "AuthorizationCode flow needs AuthorizationURL"},
+		{OpenAPISecurityScheme{Type: "oauth2", Flows: &OpenAPIOAuthFlows{Password: &OpenAPIOAuthFlow{}}}, "Password flow needs TokenURL"},
+		{OpenAPISecurityScheme{Type: "http"}, `type "http" needs Scheme`},
+		{OpenAPISecurityScheme{Type: "apiKey", Name: "k", In: "body"}, `type "apiKey" needs Name, and In`},
+		{OpenAPISecurityScheme{Type: "openIdConnect"}, "needs OpenIDConnectURL"},
+		{OpenAPISecurityScheme{Type: "jwt"}, `unknown type "jwt"`},
+	} {
+		cfg := OpenAPIConfig{SecuritySchemes: map[string]OpenAPISecurityScheme{"s": tt.scheme}}
+		if _, err := New().OpenAPISpec(cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%+v: err = %v, want %q", tt.scheme, err, tt.want)
+		}
+		mustPanicWith(t, tt.want, func() { New().OpenAPI("/openapi.json", cfg) })
+	}
+}
+
+func mustPanicWith(t *testing.T, want string, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), want) {
+			t.Errorf("panic = %v, want %q", r, want)
+		}
+	}()
+	f()
 }
