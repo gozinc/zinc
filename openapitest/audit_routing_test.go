@@ -151,6 +151,29 @@ func routingScenarios() []scenario {
 				return app, zinc.OpenAPIConfig{}
 			},
 			probes: []probe{{method: "POST", target: "/v1/users:batch", status: 204}}},
+		{id: "X16", area: "Routing", title: "A parameter and a catch-all on the same path",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/files/{path}", noContent).Name("single")
+				app.Get("/files/{path...}", noContent).Name("catchall")
+				return app, zinc.OpenAPIConfig{}
+			},
+			expect: func(f *findings, s spec) {
+				f.add("two routes became one operation, %v, without an error", s.op("GET", "/files/{path}")["operationId"])
+			},
+			note: "OpenAPI can't tell these apart, so building the spec should fail with a clear error."},
+		{id: "X17", area: "Routing", title: "One path shape with different parameter names",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/pets/{id}", noContent)
+				app.Post("/pets/{name}", noContent)
+				return app, zinc.OpenAPIConfig{}
+			},
+			expect: func(f *findings, s spec) {
+				if s.hasPath("/pets/{id}") && s.hasPath("/pets/{name}") {
+					f.add("two path templates differ only in parameter names, which OpenAPI forbids")
+				}
+			}},
 		{id: "X15", area: "Routing", title: "Route middleware before a typed handler",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()

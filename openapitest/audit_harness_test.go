@@ -6,6 +6,7 @@ package openapitest
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,11 +25,14 @@ import (
 
 // The audit checks Zinc's OpenAPI generator scenario by scenario. Each
 // scenario is a small app plus what a correct spec says about it, taken from
-// OpenAPI and HTTP, not from what Zinc does. Findings are collected rather
-// than failing fast: the audit's job is to catalogue what works.
+// OpenAPI and HTTP, not from what Zinc does. Every scenario runs to the end,
+// collecting its findings; then testdata/audit-baseline.json decides which
+// are accepted (known gaps with the phase that fixes them, and intended
+// behavior). Anything else fails the test.
 //
-// Run: AUDIT_OUT=/tmp/audit go test -run TestAudit ./...
-// It writes results.json and one spec per scenario to AUDIT_OUT.
+// Run: go test -run TestAudit ./...
+// With AUDIT_OUT=/tmp/audit it also writes results.json and one spec per
+// scenario there. After a fix, -update-audit-baseline rewrites the findings.
 
 type scenario struct {
 	id, area, title string
@@ -431,7 +435,103 @@ func trim(s string) string {
 	return s
 }
 
-// TestAudit runs every scenario and reports findings as logs, not failures.
+// The baseline gates the audit. It lists each scenario that is allowed
+// findings: why, and exactly which findings. Every other scenario must have
+// none. Findings starting "info:" are observations and never gate. A new
+// finding, or one that disappears, fails the test: classify the new one, or
+// remove the entry once its fix lands. Run with -update-audit-baseline to
+// rewrite the findings; new entries get status "new", which also fails until
+// someone classifies them.
+var updateBaseline = flag.Bool("update-audit-baseline", false, "rewrite testdata/audit-baseline.json from this run")
+
+const baselinePath = "testdata/audit-baseline.json"
+
+// baselineEntry is one scenario's accepted findings.
+type baselineEntry struct {
+	// Status is "gap" (a known shortfall, with the phase that fixes it),
+	// "design" (the behavior is intended) or "tooling".
+	Status   string   `json:"status"`
+	Phase    string   `json:"phase,omitempty"`
+	Reason   string   `json:"reason"`
+	Findings []string `json:"findings"`
+}
+
+func gatedFindings(res auditResult) []string {
+	var out []string
+	for _, list := range [][]string{res.Valid, res.Expect, res.Conformance} {
+		for _, f := range list {
+			if !strings.HasPrefix(f, "info:") {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+func loadBaseline(t *testing.T) map[string]baselineEntry {
+	t.Helper()
+	b, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("reading the audit baseline: %v", err)
+	}
+	var m map[string]baselineEntry
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("parsing %s: %v", baselinePath, err)
+	}
+	return m
+}
+
+func checkBaseline(t *testing.T, results []auditResult) {
+	t.Helper()
+	base := loadBaseline(t)
+	if *updateBaseline {
+		next := map[string]baselineEntry{}
+		for _, res := range results {
+			got := gatedFindings(res)
+			if len(got) == 0 {
+				continue
+			}
+			e, ok := base[res.ID]
+			if !ok {
+				e = baselineEntry{Status: "new", Reason: "classify: gap (with phase), design or tooling"}
+			}
+			e.Findings = got
+			next[res.ID] = e
+		}
+		b, _ := json.MarshalIndent(next, "", "  ")
+		if err := os.WriteFile(baselinePath, append(b, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("rewrote %s: %d entries", baselinePath, len(next))
+		base = next
+	}
+	ids := map[string]bool{}
+	for _, res := range results {
+		ids[res.ID] = true
+		got := gatedFindings(res)
+		e, ok := base[res.ID]
+		switch {
+		case !ok && len(got) > 0:
+			t.Errorf("%s %s: new findings; fix them, or classify them in %s:\n  %s", res.ID, res.Title, baselinePath, strings.Join(got, "\n  "))
+		case ok && len(got) == 0:
+			t.Errorf("%s %s: no findings now, but the baseline expects %d (%s); remove the entry", res.ID, res.Title, len(e.Findings), e.Status)
+		case ok && strings.Join(got, "\n") != strings.Join(e.Findings, "\n"):
+			t.Errorf("%s %s: findings changed.\n got:  %s\n want: %s", res.ID, res.Title, strings.Join(got, "\n        "), strings.Join(e.Findings, "\n        "))
+		case ok && e.Status == "new":
+			t.Errorf("%s: classify the baseline entry (status \"new\")", res.ID)
+		case ok && e.Status == "gap" && e.Phase == "":
+			t.Errorf("%s: a known gap needs the phase that fixes it", res.ID)
+		}
+	}
+	for id := range base {
+		if !ids[id] {
+			t.Errorf("%s: in the baseline but no such scenario", id)
+		}
+	}
+}
+
+// TestAudit runs every scenario, then checks the findings against the
+// baseline.
 func TestAudit(t *testing.T) {
 	out := os.Getenv("AUDIT_OUT")
 	if out != "" {
@@ -461,4 +561,5 @@ func TestAudit(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(out, "results.json"), b, 0o644)
 	}
 	t.Logf("%d scenarios", len(all))
+	checkBaseline(t, auditResults)
 }
