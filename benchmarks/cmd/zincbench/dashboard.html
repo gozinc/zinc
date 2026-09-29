@@ -103,6 +103,7 @@ h3 { font: 600 17px/1.3 var(--sans); letter-spacing: -.01em; }
 .cell { aspect-ratio: 1; border-radius: 3px; border: 0; padding: 0; cursor: pointer; transition: transform 120ms ease; }
 .cell:hover { transform: scale(1.25); }
 .t-win { background: var(--win); }
+.t-tie { background: transparent; box-shadow: inset 0 0 0 2px var(--win); }
 .t-material { background: var(--material); }
 .t-marginal { background: var(--marginal); }
 .t-negligible { background: var(--neutral); }
@@ -263,6 +264,9 @@ const DATA = /*__DATA__*/null;
 // Zinc is scored against each tier separately; the first is the headline.
 // Records from before tiers existed fall back to the old four-way comparison.
 const TIERDEFS = DATA?.tiers || [{ key: "frameworks", name: "Frameworks", rivals: ["Gin", "Echo", "Chi"] }];
+// A gap under TIE percent, either way, is a tie: the same band zincbench uses.
+const TIE = DATA?.tieBand ?? 3;
+const gapPct = (a, b) => Math.min(a, b) > 0 ? (a - b) / Math.min(a, b) * 100 : (a === b ? 0 : a < b ? -Infinity : Infinity);
 const RIVALS = TIERDEFS[0].rivals;
 const FW = ["Zinc", ...new Set(TIERDEFS.flatMap(t => t.rivals))];
 const andList = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
@@ -289,7 +293,7 @@ function areaOf(n) {
   if (n.startsWith("StaticFile")) return "files";
   if (n.includes("NotFound") || n.includes("MethodMismatch")) return "misses";
   if (n.startsWith("ScenarioRouteSet") || n.startsWith("LargeRouteSet")) return "scale";
-  if (["MiddlewareChain", "NestedGroupMiddlewareAPI", "APIUnauthorizedReject"].includes(n)) return "middleware";
+  if (["MiddlewareChain", "NestedGroupMiddlewareAPI", "APIUnauthorizedReject", "APIProductionStack"].includes(n)) return "middleware";
   if (["QueryParams", "APIParamQueryJSON", "LargeJSONBind"].includes(n) || n.startsWith("APIBind")) return "binding";
   if (["JSONResponse", "LargeJSONResponse", "APIHappyPath"].includes(n)) return "responses";
   return "routing";
@@ -303,7 +307,7 @@ const NAMES = {
   JSONResponse: "JSON response", QueryParams: "Query parameters", MiddlewareChain: "Middleware chain", NotFound: "404",
   LargeRouteSetStatic: "Large route set, static", LargeRouteSetStaticMixed: "Large route set, mixed static", LargeRouteSetNotFound: "Large route set, 404", LargeRouteSetMethodMismatch: "Large route set, 405",
   LargeRouteSetParam: "Large route set, parameter", LargeRouteSetParamMixed: "Large route set, mixed parameter", RouteRegistrationStatic: "Register static routes", RouteRegistrationParam: "Register parameter routes",
-  APIParamQueryJSON: "API param, query, JSON", APIHappyPath: "API request", APIBindJSONHappyPath: "Bind JSON", APIBindHeaderQueryJSON: "Bind header, query, JSON", APIBindInvalidJSON: "Bind invalid JSON",
+  APIParamQueryJSON: "API param, query, JSON", APIHappyPath: "API request", APIProductionStack: "API behind production middleware", APIBindJSONHappyPath: "Bind JSON", APIBindHeaderQueryJSON: "Bind header, query, JSON", APIBindInvalidJSON: "Bind invalid JSON",
   APIBindValidationFailure: "Bind with validation failure", APIBindMultipartHappyPath: "Bind multipart upload", LargeJSONResponse: "Large JSON response", LargeJSONBind: "Large JSON bind",
   StaticFileHit: "Static file hit", StaticFileNotFound: "Static file miss", NestedGroupMiddlewareAPI: "Nested group middleware", APIUnauthorizedReject: "Reject unauthorized",
   ParallelStaticRoute: "Parallel static route", ParallelRouterParam: "Parallel parameter route", ParallelMiddlewareChain: "Parallel middleware chain", ParallelAPIHappyPath: "Parallel API request",
@@ -317,7 +321,8 @@ function labelOf(n) {
 }
 
 const TIERS = [
-  { id: "win", short: "Fastest", label: "Zinc is fastest", blurb: `Lower median than ${andList(RIVALS)}.` },
+  { id: "win", short: "Fastest", label: "Zinc is fastest", blurb: `Faster than ${andList(RIVALS)} by ${TIE}% or more.` },
+  { id: "tie", short: "Tie", label: "Tied for fastest", blurb: `Within ${TIE}% of the fastest rival, either way.` },
   { id: "noise", short: "Noise", label: "Within noise", blurb: "Sample spreads overlap, or the gap is under 1%." },
   { id: "negligible", short: "Small", label: "Under the threshold", blurb: "A real gap, but small in absolute time." },
   { id: "startup", short: "Startup", label: "Startup only", blurb: "Route registration, paid once at boot." },
@@ -381,37 +386,40 @@ const releaseOf = r => r.release || "Unassigned";
 const RELEASES = [...new Set(RUNS.map(releaseOf))];
 const T = { ns: 50, pct: 5 };
 
-// Wins and the geometric-mean distance from the fastest over the scenarios
-// where every rival in the tier was measured.
+// Wins, ties and the geometric-mean distance from the fastest over the
+// scenarios where every rival in the tier was measured.
 function tierScore(r, t) {
-  let wins = 0, of = 0, logs = 0;
+  let wins = 0, ties = 0, of = 0, logs = 0;
   for (const fws of Object.values(r.scenarios)) {
     if (!fws.Zinc || !t.rivals.every(f => fws[f])) continue;
-    const z = median(fws.Zinc.ns), rivals = t.rivals.map(f => median(fws[f].ns));
-    of++; if (rivals.every(v => v > z)) wins++;
-    logs += Math.log(z / Math.min(z, ...rivals));
+    const z = median(fws.Zinc.ns), best = Math.min(...t.rivals.map(f => median(fws[f].ns)));
+    const gap = gapPct(z, best);
+    of++; if (Math.abs(gap) < TIE) ties++; else if (gap < 0) wins++;
+    logs += Math.log(z / Math.min(z, best));
   }
-  return { ...t, wins, of, geo: of ? (Math.exp(logs / of) - 1) * 100 : null };
+  return { ...t, wins, ties, of, geo: of ? (Math.exp(logs / of) - 1) * 100 : null };
 }
-const scoreText = s => s.of ? `<b>${s.wins}/${s.of}</b> · ${pct(s.geo)} geomean` : "no scenarios yet";
+const scoreText = s => s.of ? `<b>${s.wins}/${s.of}</b> · ${s.ties} ties · ${pct(s.geo)} geomean` : "no scenarios yet";
 
 function triage(run) {
-  let wins = 0;
+  let wins = 0, ties = 0;
   const rivalWins = Object.fromEntries(RIVALS.map(r => [r, 0]));
   for (const s of Object.values(run.sc)) {
     const z = s.fw.Zinc;
     let best = null; for (const r of RIVALS) if (!best || s.fw[r].ns < s.fw[best].ns) best = r;
     const b = s.fw[best];
     s.best = best; s.delta = z.ns - b.ns; s.ratio = z.ns / b.ns; s.pct = (s.ratio - 1) * 100;
-    if (s.delta < 0) s.tier = "win";
+    const gap = gapPct(z.ns, b.ns);
+    if (Math.abs(gap) < TIE) s.tier = "tie";
+    else if (gap < 0) s.tier = "win";
     else if (s.area === "startup") s.tier = "startup";
     else if (z.q1 <= b.q3 || s.pct < 1) s.tier = "noise";
     else if (s.delta < T.ns) s.tier = "negligible";
     else if (s.pct < T.pct) s.tier = "marginal";
     else s.tier = "material";
-    if (s.tier === "win") wins++; else rivalWins[best]++;
+    if (s.tier === "win") wins++; else if (s.tier === "tie") ties++; else rivalWins[best]++;
   }
-  run.wins = wins; run.rivalWins = rivalWins;
+  run.wins = wins; run.ties = ties; run.rivalWins = rivalWins;
 }
 
 // Compare Zinc in run B with run A for every shared scenario. The rivals do not
@@ -554,10 +562,10 @@ function render() {
     <div>
       <p class="kicker">Zinc head-to-head · ${B.ids.length} scenarios</p>
       <div class="score"><strong>${B.wins}</strong><span>/ ${B.ids.length}</span>${same ? "" : `<em class="${winDelta > 0 ? "up" : winDelta < 0 ? "down" : "flat"}">${winDelta ? (winDelta > 0 ? "+" : "") + winDelta + " vs " : "same as "}${esc(A.git.short)}</em>`}</div>
-      <p class="score-note">scenarios where Zinc had a lower median time than ${esc(andList(RIVALS))}. Geometric-mean distance from the fastest: ${B.scores[0].of ? pct(B.scores[0].geo) : "—"}. This count is descriptive, not a release gate.</p>
+      <p class="score-note">scenarios where Zinc's median beat ${esc(andList(RIVALS))} by ${TIE}% or more; ${B.ties} more were within ${TIE}%, a tie. Geometric-mean distance from the fastest: ${B.scores[0].of ? pct(B.scores[0].geo) : "—"}. This count is descriptive, not a release gate.</p>
       ${B.scores.slice(1).map(s => `<p class="score-note">${esc(s.name)} (against ${esc(andList(s.rivals))}): ${scoreText(s)}.</p>`).join("")}
       ${B.rivalSource ? `<p class="score-note">Zinc was measured in this run; the rival samples came from ${esc(B.rivalSource)}. Close results should be rerun together.</p>` : ""}
-      <div class="rivals">${RIVALS.map(r => `<span>${r} <b>${B.rivalWins[r]}</b></span>`).join("")}</div>
+      <div class="rivals"><span>Ties <b>${B.ties}</b></span>${RIVALS.map(r => `<span>${r} <b>${B.rivalWins[r]}</b></span>`).join("")}</div>
     </div>
     <div class="panel triage">
       <h3>Every scenario, triaged</h3>
