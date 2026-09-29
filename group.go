@@ -20,6 +20,8 @@ type Group struct {
 	// sealedBy describes the first registration that captured the middleware
 	// chain. Middleware added after it would silently skip that registration.
 	sealedBy string
+	// docs holds the OpenAPI tags and security the group gives its routes.
+	docs groupDocs
 }
 
 // newGroup creates a group bound to app.
@@ -65,6 +67,7 @@ func (g *Group) Group(prefix string, handlers ...HandlerFunc) *Group {
 	sub := newGroup(g.app, fullPrefix)
 	sub.middleware = append(sub.middleware, g.middleware...)
 	sub.middleware = append(sub.middleware, handlers...)
+	sub.docs = g.docs.inherit()
 	return sub
 }
 
@@ -99,7 +102,12 @@ func (g *Group) add(method, routePath, name string, handlers ...HandlerFunc) (Ro
 	allHandlers = append(allHandlers, g.middleware...)
 	allHandlers = append(allHandlers, handlers...)
 	index, err := g.app.router.register(method, fullPath, name, allHandlers...)
-	return Route{table: g.app.router, index: index}, err
+	if err != nil {
+		return Route{}, err
+	}
+	route := Route{table: g.app.router, index: index}
+	g.docs.apply(route)
+	return route, nil
 }
 
 // TryHandle registers a dynamically defined route below the group prefix.
