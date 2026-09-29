@@ -124,6 +124,10 @@ func TestRouteDocMethodsPanicOnMisuse(t *testing.T) {
 	mustPanic(t, "Output on a Typed route", func() { typed.Output(docUser{}) })
 	mustPanic(t, "Input needs a value", func() { plain.Input(nil) })
 	mustPanic(t, "Response status 42", func() { plain.Response(42, nil) })
+	mustPanic(t, "Errors status 200", func() { plain.Errors(200) })
+	if doc := docOf(t, plain.Errors(409, 404, 409)); !reflect.DeepEqual(doc.errors, []int{409, 404}) {
+		t.Fatalf("Errors = %v", doc.errors)
+	}
 	mustPanic(t, "Summary on a route that was not registered", func() { Route{}.Summary("x") })
 }
 

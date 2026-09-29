@@ -25,12 +25,24 @@ app := zinc.New(zinc.Config{StrictRouting: true})   // change only what you need
 
 Every method accepts a chain: middleware first, then the handler. Invalid or conflicting patterns panic at registration. See [Routing](/guide/routing/).
 
-The returned `Route` has two methods:
+The returned `Route` has these methods. Each returns the route, so they chain:
 
 | Method | Purpose |
 |---|---|
-| `Name(name) Route` | A unique name for `URL` and `RouteByName`; panics on a duplicate |
+| `Name(name) Route` | A unique name for `URL` and `RouteByName`, and the OpenAPI operation ID; panics on a duplicate |
 | `Status(code) Route` | The success status of a [typed handler](/guide/typed-handlers/), such as `201`; panics unless `code` is 2xx |
+| `Summary(text) Route` | A one-line summary in the [OpenAPI](/guide/openapi/) spec |
+| `Description(text) Route` | A longer description in the spec; Markdown works |
+| `Tags(tags...) Route` | Tags that group the route in the spec, after its group's |
+| `Deprecated() Route` | Marks the route deprecated in the spec |
+| `Hidden() Route` | Leaves the route out of the spec |
+| `Input(v) Route` | The request type of a handler that isn't typed, such as `CreateUser{}`; panics on a typed route |
+| `Output(v) Route` | The success-response type of a handler that isn't typed; panics on a typed route |
+| `Response(status, v) Route` | Another response the handler writes itself; `nil` means no body |
+| `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
+| `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; none marks it public |
+
+The spec methods change nothing about how the route serves requests.
 
 ```go
 app.Get("/users/{id}", showUser).Name("users.show")
@@ -56,6 +68,35 @@ type RouteSpec struct {
 	Handler HandlerFunc
 }
 ```
+
+## OpenAPI
+
+| Method | Purpose |
+|---|---|
+| `OpenAPI(path, OpenAPIConfig, middleware...) Route` | Serves the spec as JSON at `path`, with `GET`. Built on the first request and kept; rebuilt when routes are added. Panics when `Security` names an undefined scheme |
+| `OpenAPISpec(OpenAPIConfig) ([]byte, error)` | The spec as JSON, without serving it |
+
+```go
+type OpenAPIConfig struct {
+	Title           string // default: the main module's name
+	Version         string // default: the main module's version, or "0.0.0"
+	Description     string
+	Servers         []OpenAPIServer                  // {URL, Description}
+	SecuritySchemes map[string]OpenAPISecurityScheme // by name
+	Security        []string                         // for routes that set none
+}
+
+type OpenAPISecurityScheme struct {
+	Type             string // "http", "apiKey", "openIdConnect" or "mutualTLS"
+	Scheme           string // for "http": "bearer" or "basic"
+	BearerFormat     string // such as "JWT"
+	In, Name         string // for "apiKey": "header", "query" or "cookie", and its name
+	OpenIDConnectURL string
+	Description      string
+}
+```
+
+A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. See [OpenAPI](/guide/openapi/).
 
 ## Groups and middleware
 
