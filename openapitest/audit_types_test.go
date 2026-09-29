@@ -440,5 +440,18 @@ func typeScenarios() []scenario {
 			build: serveValue("/v", map[string]item{"a": {ID: 1}}), probes: []probe{get("/v")}},
 		{id: "T29", area: "Types", title: "A top-level any output",
 			build: serveValue[any]("/v", []any{1, "two"}), probes: []probe{get("/v")}},
+		{id: "T30", area: "Types", title: "A user type named Error",
+			build: serveValue("/v", Error{Reason: "a normal result"}), probes: []probe{get("/v")},
+			expect: func(f *findings, s spec) {
+				if prop(s.responseSchema("GET", "/v", 200), "reason") == nil {
+					f.add("the user's Error schema was replaced by Zinc's error envelope")
+				}
+			}},
 	}
+}
+
+// Error is an application type that shares its name with Zinc's error
+// envelope component.
+type Error struct {
+	Reason string `json:"reason"`
 }

@@ -1,0 +1,132 @@
+{
+  "B07": {
+    "status": "gap",
+    "phase": "P22",
+    "reason": "A text/plain request body is documented as JSON; media types come in 0.6.3.",
+    "findings": [
+      "a text/plain body is documented as map[content:map[application/json:map[schema:map[type:string]]]]"
+    ]
+  },
+  "B08": {
+    "status": "gap",
+    "phase": "P22",
+    "reason": "XML request bodies are accepted but not documented.",
+    "findings": [
+      "the route accepts XML, but only JSON is documented"
+    ]
+  },
+  "B09": {
+    "status": "gap",
+    "phase": "P22",
+    "reason": "Configured decoders' media types aren't documented.",
+    "findings": [
+      "configured decoders' media types aren't documented"
+    ]
+  },
+  "M07": {
+    "status": "gap",
+    "phase": "P29",
+    "reason": "The spec claims validate rules a validator may not enforce (F12); validators will declare what they enforce.",
+    "findings": [
+      "the spec claims minLength from a tag no validator enforces",
+      "GET /v: response doesn't match its schema: jsonschema validation failed with 'https://zinc.test/audit.json#/paths/~1v/get/responses/200/content/application~1json/schema' - at '/name': minLength: got 1, want 3 — body {\"name\":\"x\"}"
+    ]
+  },
+  "R07": {
+    "status": "design",
+    "reason": "A custom error handler's body is unknown to Zinc, so the 500 is documented without one.",
+    "findings": [
+      "GET /boom: sent a text/plain body for 500, documented none"
+    ]
+  },
+  "R14": {
+    "status": "design",
+    "reason": "Automatic HEAD is answered by Zinc but isn't an operation in the spec.",
+    "findings": [
+      "HEAD /v: no matching operation in the spec"
+    ]
+  },
+  "R15": {
+    "status": "design",
+    "reason": "Automatic OPTIONS isn't an operation in the spec.",
+    "findings": [
+      "OPTIONS /v: no matching operation in the spec"
+    ]
+  },
+  "R16": {
+    "status": "design",
+    "reason": "A 405 for an unregistered method isn't per operation.",
+    "findings": [
+      "DELETE /v: no matching operation in the spec"
+    ]
+  },
+  "R19": {
+    "status": "design",
+    "reason": "A status error the route doesn't declare with Errors can't be known to the spec.",
+    "findings": [
+      "GET /x: status 403 isn't documented"
+    ]
+  },
+  "R21": {
+    "status": "gap",
+    "phase": "P22",
+    "reason": "A typed handler writing CSV is documented as JSON.",
+    "findings": [
+      "GET /csv: sent text/csv, documented [application/json]"
+    ]
+  },
+  "R23": {
+    "status": "design",
+    "reason": "Without the recover middleware, a panic reaches net/http, as documented.",
+    "findings": [
+      "GET /panic: the handler's panic reached net/http: boom"
+    ]
+  },
+  "S08": {
+    "status": "design",
+    "reason": "An unknown security scheme name is an error, by design.",
+    "findings": [
+      "OpenAPISpec: zinc: GET /x names security scheme \"nope\", which OpenAPIConfig.SecuritySchemes doesn't define"
+    ]
+  },
+  "T30": {
+    "status": "gap",
+    "phase": "P13",
+    "reason": "A user type named Error is replaced by Zinc's error envelope (F01).",
+    "findings": [
+      "the user's Error schema was replaced by Zinc's error envelope",
+      "GET /v: response doesn't match its schema: jsonschema validation failed with 'https://zinc.test/audit.json#/paths/~1v/get/responses/200/content/application~1json/schema' - at '': missing property 'error' — body {\"reason\":\"a normal result\"}"
+    ]
+  },
+  "V05": {
+    "status": "design",
+    "reason": "Registering the spec route on a path already in use panics, like any duplicate route.",
+    "findings": [
+      "building the app panicked: route already registered for /openapi.json"
+    ]
+  },
+  "V09": {
+    "status": "gap",
+    "phase": "P13",
+    "reason": "The served spec doesn't follow metadata changed after the first request (F13).",
+    "findings": [
+      "building the app panicked: the served spec still lists a route hidden after the first request"
+    ]
+  },
+  "X16": {
+    "status": "gap",
+    "phase": "P13",
+    "reason": "Two runtime routes become one OpenAPI operation without an error (F02).",
+    "findings": [
+      "two routes became one operation, catchall, without an error"
+    ]
+  },
+  "X17": {
+    "status": "gap",
+    "phase": "P13",
+    "reason": "Path templates that differ only in parameter names are emitted, which OpenAPI forbids (F02).",
+    "findings": [
+      "two path templates differ only in parameter names, which OpenAPI forbids"
+    ]
+  }
+}
