@@ -40,7 +40,8 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | `Output(v) Route` | The success-response type of a handler that isn't typed; panics on a typed route |
 | `Response(status, v) Route` | Another response the handler writes itself; `nil` means no body |
 | `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
-| `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; none marks it public |
+| `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; any one is enough, and none marks it public. `"oauth:pets:read"` adds a scope |
+| `SecurityAll(schemes...) Route` | Like `Security`, but every scheme is needed |
 
 The spec methods change nothing about how the route serves requests.
 
@@ -73,30 +74,45 @@ type RouteSpec struct {
 
 | Method | Purpose |
 |---|---|
-| `OpenAPI(path, OpenAPIConfig, middleware...) Route` | Serves the spec as JSON at `path`, with `GET`. Built on the first request and kept; rebuilt when routes are added. Panics when `Security` names an undefined scheme |
+| `OpenAPI(path, OpenAPIConfig, middleware...) Route` | Serves the spec as JSON at `path`, with `GET`, in place of the one at `Config.OpenAPIPath`. Built on the first request and kept; rebuilt when routes are added. Panics on a config the spec can't be valid with |
 | `OpenAPISpec(OpenAPIConfig) ([]byte, error)` | The spec as JSON, without serving it |
+
+Every app also serves its spec at `Config.OpenAPIPath`, `/openapi.json` unless set, described by `Config.OpenAPI`; `"-"` turns it off.
 
 ```go
 type OpenAPIConfig struct {
 	Title           string // default: the main module's name
 	Version         string // default: the main module's version, or "0.0.0"
 	Description     string
-	Servers         []OpenAPIServer                  // {URL, Description}
+	TermsOfService  string
+	Contact         *OpenAPIContact      // {Name, URL, Email}
+	License         *OpenAPILicense      // {Name, Identifier, URL}
+	ExternalDocs    *OpenAPIExternalDocs // {Description, URL}
+	Servers         []OpenAPIServer      // {URL, Description}
+	Tags            []OpenAPITag         // {Name, Description, ExternalDocs}
 	SecuritySchemes map[string]OpenAPISecurityScheme // by name
 	Security        []string                         // for routes that set none
+	NoAuthResponses bool                             // no automatic 401 and 403
+	Schemas         map[reflect.Type]map[string]any  // for types from other packages
 }
 
 type OpenAPISecurityScheme struct {
-	Type             string // "http", "apiKey", "openIdConnect" or "mutualTLS"
+	Type             string // "http", "apiKey", "oauth2", "openIdConnect" or "mutualTLS"
 	Scheme           string // for "http": "bearer" or "basic"
 	BearerFormat     string // such as "JWT"
 	In, Name         string // for "apiKey": "header", "query" or "cookie", and its name
+	Flows            *OpenAPIOAuthFlows // for "oauth2": AuthorizationCode, ClientCredentials, Password, Implicit
 	OpenIDConnectURL string
 	Description      string
 }
+
+type OpenAPIOAuthFlow struct {
+	AuthorizationURL, TokenURL, RefreshURL string
+	Scopes                                 map[string]string // scope: description
+}
 ```
 
-A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. See [OpenAPI](/guide/openapi/).
+A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. A named type that implements `zinc.EnumProvider`, with an `Enum() []any` method, becomes an enum. See [OpenAPI](/guide/openapi/).
 
 ## Groups and middleware
 

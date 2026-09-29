@@ -22,6 +22,18 @@ type SchemaProvider interface {
 	OpenAPISchema() map[string]any
 }
 
+// EnumProvider lets a named type list the values it can take. The type
+// becomes a component with an enum, shared by every field of the type:
+//
+//	type Kind string
+//
+//	func (Kind) Enum() []any { return []any{"cat", "dog"} }
+//
+// It documents the values; enforce them with a validator.
+type EnumProvider interface {
+	Enum() []any
+}
+
 // schema is a JSON Schema 2020-12 object, as OpenAPI 3.1 uses it. Fields
 // marshal in a fixed order, and properties keep their struct order, so the
 // spec is byte-for-byte stable.
@@ -38,6 +50,7 @@ type schema struct {
 	items                *schema
 	anyOf                []*schema
 	enum                 []any
+	def                  any
 	examples             []any
 	minimum, maximum     *float64
 	exclusiveMinimum     *float64
@@ -55,6 +68,7 @@ type property struct {
 
 var (
 	schemaProviderType = reflect.TypeFor[SchemaProvider]()
+	enumProviderType   = reflect.TypeFor[EnumProvider]()
 	jsonMarshalerType  = reflect.TypeFor[json.Marshaler]()
 	textMarshalerType  = reflect.TypeFor[encoding.TextMarshaler]()
 	timeType           = reflect.TypeFor[time.Time]()
@@ -83,6 +97,8 @@ type componentKey struct {
 }
 
 type schemaGen struct {
+	// types holds schemas the config gives to types by hand.
+	types map[reflect.Type]map[string]any
 	// validation reports whether validate tags reach the schema. The spec
 	// builder turns it off when the app has no Validator, since nothing would
 	// enforce the rules.
@@ -127,14 +143,20 @@ func (g *schemaGen) schema(t reflect.Type, mode schemaMode) *schema {
 		return &schema{typ: []string{"boolean"}}
 	case reflect.String:
 		return &schema{typ: []string{"string"}}
-	case reflect.Int8, reflect.Int16, reflect.Int32:
+	case reflect.Int8:
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(-128.0), maximum: ptr(127.0)}
+	case reflect.Int16:
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(-32768.0), maximum: ptr(32767.0)}
+	case reflect.Int32:
 		return &schema{typ: []string{"integer"}, format: "int32"}
-	case reflect.Uint8, reflect.Uint16:
-		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0)}
+	case reflect.Uint8:
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0), maximum: ptr(255.0)}
+	case reflect.Uint16:
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0), maximum: ptr(65535.0)}
 	case reflect.Int, reflect.Int64:
 		return &schema{typ: []string{"integer"}, format: "int64"}
 	case reflect.Uint32:
-		return &schema{typ: []string{"integer"}, format: "int64", minimum: ptr(0.0)}
+		return &schema{typ: []string{"integer"}, format: "int64", minimum: ptr(0.0), maximum: ptr(4294967295.0)}
 	case reflect.Uint, reflect.Uint64, reflect.Uintptr:
 		// No OpenAPI format holds values above 2^63-1.
 		return &schema{typ: []string{"integer"}, minimum: ptr(0.0)}
@@ -190,8 +212,17 @@ func (g *schemaGen) bodySchemaFor(t reflect.Type) *schema {
 
 // special handles types whose JSON form isn't their Go shape.
 func (g *schemaGen) special(t reflect.Type) (*schema, bool) {
+	if raw, ok := g.types[t]; ok {
+		return &schema{raw: raw}, true
+	}
 	if provider := schemaProviderFor(t); provider != nil {
 		return &schema{raw: provider.OpenAPISchema()}, true
+	}
+	if values := enumValuesFor(t); values != nil && t.Name() != "" {
+		return &schema{ref: "#/components/schemas/" + g.enumComponent(t, values)}, true
+	}
+	if known, ok := knownTypes[t.PkgPath()+"."+t.Name()]; ok {
+		return &schema{typ: []string{known[0]}, format: known[1]}, true
 	}
 	switch {
 	case t == timeType:
@@ -211,6 +242,64 @@ func (g *schemaGen) special(t reflect.Type) (*schema, bool) {
 		return &schema{typ: []string{"string"}}, true
 	}
 	return nil, false
+}
+
+// knownTypes describes common types from other modules by package path and
+// name, as a JSON type and format, so the core needn't import them.
+var knownTypes = map[string][2]string{
+	"github.com/google/uuid.UUID":           {"string", "uuid"},
+	"github.com/gofrs/uuid.UUID":            {"string", "uuid"},
+	"github.com/gofrs/uuid/v5.UUID":         {"string", "uuid"},
+	"github.com/satori/go.uuid.UUID":        {"string", "uuid"},
+	"github.com/oklog/ulid/v2.ULID":         {"string", ""},
+	"github.com/shopspring/decimal.Decimal": {"string", ""},
+	"math/big.Int":                          {"integer", ""},
+	"math/big.Float":                        {"string", ""},
+	"net/netip.Addr":                        {"string", ""},
+	"net/netip.Prefix":                      {"string", ""},
+	"net.IP":                                {"string", ""},
+}
+
+// enumValuesFor returns a named type's Enum values, or nil.
+func enumValuesFor(t reflect.Type) []any {
+	var v reflect.Value
+	switch {
+	case t.Kind() == reflect.Pointer || t.Kind() == reflect.Interface:
+		return nil
+	case t.Implements(enumProviderType):
+		v = reflect.New(t).Elem()
+	case reflect.PointerTo(t).Implements(enumProviderType):
+		v = reflect.New(t)
+	default:
+		return nil
+	}
+	provider, _ := v.Interface().(EnumProvider)
+	return provider.Enum()
+}
+
+// enumComponent names the component for an enum type, building it the first
+// time from the type's Go shape plus its values.
+func (g *schemaGen) enumComponent(t reflect.Type, values []any) string {
+	key := componentKey{t, modeOutput}
+	if name, ok := g.names[key]; ok {
+		return name
+	}
+	name := g.uniqueName(t, modeOutput)
+	g.names[key] = name
+	g.taken[name] = key
+	s := &schema{typ: []string{"string"}}
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		s = &schema{typ: []string{"integer"}}
+	case reflect.Float32, reflect.Float64:
+		s = &schema{typ: []string{"number"}}
+	case reflect.Bool:
+		s = &schema{typ: []string{"boolean"}}
+	}
+	s.enum = values
+	g.components[name] = s
+	return name
 }
 
 // schemaProviderFor returns a zero value of t as a SchemaProvider, or nil.
@@ -317,7 +406,7 @@ func nestedStruct(t reflect.Type) reflect.Type {
 			t = t.Elem()
 			continue
 		case reflect.Struct:
-			if t == timeType || schemaProviderFor(t) != nil || t.Implements(jsonMarshalerType) ||
+			if t == timeType || schemaProviderFor(t) != nil || knownTypes[t.PkgPath()+"."+t.Name()] != [2]string{} || t.Implements(jsonMarshalerType) ||
 				reflect.PointerTo(t).Implements(jsonMarshalerType) || t.Implements(textMarshalerType) ||
 				reflect.PointerTo(t).Implements(textMarshalerType) {
 				return nil
@@ -346,9 +435,12 @@ func (g *schemaGen) validateRequired(f jsonField) bool {
 }
 
 // sanitizeComponentName keeps the characters OpenAPI allows in component
-// keys. Generic type arguments lose their package paths:
-// Page[example.com/shop.User] becomes Page_shop.User.
+// keys. A generic type's arguments are appended without their packages:
+// Page[example.com/shop.User] becomes PageUser, and Page[[]int] PageListInt.
 func sanitizeComponentName(name string) string {
+	if head, args, ok := strings.Cut(name, "["); ok && strings.HasSuffix(args, "]") {
+		return sanitizeComponentName(head) + typeArgsName(args[:len(args)-1])
+	}
 	var b strings.Builder
 	for i := 0; i < len(name); i++ {
 		c := name[i]
@@ -368,6 +460,64 @@ func sanitizeComponentName(name string) string {
 		}
 	}
 	return strings.Trim(b.String(), "_")
+}
+
+// typeArgsName names a generic type's comma-separated arguments.
+func typeArgsName(args string) string {
+	var b strings.Builder
+	depth, start := 0, 0
+	for i := 0; i <= len(args); i++ {
+		if i == len(args) || (args[i] == ',' && depth == 0) {
+			b.WriteString(typeArgName(strings.TrimSpace(args[start:i])))
+			start = i + 1
+			continue
+		}
+		switch args[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		}
+	}
+	return b.String()
+}
+
+// typeArgName names one type argument: its type name, capitalized, with
+// List, Map or Array for a composite.
+func typeArgName(arg string) string {
+	switch {
+	case strings.HasPrefix(arg, "[]"):
+		return "List" + typeArgName(arg[2:])
+	case strings.HasPrefix(arg, "*"):
+		return typeArgName(arg[1:])
+	case strings.HasPrefix(arg, "map["):
+		depth := 0
+		for i := 3; i < len(arg); i++ {
+			switch arg[i] {
+			case '[':
+				depth++
+			case ']':
+				if depth--; depth == 0 {
+					return "Map" + typeArgName(arg[4:i]) + typeArgName(arg[i+1:])
+				}
+			}
+		}
+	case strings.HasPrefix(arg, "["):
+		if end := strings.IndexByte(arg, ']'); end > 0 {
+			return "Array" + typeArgName(arg[end+1:])
+		}
+	}
+	head, rest, generic := strings.Cut(arg, "[")
+	head = head[strings.LastIndexByte(head, '/')+1:]
+	head = head[strings.LastIndexByte(head, '.')+1:]
+	name := sanitizeComponentName(head)
+	if name != "" {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	if generic && strings.HasSuffix(rest, "]") {
+		name += typeArgsName(rest[:len(rest)-1])
+	}
+	return name
 }
 
 // structSchema describes a struct's JSON object. With body set, fields bound
@@ -597,10 +747,34 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 			fs.examples = []any{v}
 		}
 	}
+	if text, ok := f.tag.Lookup("enum"); ok {
+		applyEnumTag(target, text, f)
+	}
 	if !g.validation {
 		return false
 	}
 	return applyValidateTag(target, f.tag.Get("validate"), base(f.typ), f.asString)
+}
+
+// applyEnumTag lists an enum tag's comma-separated values, parsed as the
+// field's type, or its elements' for a slice or array.
+func applyEnumTag(s *schema, text string, f jsonField) {
+	t := base(f.typ)
+	if (t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && s.items != nil {
+		s, t = s.items, base(t.Elem())
+		if len(s.anyOf) == 2 {
+			s = s.anyOf[0]
+		}
+	}
+	if s.ref != "" || s.raw != nil {
+		return
+	}
+	s.enum = nil
+	for _, v := range strings.Split(text, ",") {
+		if parsed, ok := parseScalar(strings.TrimSpace(v), t, f.asString); ok {
+			s.enum = append(s.enum, parsed)
+		}
+	}
 }
 
 // applyValidateTag reads the go-playground validator tokens that have a
@@ -850,6 +1024,9 @@ func (s *schema) MarshalJSON() ([]byte, error) {
 	}
 	if len(s.enum) > 0 {
 		field("enum", s.enum)
+	}
+	if s.def != nil {
+		field("default", s.def)
 	}
 	if s.minimum != nil {
 		field("minimum", *s.minimum)

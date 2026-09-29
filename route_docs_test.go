@@ -107,7 +107,7 @@ func TestRouteDocMethods(t *testing.T) {
 	if len(doc.responses) != 2 || doc.responses[0] != (docResponse{409, nil}) || doc.responses[1] != (docResponse{204, nil}) {
 		t.Fatalf("responses %v", doc.responses)
 	}
-	if !doc.securitySet || !reflect.DeepEqual(doc.security, []string{"apiKey"}) {
+	if !doc.securitySet || !reflect.DeepEqual(doc.security, [][]string{{"apiKey"}}) {
 		t.Fatalf("security %v", doc.security)
 	}
 	if hidden := app.Get("/internal", func(*Context) error { return nil }).Hidden(); !docOf(t, hidden).hidden {
@@ -139,7 +139,7 @@ func TestGroupDocDefaults(t *testing.T) {
 	health := admin.Get("/health", func(*Context) error { return nil }).Security() // public
 	root := app.Get("/", func(*Context) error { return nil })
 
-	if doc := docOf(t, list); !reflect.DeepEqual(doc.tags, []string{"admin", "users", "listing"}) || !reflect.DeepEqual(doc.security, []string{"apiKey"}) {
+	if doc := docOf(t, list); !reflect.DeepEqual(doc.tags, []string{"admin", "users", "listing"}) || !reflect.DeepEqual(doc.security, [][]string{{"apiKey"}}) {
 		t.Fatalf("nested group route: tags %v security %v", doc.tags, doc.security)
 	}
 	if doc := docOf(t, health); !doc.securitySet || len(doc.security) != 0 {

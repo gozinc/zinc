@@ -23,6 +23,10 @@ type bindingPlan struct {
 	formFields          []bindingField
 	multipartFileFields []bindingField
 	headerFields        []bindingField
+	cookieFields        []bindingField
+	// hasDefaults reports whether any field has a default tag, so binding
+	// skips the defaults pass for types without one.
+	hasDefaults bool
 }
 
 // bindingField keeps both the wire name and Go field label: the former locates
@@ -33,6 +37,9 @@ type bindingField struct {
 	headerName string
 	label      string
 	setter     fieldSetter
+	// def is the parsed default tag: the inputs bound when the request leaves
+	// the field out. It's nil without a default.
+	def []string
 }
 
 // bindFieldError carries source and field attribution through the binder without
@@ -144,6 +151,8 @@ func bindingPlanFor(typ reflect.Type) *bindingPlan {
 	return actual.(*bindingPlan)
 }
 
+// compileBindingPlan panics on a default tag the field can't hold, so the
+// mistake shows at registration for a Typed handler.
 func compileBindingPlan(typ reflect.Type) *bindingPlan {
 	plan := &bindingPlan{}
 	for i := 0; i < typ.NumField(); i++ {
@@ -157,24 +166,63 @@ func compileBindingPlan(typ reflect.Type) *bindingPlan {
 		// One field may participate in several sources. The plan preserves that
 		// intentionally so Bind.All can apply its documented source precedence.
 		setter := compileFieldSetter(field.Type)
+		def := compileDefault(typ, field, setter)
+		if def != nil {
+			plan.hasDefaults = true
+		}
 		if compiled, ok := compileBindingField(i, field, setter, "path"); ok {
 			plan.pathFields = append(plan.pathFields, compiled)
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "query"); ok {
+			compiled.def = def
 			plan.queryFields = append(plan.queryFields, compiled)
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "form"); ok {
 			if setter.supportsFiles() {
 				plan.multipartFileFields = append(plan.multipartFileFields, compiled)
 			} else {
+				compiled.def = def
 				plan.formFields = append(plan.formFields, compiled)
 			}
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "header"); ok {
+			compiled.def = def
 			plan.headerFields = append(plan.headerFields, compiled)
+		}
+		if compiled, ok := compileBindingField(i, field, setter, "cookie"); ok {
+			compiled.def = def
+			plan.cookieFields = append(plan.cookieFields, compiled)
 		}
 	}
 	return plan
+}
+
+// compileDefault parses a field's default tag into the inputs a request
+// would carry: one value, or comma-separated values for a slice.
+func compileDefault(typ reflect.Type, field reflect.StructField, setter fieldSetter) []string {
+	text, ok := field.Tag.Lookup("default")
+	if !ok {
+		return nil
+	}
+	def := []string{text}
+	if setter.usesAllValues() {
+		def = strings.Split(text, ",")
+	}
+	if err := setter.set(reflect.New(field.Type).Elem(), def); err != nil {
+		panic(fmt.Sprintf("zinc: default tag %q on %s.%s: %v", text, typ.Name(), field.Name, err))
+	}
+	return def
+}
+
+// applyDefaults sets the fields that have a default, before a source binds
+// over them.
+func applyDefaults(val reflect.Value, fields []bindingField) {
+	for _, field := range fields {
+		if field.def != nil {
+			// The value was checked when the plan compiled.
+			_ = field.setter.set(val.Field(field.index), field.def)
+		}
+	}
 }
 
 func compileBindingField(index int, field reflect.StructField, setter fieldSetter, tag string) (bindingField, bool) {
@@ -418,6 +466,23 @@ func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.
 			continue
 		}
 		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
+			return field.bindError("", err)
+		}
+	}
+	return nil
+}
+
+func bindFieldsFromCookies(val reflect.Value, fields []bindingField, req *http.Request) error {
+	if len(fields) == 0 || req == nil || len(req.Header["Cookie"]) == 0 {
+		return nil
+	}
+	for _, field := range fields {
+		cookie, err := req.Cookie(field.name)
+		if err != nil {
+			continue
+		}
+		single := [1]string{cookie.Value}
+		if err := field.setter.set(val.Field(field.index), single[:]); err != nil {
 			return field.bindError("", err)
 		}
 	}
