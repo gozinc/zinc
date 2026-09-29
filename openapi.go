@@ -294,6 +294,9 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	doc.Security = securityRequirements(cfg.Security)
 
 	g := newSchemaGen()
+	// Without a Validator nothing enforces validate tags, so the spec doesn't
+	// claim their rules.
+	g.validation = a.config.Validator != nil
 	usesErrors := false
 	table := a.router
 	for i, meta := range table.routeInfos {
@@ -369,7 +372,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 	paramSchema := func(f bindingField) (*schema, bool) {
 		sf := fields[f.index]
 		s := g.schemaFor(sf.Type)
-		required := applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag})
+		required := g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag})
 		return s, required
 	}
 	for _, name := range meta.params {
@@ -425,14 +428,18 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 		success.Content = orderedMap[oaMediaType]{{"application/json", oaMediaType{Schema: g.schemaFor(out)}}}
 	}
 	responses := map[int]*oaResponse{status: success}
-	usesErrors := false
+	// Any route can fail, so every one documents a 500. The error body is
+	// described only when Zinc's default error handler writes it; a custom
+	// ErrorHandler may write anything.
+	errorBody := a.defaultErrors
+	responses[http.StatusInternalServerError] = errorResponse(http.StatusInternalServerError, errorBody)
 	if hasInput {
-		responses[http.StatusBadRequest] = errorResponse(http.StatusBadRequest)
+		responses[http.StatusBadRequest] = errorResponse(http.StatusBadRequest, errorBody)
 		if a.config.Validator != nil {
-			responses[http.StatusUnprocessableEntity] = errorResponse(http.StatusUnprocessableEntity)
+			responses[http.StatusUnprocessableEntity] = errorResponse(http.StatusUnprocessableEntity, errorBody)
 		}
-		usesErrors = true
 	}
+	usesErrors := errorBody
 	for _, r := range rd.responses {
 		resp := &oaResponse{Description: http.StatusText(r.status)}
 		if r.typ != nil {
@@ -464,7 +471,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	for _, f := range jsonFields(st) {
 		if !f.param {
 			jsonProps = true
-			if strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
+			if g.validation && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
 				required = true
 			}
 		}
@@ -477,7 +484,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		for _, f := range plan.formFields {
 			sf := st.Field(f.index)
 			s := g.schemaFor(sf.Type)
-			if applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag}) {
+			if g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag}) {
 				form.required = append(form.required, f.name)
 				required = true
 			}
@@ -503,7 +510,12 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	return body
 }
 
-func errorResponse(status int) *oaResponse {
+// errorResponse describes an error status, with Zinc's error envelope as its
+// body when withBody is set.
+func errorResponse(status int, withBody bool) *oaResponse {
+	if !withBody {
+		return &oaResponse{Description: http.StatusText(status)}
+	}
 	return &oaResponse{
 		Description: http.StatusText(status),
 		Content: orderedMap[oaMediaType]{{"application/json", oaMediaType{
