@@ -24,6 +24,8 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 | `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Connect`, `Trace` | Routes below the prefix; each returns a `Route` to `Name` |
 | `Add`, `Match`, `All` | Routes for custom or multiple methods |
 | `TryHandle(spec) error` | A route from configuration, returning problems as errors |
+| `Tags(tags...) *Group` | [OpenAPI](/guide/openapi/) tags for every route registered in the group from now on, and its child groups. Panics once the group has routes or child groups, like `Use` |
+| `Security(schemes...) *Group` | The security schemes that protect every route registered in the group from now on, in the spec; `Route.Security` overrides it |
 | `UseHTTP(middleware...) *Group` | Standard `func(http.Handler) http.Handler` middleware for this group, through `zinc.FromHTTP` |
 | `HandleHTTP(pattern, http.Handler) Route` | A standard handler below the prefix |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree below the prefix |
@@ -44,4 +46,4 @@ admin.Delete("/users/{id}", audit, deleteUser)
 // authenticate → requireAdmin → audit → deleteUser
 ```
 
-Group middleware runs only when one of the group's routes matches. Use `app.UsePrefix` for middleware that must also run for unmatched paths under a prefix.
+Group middleware runs only when one of the group's routes matches. Use `app.UsePrefix` for middleware that must also run for unmatched paths under a prefix. For the same reason, [redirect](/middleware/redirect/) and [rewrite](/middleware/rewrite/) can't work on a group, and adding them to one panics.

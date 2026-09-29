@@ -140,7 +140,7 @@ OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middl
 
 ## Performance
 
-Zinc is scored against Gin and Echo on 92 scenarios, and against the bare routers BunRouter and Chi on the 66 routing ones, with every framework measured together in one run on an Apple M1 Pro. Every request pool holds 10,000 distinct paths, so nothing is answered from a cache. For 0.5.2, Zinc had the lowest median latency in 67 of 92 against the frameworks, 5.0% from the fastest on average, and 39 of 66 against the routers. The [benchmark report](./BENCHMARKS.md) has every scenario, every loss, the environment, and the commands. Results vary by workload and machine, so run the suite against the revision you deploy.
+Zinc is scored against Gin and Echo on 92 scenarios, and against the bare routers BunRouter and Chi on the 66 routing ones, with every framework measured together in one run on an Apple M1 Pro. Every request pool holds 10,000 distinct paths, so nothing is answered from a cache. For 0.6.0, Zinc was fastest by 3% or more in 63 of 93 against the frameworks, with 9 more tied within 3%, and 5.2% from the fastest on average; against the routers, 32 of 66 with 11 ties. The [benchmark report](./BENCHMARKS.md) has every scenario, every loss, the environment, and the commands. Results vary by workload and machine, so run the suite against the revision you deploy.
 
 ## Good to know
 

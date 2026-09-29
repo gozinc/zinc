@@ -371,7 +371,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 	}
 	paramSchema := func(f bindingField) (*schema, bool) {
 		sf := fields[f.index]
-		s := g.schemaFor(sf.Type)
+		s := g.inputSchemaFor(sf.Type)
 		required := g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag})
 		return s, required
 	}
@@ -440,6 +440,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 		}
 	}
 	usesErrors := errorBody
+	for _, status := range rd.errors {
+		responses[status] = errorResponse(status, errorBody)
+	}
 	for _, r := range rd.responses {
 		resp := &oaResponse{Description: http.StatusText(r.status)}
 		if r.typ != nil {
@@ -463,7 +466,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaRequestBody {
 	body := &oaRequestBody{}
 	if base(in).Kind() != reflect.Struct {
-		body.Content.set("application/json", oaMediaType{Schema: g.schemaFor(in)})
+		body.Content.set("application/json", oaMediaType{Schema: g.inputSchemaFor(in)})
 		return body
 	}
 	st := base(in)
@@ -483,7 +486,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		form := &schema{typ: []string{"object"}}
 		for _, f := range plan.formFields {
 			sf := st.Field(f.index)
-			s := g.schemaFor(sf.Type)
+			s := g.inputSchemaFor(sf.Type)
 			if g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag}) {
 				form.required = append(form.required, f.name)
 				required = true
