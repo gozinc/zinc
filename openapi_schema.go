@@ -60,6 +60,7 @@ var (
 	timeType           = reflect.TypeFor[time.Time]()
 	durationType       = reflect.TypeFor[time.Duration]()
 	rawMessageType     = reflect.TypeFor[json.RawMessage]()
+	jsonNumberType     = reflect.TypeFor[json.Number]()
 )
 
 // schemaGen turns Go types into schemas. Named structs become components,
@@ -132,22 +133,35 @@ func (g *schemaGen) schema(t reflect.Type, mode schemaMode) *schema {
 		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0)}
 	case reflect.Int, reflect.Int64:
 		return &schema{typ: []string{"integer"}, format: "int64"}
-	case reflect.Uint, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint32:
 		return &schema{typ: []string{"integer"}, format: "int64", minimum: ptr(0.0)}
+	case reflect.Uint, reflect.Uint64, reflect.Uintptr:
+		// No OpenAPI format holds values above 2^63-1.
+		return &schema{typ: []string{"integer"}, minimum: ptr(0.0)}
 	case reflect.Float32:
 		return &schema{typ: []string{"number"}, format: "float"}
 	case reflect.Float64:
 		return &schema{typ: []string{"number"}, format: "double"}
 	case reflect.Slice:
+		var s *schema
 		if t.Elem().Kind() == reflect.Uint8 && !reflect.PointerTo(t.Elem()).Implements(textMarshalerType) {
-			return &schema{typ: []string{"string"}, contentEncoding: "base64"}
+			s = &schema{typ: []string{"string"}, contentEncoding: "base64"}
+		} else {
+			s = &schema{typ: []string{"array"}, items: g.schema(t.Elem(), mode)}
 		}
-		return &schema{typ: []string{"array"}, items: g.schema(t.Elem(), mode)}
+		if mode == modeOutput {
+			return nullable(s) // encoding/json writes a nil slice as null
+		}
+		return s
 	case reflect.Array:
 		n := t.Len()
 		return &schema{typ: []string{"array"}, items: g.schema(t.Elem(), mode), minItems: &n, maxItems: &n}
 	case reflect.Map:
-		return &schema{typ: []string{"object"}, additionalProperties: g.schema(t.Elem(), mode)}
+		s := &schema{typ: []string{"object"}, additionalProperties: g.schema(t.Elem(), mode)}
+		if mode == modeOutput {
+			return nullable(s) // and a nil map
+		}
+		return s
 	case reflect.Struct:
 		if t.Name() == "" {
 			return g.structSchema(t, mode)
@@ -184,6 +198,8 @@ func (g *schemaGen) special(t reflect.Type) (*schema, bool) {
 		return &schema{typ: []string{"string"}, format: "date-time"}, true
 	case t == rawMessageType:
 		return &schema{}, true
+	case t == jsonNumberType:
+		return &schema{typ: []string{"number"}}, true
 	case t == durationType:
 		// time.Duration encodes as its integer nanoseconds.
 		return &schema{typ: []string{"integer"}, format: "int64", description: "nanoseconds"}, true
@@ -371,8 +387,14 @@ func (g *schemaGen) structSchema(t reflect.Type, mode schemaMode) *schema {
 		}
 		required := g.applyFieldTags(fs, f)
 		if mode == modeOutput {
-			// encoding/json always writes a field without omitempty.
-			required = !f.omit
+			// encoding/json always writes a field without omitempty, unless
+			// it's promoted from an embedded pointer that may be nil.
+			required = !f.omit && !f.viaPointer
+			if f.omit && (f.typ.Kind() == reflect.Slice || f.typ.Kind() == reflect.Map) {
+				// omitempty and omitzero leave a nil slice or map out, so
+				// it's never null.
+				fs.typ = slices.DeleteFunc(fs.typ, func(t string) bool { return t == "null" })
+			}
 		}
 		if fs.ref != "" && (fs.description != "" || len(fs.examples) > 0) {
 			// Keep the component clean: annotations sit beside the $ref.
@@ -398,6 +420,9 @@ type jsonField struct {
 	depth    int
 	tagged   bool
 	index    []int
+	// viaPointer is set for a field promoted from an embedded pointer:
+	// encoding/json leaves it out when the pointer is nil.
+	viaPointer bool
 }
 
 // jsonFields lists t's encoded fields with encoding/json's rules: exported
@@ -405,8 +430,8 @@ type jsonField struct {
 // depth a tagged field beats untagged ones while a tie drops the name.
 func jsonFields(t reflect.Type) []jsonField {
 	var all []jsonField
-	var walk func(t reflect.Type, depth int, index []int, visited map[reflect.Type]bool)
-	walk = func(t reflect.Type, depth int, index []int, visited map[reflect.Type]bool) {
+	var walk func(t reflect.Type, depth int, index []int, viaPointer bool, visited map[reflect.Type]bool)
+	walk = func(t reflect.Type, depth int, index []int, viaPointer bool, visited map[reflect.Type]bool) {
 		if visited[t] {
 			return
 		}
@@ -426,7 +451,7 @@ func jsonFields(t reflect.Type) []jsonField {
 					et = et.Elem()
 				}
 				if name == "" && et.Kind() == reflect.Struct {
-					walk(et, depth+1, append(slices.Clone(index), i), visited)
+					walk(et, depth+1, append(slices.Clone(index), i), viaPointer || ft.Kind() == reflect.Pointer, visited)
 					continue
 				}
 				if !f.IsExported() && et.Kind() != reflect.Struct {
@@ -448,8 +473,9 @@ func jsonFields(t reflect.Type) []jsonField {
 				index:  append(slices.Clone(index), i),
 				// Binding reads only top-level fields, so a tagged field in
 				// an embedded struct is still a body field.
-				param: depth == 0 && isParamField(f.Tag),
-				omit:  hasOption(opts, "omitempty") || hasOption(opts, "omitzero"),
+				param:      depth == 0 && (isParamField(f.Tag) || isFileField(f)),
+				viaPointer: viaPointer,
+				omit:       hasOption(opts, "omitempty") || hasOption(opts, "omitzero"),
 			}
 			if jf.name == "" {
 				jf.name = f.Name
@@ -465,7 +491,7 @@ func jsonFields(t reflect.Type) []jsonField {
 			all = append(all, jf)
 		}
 	}
-	walk(t, 0, nil, map[reflect.Type]bool{})
+	walk(t, 0, nil, false, map[reflect.Type]bool{})
 
 	// Resolve name conflicts the way encoding/json does.
 	byName := map[string][]int{}
@@ -527,15 +553,23 @@ func hasOption(opts, want string) bool {
 	return false
 }
 
-// isParamField reports whether binding reads the field from outside the
-// body. A tag value of "-" means no binding.
+// isParamField reports whether binding reads the field from the URL or the
+// headers, not the body. A tag value of "-" means no binding. A form field is
+// still a body field: a JSON body binds it too.
 func isParamField(tag reflect.StructTag) bool {
-	for _, key := range []string{"path", "query", "header", "form"} {
+	for _, key := range []string{"path", "query", "header"} {
 		if v, ok := tag.Lookup(key); ok && v != "-" {
 			return true
 		}
 	}
 	return false
+}
+
+// isFileField reports whether the field binds an uploaded file, which only a
+// multipart body carries.
+func isFileField(f reflect.StructField) bool {
+	v, ok := f.Tag.Lookup("form")
+	return ok && v != "-" && compileFieldSetter(f.Type).supportsFiles()
 }
 
 func hasParamFields(t reflect.Type) bool {
@@ -588,6 +622,15 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool) (req
 	case t.Kind() == reflect.Struct || t.Kind() == reflect.Bool || t.Kind() == reflect.Interface:
 		kind = ""
 	}
+	if constrain {
+		// The validator's omitempty skips the other rules for a zero value,
+		// so the zero value must pass the schema too.
+		defer func() {
+			if hasValidateToken(tag, "omitempty") {
+				allowZero(s, kind, t, asString)
+			}
+		}()
+	}
 	for _, token := range strings.Split(tag, ",") {
 		key, value, _ := strings.Cut(strings.TrimSpace(token), "=")
 		if key == "dive" {
@@ -621,6 +664,53 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool) (req
 		}
 	}
 	return required
+}
+
+// hasValidateToken reports whether a validate tag has the token before any
+// "dive".
+func hasValidateToken(tag, want string) bool {
+	for _, token := range strings.Split(tag, ",") {
+		key, _, _ := strings.Cut(strings.TrimSpace(token), "=")
+		if key == "dive" {
+			return false
+		}
+		if key == want {
+			return true
+		}
+	}
+	return false
+}
+
+// allowZero relaxes the rules a zero value would break: it joins an enum,
+// and formats and lower bounds that exclude it are dropped.
+func allowZero(s *schema, kind string, t reflect.Type, asString bool) {
+	switch kind {
+	case "string":
+		s.format, s.minLength = "", nil
+		if len(s.enum) > 0 && !slices.Contains(s.enum, any("")) {
+			s.enum = append(s.enum, "")
+		}
+	case "items":
+		s.minItems = nil
+	case "number":
+		if len(s.enum) > 0 {
+			if zero, ok := parseScalar("0", t, asString); ok && !slices.Contains(s.enum, zero) {
+				s.enum = append(s.enum, zero)
+			}
+		}
+		if s.minimum != nil && *s.minimum > 0 {
+			s.minimum = nil
+		}
+		if s.maximum != nil && *s.maximum < 0 {
+			s.maximum = nil
+		}
+		if s.exclusiveMinimum != nil && *s.exclusiveMinimum >= 0 {
+			s.exclusiveMinimum = nil
+		}
+		if s.exclusiveMaximum != nil && *s.exclusiveMaximum <= 0 {
+			s.exclusiveMaximum = nil
+		}
+	}
 }
 
 func applyBound(s *schema, kind, key string, n float64) {

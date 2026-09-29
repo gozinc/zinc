@@ -48,8 +48,14 @@ type OpenAPIServer struct {
 //
 //	zinc.OpenAPISecurityScheme{Type: "http", Scheme: "bearer", BearerFormat: "JWT"}
 //	zinc.OpenAPISecurityScheme{Type: "apiKey", In: "header", Name: "X-API-Key"}
+//	zinc.OpenAPISecurityScheme{Type: "oauth2", Flows: &zinc.OpenAPIOAuthFlows{
+//		ClientCredentials: &zinc.OpenAPIOAuthFlow{TokenURL: "https://id.example.com/token"},
+//	}}
+//
+// A scheme missing a field its type needs, such as an "oauth2" scheme without
+// flows, makes the spec fail to build.
 type OpenAPISecurityScheme struct {
-	// Type is "http", "apiKey", "openIdConnect" or "mutualTLS".
+	// Type is "http", "apiKey", "oauth2", "openIdConnect" or "mutualTLS".
 	Type string `json:"type"`
 	// Scheme is the HTTP authentication scheme for type "http", such as
 	// "bearer" or "basic".
@@ -60,9 +66,98 @@ type OpenAPISecurityScheme struct {
 	In string `json:"in,omitempty"`
 	// Name is the header, query parameter or cookie that carries an "apiKey".
 	Name string `json:"name,omitempty"`
+	// Flows lists the flows an "oauth2" scheme supports; it needs at least
+	// one.
+	Flows *OpenAPIOAuthFlows `json:"flows,omitempty"`
 	// OpenIDConnectURL is the discovery URL for type "openIdConnect".
 	OpenIDConnectURL string `json:"openIdConnectUrl,omitempty"`
 	Description      string `json:"description,omitempty"`
+}
+
+// OpenAPIOAuthFlows lists the OAuth 2 flows a scheme supports. Set at least
+// one.
+type OpenAPIOAuthFlows struct {
+	// AuthorizationCode needs AuthorizationURL and TokenURL.
+	AuthorizationCode *OpenAPIOAuthFlow `json:"authorizationCode,omitempty"`
+	// ClientCredentials needs TokenURL.
+	ClientCredentials *OpenAPIOAuthFlow `json:"clientCredentials,omitempty"`
+	// Password needs TokenURL.
+	Password *OpenAPIOAuthFlow `json:"password,omitempty"`
+	// Implicit needs AuthorizationURL.
+	Implicit *OpenAPIOAuthFlow `json:"implicit,omitempty"`
+}
+
+// OpenAPIOAuthFlow is one OAuth 2 flow.
+type OpenAPIOAuthFlow struct {
+	AuthorizationURL string `json:"authorizationUrl,omitempty"`
+	TokenURL         string `json:"tokenUrl,omitempty"`
+	RefreshURL       string `json:"refreshUrl,omitempty"`
+	// Scopes maps each scope the flow grants to a short description.
+	Scopes map[string]string `json:"scopes"`
+}
+
+// checkSecuritySchemes reports the first scheme missing a field its type
+// needs, and returns the schemes as the spec writes them.
+func checkSecuritySchemes(schemes map[string]OpenAPISecurityScheme) (map[string]OpenAPISecurityScheme, error) {
+	out := make(map[string]OpenAPISecurityScheme, len(schemes))
+	for name, s := range schemes {
+		bad := func(format string, args ...any) error {
+			return fmt.Errorf("zinc: security scheme %q: %s", name, fmt.Sprintf(format, args...))
+		}
+		switch s.Type {
+		case "http":
+			if s.Scheme == "" {
+				return nil, bad(`type "http" needs Scheme, such as "bearer"`)
+			}
+		case "apiKey":
+			if s.Name == "" || (s.In != "header" && s.In != "query" && s.In != "cookie") {
+				return nil, bad(`type "apiKey" needs Name, and In set to "header", "query" or "cookie"`)
+			}
+		case "openIdConnect":
+			if s.OpenIDConnectURL == "" {
+				return nil, bad(`type "openIdConnect" needs OpenIDConnectURL`)
+			}
+		case "mutualTLS":
+		case "oauth2":
+			f := s.Flows
+			if f == nil || (f.AuthorizationCode == nil && f.ClientCredentials == nil && f.Password == nil && f.Implicit == nil) {
+				return nil, bad(`type "oauth2" needs Flows with at least one flow`)
+			}
+			flows := *f
+			for _, flow := range []struct {
+				name        string
+				flow        **OpenAPIOAuthFlow
+				auth, token bool
+			}{
+				{"AuthorizationCode", &flows.AuthorizationCode, true, true},
+				{"ClientCredentials", &flows.ClientCredentials, false, true},
+				{"Password", &flows.Password, false, true},
+				{"Implicit", &flows.Implicit, true, false},
+			} {
+				fl := *flow.flow
+				if fl == nil {
+					continue
+				}
+				if flow.auth && fl.AuthorizationURL == "" {
+					return nil, bad("the %s flow needs AuthorizationURL", flow.name)
+				}
+				if flow.token && fl.TokenURL == "" {
+					return nil, bad("the %s flow needs TokenURL", flow.name)
+				}
+				if fl.Scopes == nil {
+					// OpenAPI requires the scopes object, even when empty.
+					c := *fl
+					c.Scopes = map[string]string{}
+					*flow.flow = &c
+				}
+			}
+			s.Flows = &flows
+		default:
+			return nil, bad(`unknown type %q; want "http", "apiKey", "oauth2", "openIdConnect" or "mutualTLS"`, s.Type)
+		}
+		out[name] = s
+	}
+	return out, nil
 }
 
 // OpenAPISpec returns the app's OpenAPI 3.1 spec as JSON. Every registered
@@ -93,13 +188,17 @@ func (a *App) OpenAPISpec(cfg OpenAPIConfig) ([]byte, error) {
 //
 // The spec is built on the first request and sent as pre-encoded bytes after
 // that. Routes registered later are picked up on the next request. The spec
-// route itself is hidden from the spec. It panics when cfg.Security names a
-// scheme cfg.SecuritySchemes doesn't define; a route naming an unknown scheme
-// makes the request fail with a 500 and the error.
+// route itself is hidden from the spec. It panics when a security scheme is
+// missing a field its type needs, or cfg.Security names a scheme
+// cfg.SecuritySchemes doesn't define; a route naming an unknown scheme makes
+// the request fail with a 500 and the error.
 //
 // Hiding the spec isn't access control: protect it, and the API, with auth
 // middleware if the API is private.
 func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc) Route {
+	if _, err := checkSecuritySchemes(cfg.SecuritySchemes); err != nil {
+		panic(err.Error())
+	}
 	for _, name := range cfg.Security {
 		if _, ok := cfg.SecuritySchemes[name]; !ok {
 			panic(fmt.Sprintf("zinc: OpenAPIConfig.Security names security scheme %q, which OpenAPIConfig.SecuritySchemes doesn't define", name))
@@ -212,7 +311,7 @@ type oaResponse struct {
 }
 
 type oaMediaType struct {
-	Schema *schema `json:"schema"`
+	Schema *schema `json:"schema,omitempty"`
 }
 
 // orderedMap is a JSON object that keeps insertion order, so paths follow
@@ -340,7 +439,11 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 		doc.Components.Schemas = g.components
 	}
 	if len(cfg.SecuritySchemes) > 0 {
-		doc.Components.SecuritySchemes = cfg.SecuritySchemes
+		schemes, err := checkSecuritySchemes(cfg.SecuritySchemes)
+		if err != nil {
+			return nil, err
+		}
+		doc.Components.SecuritySchemes = schemes
 	}
 	return doc, nil
 }
@@ -369,9 +472,11 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 			fields[i] = in.Field(i)
 		}
 	}
+	// A parameter is absent or a value, never null, so a pointer field is
+	// described by its element.
 	paramSchema := func(f bindingField) (*schema, bool) {
 		sf := fields[f.index]
-		s := g.inputSchemaFor(sf.Type)
+		s := g.inputSchemaFor(base(sf.Type))
 		required := g.applyFieldTags(s, jsonField{typ: sf.Type, tag: sf.Tag})
 		return s, required
 	}
@@ -424,10 +529,25 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 		}
 	}
 	success := &oaResponse{Description: http.StatusText(status)}
-	if out != nil && !noContent && status != http.StatusNoContent {
+	switch {
+	case out == nil:
+		// A plain handler may write anything.
+		success.Content = anyContent()
+	case !noContent && status != http.StatusNoContent:
 		success.Content = orderedMap[oaMediaType]{{"application/json", oaMediaType{Schema: g.schemaFor(out)}}}
 	}
-	responses := map[int]*oaResponse{status: success}
+	responses := map[int]*oaResponse{}
+	// Without an output type or a success status, Zinc can't know what the
+	// handler answers, so it documents a default response rather than guess.
+	var fallback *oaResponse
+	if out == nil && meta.status == 0 && !declaresSuccess(rd) {
+		fallback = &oaResponse{
+			Description: "The handler's response. Route.Output or Route.Response describes it.",
+			Content:     anyContent(),
+		}
+	} else if !declaresSuccess(rd) || out != nil || meta.status != 0 {
+		responses[status] = success
+	}
 	// Any route can fail, so every one documents a 500. The error body is
 	// described only when Zinc's default error handler writes it; a custom
 	// ErrorHandler may write anything.
@@ -458,7 +578,26 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc) (*oaOper
 	for _, code := range codes {
 		op.Responses.set(strconv.Itoa(code), responses[code])
 	}
+	if fallback != nil {
+		op.Responses.set("default", fallback)
+	}
 	return op, usesErrors
+}
+
+// declaresSuccess reports whether the route documents a 2xx with
+// Route.Response.
+func declaresSuccess(rd *routeDoc) bool {
+	for _, r := range rd.responses {
+		if r.status >= 200 && r.status < 300 {
+			return true
+		}
+	}
+	return false
+}
+
+// anyContent is a body of any media type and shape.
+func anyContent() orderedMap[oaMediaType] {
+	return orderedMap[oaMediaType]{{"*/*", oaMediaType{}}}
 }
 
 // buildRequestBody describes the body an input type accepts: JSON for its
@@ -472,7 +611,15 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	st := base(in)
 	var jsonProps, required bool
 	for _, f := range jsonFields(st) {
-		if !f.param {
+		if f.param {
+			continue
+		}
+		// A JSON body binds a form field too, but a struct of form fields
+		// alone is a form, so JSON is documented only when a field has a
+		// json tag or no form tag.
+		_, hasJSON := f.tag.Lookup("json")
+		_, hasForm := f.tag.Lookup("form")
+		if hasJSON || !hasForm {
 			jsonProps = true
 			if g.validation && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
 				required = true
