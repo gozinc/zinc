@@ -95,13 +95,13 @@ type Pet struct {
 	Extra   *map[string]string `json:"extra,omitempty"`
 
 	// Id The pet's ID.
-	Id     int64    `json:"id"`
-	Kind   PetKind  `json:"kind"`
-	Name   string   `json:"name"`
-	Owner  *Owner   `json:"owner"`
-	Parent *Pet     `json:"parent,omitempty"`
-	Tags   []string `json:"tags"`
-	Weight float64  `json:"weight"`
+	Id     int64     `json:"id"`
+	Kind   PetKind   `json:"kind"`
+	Name   string    `json:"name"`
+	Owner  *Owner    `json:"owner"`
+	Parent *Pet      `json:"parent,omitempty"`
+	Tags   *[]string `json:"tags"`
+	Weight float64   `json:"weight"`
 }
 
 // PetKind defines model for Pet.Kind.

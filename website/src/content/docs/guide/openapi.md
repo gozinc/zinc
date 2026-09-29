@@ -79,7 +79,7 @@ The spec is off until you call `app.OpenAPI`, so an app never exposes its routes
 | `path:"store"` fields | Path parameters, with the field's type. Every `{name}` in the route is listed, as a string if no field binds it. |
 | `query` and `header` fields | Query and header parameters. `validate:"required"` makes one required. |
 | `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required only with `validate:"required"` and a validator. |
-| `form` fields | A form body, or `multipart/form-data` when a field holds a file. |
+| `form` fields | A form body, or `multipart/form-data` when a field holds a file. A field tagged both `json` and `form` is in both bodies, since binding reads it from either. |
 | The output type | The success response. `zinc.NoContent` gives `204` with no body. Fields without `omitempty` are required, since they're always sent. |
 | `.Status(201)` | The success status. |
 | A route with input | A `400` response, and a `422` when the app has a [validator](/guide/binding/#validation). |
@@ -102,6 +102,15 @@ app.Put("/pets/{id}", func(c *zinc.Context) error {
 ```
 
 `Input` and `Output` take a value of the type. Zinc doesn't check that the handler really uses them, so keep them in step with the code. On a typed handler they panic: its types are already known.
+
+Without `Output`, a `.Response` for a success status or `.Status`, Zinc can't know what the handler sends, so it doesn't guess. The spec lists a `default` response with a body of any type:
+
+```json
+"default": {
+  "description": "The handler's response. Route.Output or Route.Response describes it.",
+  "content": { "*/*": {} }
+}
+```
 
 ## Add summaries, tags and more
 
@@ -153,6 +162,20 @@ app.OpenAPI("/openapi.json", cfg)
 
 `Security` only documents how the route is protected. Enforcing it is your middleware's job, here `requireToken`. A scheme name that isn't in `SecuritySchemes` is an error when the spec is built.
 
+An OAuth 2 scheme lists its flows:
+
+```go
+"oauth": {Type: "oauth2", Flows: &zinc.OpenAPIOAuthFlows{
+	AuthorizationCode: &zinc.OpenAPIOAuthFlow{
+		AuthorizationURL: "https://id.example.com/authorize",
+		TokenURL:         "https://id.example.com/token",
+		Scopes:           map[string]string{"pets:read": "Read pets"},
+	},
+}},
+```
+
+A scheme missing something its type needs, such as an `oauth2` scheme without flows, is also an error, since the spec would be invalid.
+
 ## Serve the spec
 
 `app.OpenAPI(path, cfg)` adds a hidden `GET` route for the spec. The spec is built on the first request and kept; routes you register later are picked up on the next one.
@@ -197,20 +220,21 @@ The output is the same for the same routes, so the file only changes when the AP
 | Go | Schema |
 |---|---|
 | `string`, `bool` | `string`, `boolean` |
-| integers | `integer` with format `int32` or `int64`; unsigned types have `minimum: 0` |
+| integers | `integer` with format `int32` or `int64`; unsigned types have `minimum: 0`, and `uint`, `uint64` and `uintptr` have no format, since `int64` can't hold their largest values |
 | `float32`, `float64` | `number` with format `float` or `double` |
-| `[]T`, `[N]T` | `array` |
+| `[]T`, `[N]T` | `array`; in a response, a slice can also be `null` |
 | `[]byte` | a base64 string |
-| `map[string]T` | `object` with `additionalProperties` |
+| `map[string]T` | `object` with `additionalProperties`; in a response, it can also be `null` |
 | `*T` | T, or `null` |
 | `time.Time` | a `date-time` string |
+| `json.Number` | `number` |
 | named structs | a shared schema under `components/schemas`, referenced with `$ref` |
 
-Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embedded structs. Three more tags add detail:
+Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embedded structs. Fields promoted from an embedded pointer aren't required in a response, since a nil pointer leaves them out. Three more tags add detail:
 
 | Tag | Adds |
 |---|---|
-| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices. Only when the app has a validator. |
+| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices. Only when the app has a validator. With `omitempty`, the zero value is allowed too, as the validator allows it. |
 | `doc:"The pet's ID."` | A description |
 | `example:"7"` | An example value |
 
@@ -250,13 +274,13 @@ Zinc doesn't check `validate` tags itself: a [validator](/guide/binding/#validat
 
 With Zinc's default error handler, the `400`, `422` and `500` responses describe its error body, the `Error` schema. With your own `ErrorHandler`, Zinc can't know what you send, so those responses list the status alone.
 
-### A nil slice is sent as null
+### Slices and maps in responses can be null
 
-`encoding/json` writes a nil slice as `null`, while the spec says `array`. Initialise slices you return, such as `pets := []Pet{}`, to match.
+`encoding/json` writes a nil slice or map as `null`, so a response schema allows `null` for them, and a generated client may type such a field as a pointer, such as `*[]string`. A field with `omitempty` or `omitzero` is left out instead of sent as `null`, so its schema doesn't allow `null`.
 
 ### Wrapping a typed handler hides its types
 
-Register `zinc.Typed(...)` directly. A typed handler called from inside a plain one isn't recognised; add `.Input` and `.Output` to that route instead.
+Register `zinc.Typed(...)` directly. A typed handler called from inside a plain one isn't recognized; add `.Input` and `.Output` to that route instead.
 
 ### A body can still fill a query or header field
 
