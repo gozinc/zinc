@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,25 +33,32 @@ func TestSchemaScalarsAndContainers(t *testing.T) {
 		{reflect.TypeFor[int](), `{"type":"integer","format":"int64"}`},
 		{reflect.TypeFor[int32](), `{"type":"integer","format":"int32"}`},
 		{reflect.TypeFor[uint8](), `{"type":"integer","format":"int32","minimum":0}`},
-		{reflect.TypeFor[uint64](), `{"type":"integer","format":"int64","minimum":0}`},
+		{reflect.TypeFor[uint32](), `{"type":"integer","format":"int64","minimum":0}`},
+		{reflect.TypeFor[uint64](), `{"type":"integer","minimum":0}`}, // no format holds it
 		{reflect.TypeFor[float32](), `{"type":"number","format":"float"}`},
 		{reflect.TypeFor[float64](), `{"type":"number","format":"double"}`},
-		{reflect.TypeFor[[]string](), `{"type":"array","items":{"type":"string"}}`},
+		{reflect.TypeFor[[]string](), `{"type":["array","null"],"items":{"type":"string"}}`}, // a nil slice is null
 		{reflect.TypeFor[[3]int](), `{"type":"array","items":{"type":"integer","format":"int64"},"minItems":3,"maxItems":3}`},
-		{reflect.TypeFor[[]byte](), `{"type":"string","contentEncoding":"base64"}`},
-		{reflect.TypeFor[map[string]int](), `{"type":"object","additionalProperties":{"type":"integer","format":"int64"}}`},
-		{reflect.TypeFor[map[int]bool](), `{"type":"object","additionalProperties":{"type":"boolean"}}`},
+		{reflect.TypeFor[[]byte](), `{"type":["string","null"],"contentEncoding":"base64"}`},
+		{reflect.TypeFor[map[string]int](), `{"type":["object","null"],"additionalProperties":{"type":"integer","format":"int64"}}`},
+		{reflect.TypeFor[map[int]bool](), `{"type":["object","null"],"additionalProperties":{"type":"boolean"}}`},
 		{reflect.TypeFor[*string](), `{"type":["string","null"]}`},
 		{reflect.TypeFor[any](), `{}`},
 		{reflect.TypeFor[*any](), `{}`},
 		{reflect.TypeFor[time.Time](), `{"type":"string","format":"date-time"}`},
 		{reflect.TypeFor[time.Duration](), `{"type":"integer","format":"int64","description":"nanoseconds"}`},
 		{reflect.TypeFor[json.RawMessage](), `{}`},
+		{reflect.TypeFor[json.Number](), `{"type":"number"}`},
 		{reflect.TypeFor[netip.Addr](), `{"type":"string"}`}, // a TextMarshaler
 	} {
 		if got := schemaJSON(t, newSchemaGen().schemaFor(tt.typ)); got != tt.want {
 			t.Errorf("%v:\n got %s\nwant %s", tt.typ, got, tt.want)
 		}
+	}
+	// A request sends a list or an object; only a response may carry the
+	// null of a nil slice or map.
+	if got := schemaJSON(t, newSchemaGen().inputSchemaFor(reflect.TypeFor[[]string]())); got != `{"type":"array","items":{"type":"string"}}` {
+		t.Errorf("input []string: %s", got)
 	}
 }
 
@@ -89,12 +97,12 @@ func TestSchemaStructComponent(t *testing.T) {
 		`"name":{"type":"string","minLength":1,"maxLength":80},` +
 		`"age":{"type":["integer","null"],"format":"int64","minimum":0,"exclusiveMaximum":150},` +
 		`"role":{"type":"string","enum":["admin","member"]},` +
-		`"tags":{"type":"array","items":{"type":"string"},"maxItems":5},` +
+		`"tags":{"type":["array","null"],"items":{"type":"string"},"maxItems":5},` +
 		`"home":{"$ref":"#/components/schemas/schemaAddress","description":"Where they live."},` +
 		`"work":{"anyOf":[{"$ref":"#/components/schemas/schemaAddress"},{"type":"null"}]},` +
 		`"count":{"type":"string"},` +
 		`"created_at":{"type":"string","format":"date-time"},` +
-		`"friends":{"type":"array","items":{"anyOf":[{"$ref":"#/components/schemas/schemaUser"},{"type":"null"}]}}` +
+		`"friends":{"type":["array","null"],"items":{"anyOf":[{"$ref":"#/components/schemas/schemaUser"},{"type":"null"}]}}` +
 		`},"required":["id","email","age","role","tags","home","work","count","created_at","friends"]}`
 	if got := schemaJSON(t, g.components["schemaUser"]); got != want {
 		t.Fatalf("component:\n got %s\nwant %s", got, want)
@@ -158,6 +166,34 @@ func TestSchemaEmbeddingFollowsEncodingJSON(t *testing.T) {
 		if len(keys) != len(g.components[typ.Name()].properties) {
 			t.Errorf("%v: encoding/json writes %s", typ, encoded)
 		}
+	}
+}
+
+type schemaBase struct {
+	ID int `json:"id"`
+}
+
+type schemaNilable struct {
+	*schemaBase
+	List    []int          `json:"list"`
+	Maybe   []int          `json:"maybe,omitempty"`
+	Zero    map[string]int `json:"zero,omitzero"`
+	Payload json.Number    `json:"payload"`
+}
+
+// A response schema says what encoding/json can write: null for a nil slice
+// or map, unless omitempty or omitzero drops it, and no promoted fields when
+// an embedded pointer is nil.
+func TestSchemaFollowsEncodingJSONNils(t *testing.T) {
+	g := newSchemaGen()
+	g.schemaFor(reflect.TypeFor[schemaNilable]())
+	want := `{"type":"object","properties":{"id":{"type":"integer","format":"int64"},"list":{"type":["array","null"],"items":{"type":"integer","format":"int64"}},"maybe":{"type":"array","items":{"type":"integer","format":"int64"}},"zero":{"type":"object","additionalProperties":{"type":"integer","format":"int64"}},"payload":{"type":"number"}},"required":["list","payload"]}`
+	if got := schemaJSON(t, g.components["schemaNilable"]); got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+	encoded, _ := json.Marshal(schemaNilable{Payload: "1.5"})
+	if string(encoded) != `{"list":null,"payload":1.5}` {
+		t.Fatalf("encoding/json writes %s", encoded)
 	}
 }
 
@@ -236,7 +272,7 @@ func TestSchemaNamesAndRecursion(t *testing.T) {
 			t.Fatalf("missing component %q; have %v", name, keysOf(g.components))
 		}
 	}
-	if got := schemaJSON(t, g.components["schemaNode"]); got != `{"type":"object","properties":{"children":{"type":"array","items":{"$ref":"#/components/schemas/schemaNode"}}},"required":["children"]}` {
+	if got := schemaJSON(t, g.components["schemaNode"]); got != `{"type":"object","properties":{"children":{"type":["array","null"],"items":{"$ref":"#/components/schemas/schemaNode"}}},"required":["children"]}` {
 		t.Fatalf("recursive: %s", got)
 	}
 
@@ -278,5 +314,25 @@ func TestSanitizeComponentName(t *testing.T) {
 		if got := sanitizeComponentName(in); got != want {
 			t.Errorf("%q: got %q, want %q", in, got, want)
 		}
+	}
+}
+
+// With the validator's omitempty, a zero value skips the other rules, so the
+// schema must accept it too.
+func TestSchemaValidateOmitEmptyAllowsZero(t *testing.T) {
+	type pet struct {
+		Kind  string `json:"kind" validate:"omitempty,oneof=cat dog"`
+		Email string `json:"email" validate:"omitempty,email,min=3,max=80"`
+		Age   int    `json:"age" validate:"omitempty,min=1,max=30"`
+		Size  int    `json:"size" validate:"omitempty,oneof=1 2"`
+		Tags  []int  `json:"tags" validate:"omitempty,min=1"`
+		Code  string `json:"code" validate:"oneof=a b"`
+	}
+	g := newSchemaGen()
+	ref := schemaJSON(t, g.inputSchemaFor(reflect.TypeFor[pet]()))
+	name := strings.TrimPrefix(strings.Trim(ref, `{}"`), `$ref":"#/components/schemas/`)
+	want := `{"type":"object","properties":{"kind":{"type":"string","enum":["cat","dog",""]},"email":{"type":"string","maxLength":80},"age":{"type":"integer","format":"int64","maximum":30},"size":{"type":"integer","format":"int64","enum":[1,2,0]},"tags":{"type":"array","items":{"type":"integer","format":"int64"}},"code":{"type":"string","enum":["a","b"]}}}`
+	if got := schemaJSON(t, g.components[name]); got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 }

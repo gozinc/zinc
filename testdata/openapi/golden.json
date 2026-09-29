@@ -150,7 +150,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
                   "items": {
                     "$ref": "#/components/schemas/oaPet"
                   }
@@ -404,9 +407,6 @@
     "/health": {
       "get": {
         "responses": {
-          "200": {
-            "description": "OK"
-          },
           "500": {
             "description": "Internal Server Error",
             "content": {
@@ -415,6 +415,12 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            }
+          },
+          "default": {
+            "description": "The handler's response. Route.Output or Route.Response describes it.",
+            "content": {
+              "*/*": {}
             }
           }
         }
@@ -505,9 +511,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
-          },
           "500": {
             "description": "Internal Server Error",
             "content": {
@@ -516,6 +519,12 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            }
+          },
+          "default": {
+            "description": "The handler's response. Route.Output or Route.Response describes it.",
+            "content": {
+              "*/*": {}
             }
           }
         }
