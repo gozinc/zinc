@@ -34,8 +34,8 @@ type NoContent struct{}
 // runs, and a failure is a *ValidationError (422). An error returned by fn
 // goes to the error handler like any other.
 //
-// The response status is 200, or the status declared with Route.Status, or
-// the one fn sets with c.Status. Use NoContent as Out for a response without
+// The response status is the one fn sets with c.Status, or else the one
+// declared with Route.Status, or else 200. Use NoContent as Out for a response without
 // a body; it answers 204 unless another status is declared. If fn writes the
 // response itself, its output is ignored.
 func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
@@ -46,8 +46,11 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	if inType.Kind() != reflect.Struct {
 		panic(fmt.Sprintf("zinc: Typed input must be a struct, not %s; use struct{} for no input", inType))
 	}
-	// Compile the binding plan now, so the first request doesn't pay for it.
-	bindingPlanFor(inType)
+	// Compile the binding plan now, so the first request doesn't pay for it,
+	// and a field binding can't fill fails here rather than per request.
+	if err := bindingPlanFor(inType).err; err != nil {
+		panic(err.Error())
+	}
 	types := handlerTypes{in: inType, out: reflect.TypeFor[Out]()}
 	bindInput := inType.NumField() > 0
 	_, noContent := any(*new(Out)).(NoContent)
@@ -63,16 +66,16 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 				return err
 			}
 		}
+		// The route's status is the default; set it first so a status fn
+		// sets itself, 200 included, wins.
+		if declared := c.declaredStatus(); declared != 0 {
+			c.status = declared
+		} else if noContent {
+			c.status = StatusNoContent
+		}
 		out, err := fn(c, in)
 		if err != nil || c.written {
 			return err
-		}
-		if c.status == StatusOK {
-			if declared := c.declaredStatus(); declared != 0 {
-				c.status = declared
-			} else if noContent {
-				c.status = StatusNoContent
-			}
 		}
 		if noContent {
 			return c.NoContent()

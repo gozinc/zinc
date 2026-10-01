@@ -560,19 +560,14 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	// one, then the input's query and header fields.
 	in := rd.in
 	var plan *bindingPlan
-	var fields map[int]reflect.StructField
 	if in != nil && base(in).Kind() == reflect.Struct {
 		in = base(in)
 		plan = bindingPlanFor(in)
-		fields = map[int]reflect.StructField{}
-		for i := range in.NumField() {
-			fields[i] = in.Field(i)
-		}
 	}
 	// A parameter is absent or a value, never null, so a pointer field is
 	// described by its element.
 	paramSchema := func(f bindingField) (*schema, bool) {
-		sf := fields[f.index]
+		sf := f.structField(in)
 		s := g.inputSchemaFor(base(sf.Type))
 		if s.ref != "" {
 			s = &schema{ref: s.ref} // annotations sit beside a shared $ref
@@ -741,7 +736,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	if plan != nil && (len(plan.formFields) > 0 || len(plan.multipartFileFields) > 0) {
 		form := &schema{typ: []string{"object"}}
 		for _, f := range plan.formFields {
-			sf := st.Field(f.index)
+			sf := f.structField(st)
 			s := g.inputSchemaFor(sf.Type)
 			if s.ref != "" {
 				s = &schema{ref: s.ref}
@@ -755,7 +750,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		}
 		for _, f := range plan.multipartFileFields {
 			file := &schema{typ: []string{"string"}, contentMediaType: "application/octet-stream"}
-			if base(st.Field(f.index).Type).Kind() == reflect.Slice {
+			if base(f.structField(st).Type).Kind() == reflect.Slice {
 				file = &schema{typ: []string{"array"}, items: file}
 			}
 			form.properties = append(form.properties, property{name: f.name, schema: file})

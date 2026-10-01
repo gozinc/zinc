@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"mime"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -284,7 +283,9 @@ func FromQuery(name string) Reader {
 	}
 }
 
-// FromForm reads a token from URL-encoded or multipart form input.
+// FromForm reads a token from URL-encoded or multipart form input. The form
+// is parsed through Zinc, so Config.BodyLimit applies: a larger body is
+// answered with 413.
 func FromForm(name string) Reader {
 	return func(c *zinc.Context) ([]string, error) {
 		req := c.Request()
@@ -292,22 +293,10 @@ func FromForm(name string) Reader {
 			return nil, fmt.Errorf("%w: %s form value", ErrTokenMissing, name)
 		}
 
-		mediaType, _, err := mime.ParseMediaType(req.Header.Get(zinc.HeaderContentType))
-		if err != nil {
+		// MultipartForm parses a URL-encoded body too, then reports that it
+		// isn't multipart.
+		if _, err := c.MultipartForm(); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 			return nil, err
-		}
-
-		switch mediaType {
-		case "multipart/form-data":
-			if req.MultipartForm == nil {
-				if err := req.ParseMultipartForm(32 << 20); err != nil {
-					return nil, err
-				}
-			}
-		default:
-			if err := req.ParseForm(); err != nil {
-				return nil, err
-			}
 		}
 
 		values := req.Form[name]
@@ -517,6 +506,9 @@ func verifyCSRFRequestToken(c *zinc.Context, readers []Reader, token string) err
 			if errors.Is(err, ErrTokenMissing) {
 				lastMissing = err
 				continue
+			}
+			if errors.Is(err, zinc.ErrRequestEntityTooLarge) {
+				return err
 			}
 			return errors.Join(zinc.ErrBadRequest, err)
 		}

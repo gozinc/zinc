@@ -313,6 +313,27 @@ Change the limit for the whole app in [configuration](/guide/configuration/), or
 
 `All` needs a pointer to a struct for JSON, XML and form bodies. A `map` target returns an error, which answers `500`; use `c.Bind().Body(&m)` or `JSON` to decode into a map. Two cases read the body only, skipping path and query: a `text/plain` body, and a [configured decoder](/guide/customization/#body-formats) with a non-struct target. A `text/plain` body binds into a `string`, a `[]byte`, a scalar or a `TextUnmarshaler`.
 
+### Embedded structs bind too
+
+Tagged fields of an embedded struct bind as if they were declared in the outer struct, as Go promotes them, so shared inputs compose:
+
+```go
+type Paging struct {
+	Limit int `query:"limit" default:"20"`
+}
+
+type ListPets struct {
+	Paging
+	Kind string `query:"kind"`
+}
+```
+
+An embedded pointer is allocated when a value or default arrives for one of its fields. An unexported embedded pointer can't be allocated, so a typed handler with one panics at registration.
+
+### A field binding can't fill is an error
+
+A tagged field of a type binding can't convert to, such as `map[string]string` or `[]bool`, panics when its typed handler is registered, and a binder returns the same error. Before 0.6.1 this only showed up when a request carried the value.
+
 ### A tag with no name
 
 A tag with options but no name, such as `query:",omitempty"`, uses the field name in lower case: a `Sort` field reads `?sort=`.

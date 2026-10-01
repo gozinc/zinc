@@ -7,6 +7,7 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"sync"
@@ -61,16 +62,25 @@ func QueryOr[T any](c *Context, name string, fallback T) T {
 
 // Form returns the named form value parsed as T, with the semantics of
 // FormValue. A missing or unparsable value is a *BindError, answered with 400.
+// A body over the limit is ErrRequestEntityTooLarge, and a form that can't be
+// parsed is a *BindError carrying the parse error.
 func Form[T any](c *Context, name string) (T, error) {
-	value, ok := c.formValue(name)
+	value, ok, err := c.formValue(name)
+	if err != nil {
+		var zero T
+		if errors.Is(err, ErrRequestEntityTooLarge) {
+			return zero, err
+		}
+		return zero, &BindError{Source: "form", Name: name, Err: err}
+	}
 	return parseRequestValue[T]("form", name, value, ok)
 }
 
 // FormOr returns the named form value parsed as T, or fallback when the value
 // is missing or does not parse.
 func FormOr[T any](c *Context, name string, fallback T) T {
-	value, ok := c.formValue(name)
-	if !ok {
+	value, ok, err := c.formValue(name)
+	if !ok || err != nil {
 		return fallback
 	}
 	if parsed, err := parseValue[T](value); err == nil {
@@ -119,18 +129,25 @@ func (c *Context) firstQueryValue(name string) (string, bool) {
 	return lookupRawQuery(c.request.URL.RawQuery, name)
 }
 
-func (c *Context) formValue(name string) (string, bool) {
-	if c.request == nil || c.limitFormBody() != nil {
-		return "", false
+// formValue reports a form value, whether it was present, and why the form
+// couldn't be read: the body limit, or a parse error.
+func (c *Context) formValue(name string) (string, bool, error) {
+	if c.request == nil {
+		return "", false, nil
+	}
+	if err := c.limitFormBody(); err != nil {
+		return "", false, err
 	}
 	if c.request.Form == nil {
-		_ = c.request.ParseMultipartForm(defaultMultipartMemory)
+		if err := c.request.ParseMultipartForm(defaultMultipartMemory); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+			return "", false, err
+		}
 	}
 	values := c.request.Form[name]
 	if len(values) == 0 {
-		return "", false
+		return "", false, nil
 	}
-	return values[0], true
+	return values[0], true, nil
 }
 
 // errMissingValue is the cause of a BindError for an absent required value.

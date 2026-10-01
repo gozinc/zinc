@@ -67,7 +67,7 @@ curl -X POST localhost:8080/orgs/acme/users \
 # {"error":{"status":422,"message":"validation failed"}}
 ```
 
-`zinc.Typed(createUser)` turns the function into an ordinary handler, so you can use it anywhere a handler goes, including after route middleware. `.Status(zinc.StatusCreated)` sets the status for a successful call. `createUser` only runs when the input is valid.
+`zinc.Typed(createUser)` turns the function into an ordinary handler, so you can use it anywhere a handler goes, including after route middleware. `.Status(zinc.StatusCreated)` sets the status for a successful call; a status the function sets itself with `c.Status`, `200` included, wins over it. `createUser` only runs when the input is valid.
 
 ## Compare with a plain handler
 

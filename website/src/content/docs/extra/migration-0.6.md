@@ -56,6 +56,11 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 - **Routes OpenAPI can't tell apart** make the spec fail to build, with an error naming both. Before, one replaced the other silently, or the spec had two paths differing only in parameter names, which OpenAPI forbids. Rename the parameters to match, or hide one route. See [Routes OpenAPI can't tell apart](/guide/openapi/#routes-openapi-cant-tell-apart).
 - **A type of yours named `Error`** keeps its own schema, listed under its package, such as `main.Error`. Before, Zinc's error schema replaced it.
 - **The served spec** picks up metadata changed after the first request, such as `.Hidden()` or `.Summary(...)`. Before, only new routes rebuilt it.
+- **Embedded structs bind.** Tagged fields of an embedded struct used to be ignored by binding, though the spec listed them; now they [bind](/guide/binding/#embedded-structs-bind-too).
+- **A field binding can't fill** (a `map`, a `[]bool`) panics when its typed handler is registered, and binders return the error, instead of failing only on a request that carried the value.
+- **A typed handler's own `c.Status(...)` wins** over `.Status(...)` on the route, `200` included. Before, `200` was treated as unset and replaced.
+- **`zinc.Form[T]`** reports a body over the limit as `413`, and a form that can't be parsed as a `400` with the cause, instead of "is required".
+- **CSRF's `FromForm`** honors `Config.BodyLimit`: a larger body gets `413`.
 
 ## Benchmarks are scored with ties
 

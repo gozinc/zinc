@@ -266,11 +266,14 @@ func paramScenarios() []scenario {
 			build:  typedGet[withEmbeddedParams]("/q", zinc.Config{}),
 			probes: []probe{get("/q?page=2&name=x")},
 			expect: func(f *findings, s spec) {
-				if s.param("GET", "/q", "query", "page") != nil {
-					f.add("page is in an embedded struct, which binding doesn't read, but the spec lists it")
+				if s.param("GET", "/q", "query", "page") == nil {
+					f.add("page, promoted from an embedded struct, binds but isn't a parameter in the spec")
+				}
+				if sch := s.requestSchema("GET", "/q", "application/json"); prop(sch, "page") != nil {
+					f.add("page is a parameter, so it isn't a body field")
 				}
 			},
-			note: "Binding reads only top-level fields."},
+			note: "Binding promotes tagged fields from embedded structs, as Go does."},
 		{id: "P17", area: "Parameters", title: "Query tag with options and no name",
 			build:  typedGet[unnamedQuery]("/q", zinc.Config{}),
 			probes: []probe{get("/q?sortby=name")},

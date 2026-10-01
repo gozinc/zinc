@@ -621,9 +621,8 @@ func jsonFields(t reflect.Type) []jsonField {
 				depth:  depth,
 				tagged: name != "",
 				index:  append(slices.Clone(index), i),
-				// Binding reads only top-level fields, so a tagged field in
-				// an embedded struct is still a body field.
-				param:      depth == 0 && (isParamField(f.Tag) || isFileField(f)),
+				// Binding promotes tagged fields from embedded structs too.
+				param:      isParamField(f.Tag) || isFileField(f),
 				viaPointer: viaPointer,
 				omit:       hasOption(opts, "omitempty") || hasOption(opts, "omitzero"),
 			}

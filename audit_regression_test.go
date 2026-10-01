@@ -58,7 +58,6 @@ func mustPanicAudit(t *testing.T, f func()) {
 
 // F07: a handler's explicit status wins over the route's, including 200.
 func TestAuditExplicitStatusWins(t *testing.T) {
-	pending(t, "P14", "F07")
 	app := zinc.New()
 	app.Post("/", zinc.Typed(func(c *zinc.Context, _ struct{}) (string, error) {
 		c.Status(http.StatusOK)
@@ -121,7 +120,6 @@ func TestAuditAllMatchesTyped(t *testing.T) {
 
 // F06: tagged fields of an embedded struct bind, defaults included.
 func TestAuditEmbeddedBinding(t *testing.T) {
-	pending(t, "P14", "F06")
 	type pagination struct {
 		Limit int `query:"limit" default:"20"`
 	}
@@ -141,7 +139,6 @@ func TestAuditEmbeddedBinding(t *testing.T) {
 
 // A parameter field of a type binding can't fill fails at registration.
 func TestAuditUnsupportedFieldRejected(t *testing.T) {
-	pending(t, "P14", "unsupported parameter fields")
 	type input struct {
 		Options map[string]string `query:"options"`
 	}
@@ -152,7 +149,6 @@ func TestAuditUnsupportedFieldRejected(t *testing.T) {
 
 // F09: an oversized form reports the size limit, not a missing field.
 func TestAuditFormKeepsItsError(t *testing.T) {
-	pending(t, "P14", "F09")
 	app := zinc.New(zinc.Config{BodyLimit: 4})
 	app.Post("/", func(c *zinc.Context) error {
 		v, err := zinc.Form[string](c, "name")
@@ -168,7 +164,6 @@ func TestAuditFormKeepsItsError(t *testing.T) {
 
 // F04: CSRF's form reader honors Config.BodyLimit.
 func TestAuditCSRFFormBodyLimit(t *testing.T) {
-	pending(t, "P14", "F04")
 	app := zinc.New(zinc.Config{BodyLimit: 4})
 	app.Use(csrf.New(csrf.Config{
 		Readers:  []csrf.Reader{csrf.FromForm("token")},
