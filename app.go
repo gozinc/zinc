@@ -74,6 +74,7 @@ func (r Route) Name(name string) Route {
 		panic("zinc: Name on a route that was not registered")
 	}
 	mustRegister(r.table.nameRoute(r.index, name))
+	r.table.docsVersion++
 	return r
 }
 
@@ -88,6 +89,7 @@ func (r Route) Status(code int) Route {
 		panic(fmt.Sprintf("zinc: route status %d is not a success status", code))
 	}
 	r.table.routeInfos[r.index].status = uint16(code)
+	r.table.docsVersion++
 	return r
 }
 

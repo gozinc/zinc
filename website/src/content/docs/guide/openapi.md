@@ -363,6 +363,20 @@ Register `zinc.Typed(...)` directly. A typed handler called from inside a plain 
 
 Binding reads the body before the URL, so a query parameter or header the request leaves out can be set by a matching body key. The spec leaves those fields out of the body, which describes how the route should be called.
 
+### Routes OpenAPI can't tell apart
+
+Zinc's router can tell `/files/{path}` from `/files/{path...}`, and `/pets/{id}` on GET from `/pets/{name}` on POST. OpenAPI can't: the first pair is one operation, and paths that differ only in parameter names aren't allowed. Building the spec returns an error naming both routes:
+
+```text
+zinc: paths /pets/{id} and /pets/{name} differ only in parameter names, which OpenAPI doesn't allow; give the parameters the same names
+```
+
+Rename the parameters to match, or leave one route out of the spec with `.Hidden()`.
+
+### A type named Error
+
+With Zinc's default error handler, the spec's `Error` schema is Zinc's error body. Your own type named `Error` is listed under its package, such as `main.Error`.
+
 ### What's left out
 
 Hidden routes, mounts and static files, and methods OpenAPI 3.1 has no field for, such as `PURGE`.

@@ -51,6 +51,12 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 - `zinc.SchemaProvider`, for a type that describes its own JSON Schema, and `zinc.EnumProvider`, for a named type that lists its values.
 - [Generate an API Client](/cookbook/openapi-client/): a recipe for a typed Go client with oapi-codegen.
 
+## Changes in 0.6.1
+
+- **Routes OpenAPI can't tell apart** make the spec fail to build, with an error naming both. Before, one replaced the other silently, or the spec had two paths differing only in parameter names, which OpenAPI forbids. Rename the parameters to match, or hide one route. See [Routes OpenAPI can't tell apart](/guide/openapi/#routes-openapi-cant-tell-apart).
+- **A type of yours named `Error`** keeps its own schema, listed under its package, such as `main.Error`. Before, Zinc's error schema replaced it.
+- **The served spec** picks up metadata changed after the first request, such as `.Hidden()` or `.Summary(...)`. Before, only new routes rebuilt it.
+
 ## Benchmarks are scored with ties
 
 The [benchmark](/extra/benchmarks/) scores count a scenario as a tie when Zinc and the fastest rival are within 3% of each other, either way. Before, the lower median won however small the gap, so a 0.2% difference counted as much as a 50% one. The headline is lower than 0.5's as a result, and every tie is listed.
