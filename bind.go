@@ -228,7 +228,8 @@ func bindBody(c *Context, v any) error {
 	if decode := c.decoderFor(mediaType); decode != nil {
 		return decodeBody(c, decode, v, true)
 	}
-	if snap := snapshotParams(c, v); snap != nil {
+	snap, plan := snapshotParams(c, v)
+	if snap != nil {
 		defer snap.restore()
 	}
 	switch mediaType {
@@ -263,7 +264,11 @@ func bindBody(c *Context, v any) error {
 	default:
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 	}
-	return c.Validate(v)
+	// Put the parameter fields back before validating, not after.
+	if snap != nil {
+		snap.restore()
+	}
+	return c.validateWith(v, plan)
 }
 
 // bindQuery binds query values, then validates v.
@@ -278,7 +283,7 @@ func bindQuery(c *Context, v any) error {
 	if err := bindFieldsFromValues(val, plan.queryFields, c.QueryValues()); err != nil {
 		return wrapBindError("query", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindForm binds URL-encoded or multipart form values, then validates v.
@@ -302,7 +307,7 @@ func bindForm(c *Context, v any) error {
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
 		}
-		return c.Validate(v)
+		return c.validateWith(v, plan)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -311,7 +316,7 @@ func bindForm(c *Context, v any) error {
 	if err := bindFieldsFromValues(val, plan.formFields, req.Form); err != nil {
 		return wrapBindError("form", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindHeader binds request headers, then validates v.
@@ -326,7 +331,7 @@ func bindHeader(c *Context, v any) error {
 	if err := bindFieldsFromHeader(val, plan.headerFields, c.Request().Header); err != nil {
 		return wrapBindError("header", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindCookie binds request cookies, then validates v.
@@ -341,7 +346,7 @@ func bindCookie(c *Context, v any) error {
 	if err := bindFieldsFromCookies(val, plan.cookieFields, c.Request()); err != nil {
 		return wrapBindError("cookie", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindPath binds route parameters, then validates v.
@@ -381,7 +386,7 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
-	snap := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
 	if snap != nil {
 		snap.restore()
@@ -395,7 +400,7 @@ func (b *Bind) JSON(v any) error {
 	if decodeErr != nil {
 		return classifyJSONDecodeError(decodeErr)
 	}
-	return b.c.Validate(v)
+	return b.c.validateWith(v, plan)
 }
 
 // Text decodes and validates a non-empty plain-text request body.
@@ -411,7 +416,7 @@ func (b *Bind) XML(v any) error {
 	if decode := b.c.decoderFor("application/xml"); decode != nil {
 		return decodeBody(b.c, decode, v, true)
 	}
-	snap := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
@@ -427,7 +432,7 @@ func (b *Bind) XML(v any) error {
 	if decodeErr != nil {
 		return wrapBindError("body", decodeErr)
 	}
-	return b.c.Validate(v)
+	return b.c.validateWith(v, plan)
 }
 
 // Form binds URL-encoded or multipart form values, then validates v.
@@ -490,6 +495,19 @@ func (c *Context) validate(v any, plan *rulePlan) error {
 		return err
 	}
 	return &ValidationError{Err: err}
+}
+
+// validateWith validates v whose binding plan, which may be nil, is known,
+// so the rule plan needs no lookup.
+func (c *Context) validateWith(v any, plan *bindingPlan) error {
+	if c.app == nil {
+		return nil
+	}
+	var rules *rulePlan
+	if plan != nil {
+		rules = plan.rules
+	}
+	return c.validate(v, rules)
 }
 
 // rulePlanOf returns the rule plan for v, a pointer to a struct, or nil.

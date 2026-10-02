@@ -147,18 +147,19 @@ type savedParam struct {
 
 // snapshotParams records v's parameter-only fields before a body decode. It
 // returns nil when there's nothing to restore: v has none, or the body
-// doesn't mention them, so the decode can't touch them.
-func snapshotParams(c *Context, v any) *paramSnapshot {
+// doesn't mention them, so the decode can't touch them. It also returns v's
+// binding plan, nil unless v points to a struct, for validating v after.
+func snapshotParams(c *Context, v any) (*paramSnapshot, *bindingPlan) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
-		return nil
+		return nil, nil
 	}
 	plan := bindingPlanFor(rv.Elem().Type())
 	if len(plan.paramOnly) == 0 {
-		return nil
+		return nil, plan
 	}
 	if body, err := c.readAndCacheBodyBytes(); err == nil && !plan.bodyMentionsParams(body) {
-		return nil
+		return nil, plan
 	}
 	snap := &paramSnapshot{plan: plan, val: rv.Elem()}
 	for i, f := range plan.paramOnly {
@@ -188,7 +189,7 @@ func snapshotParams(c *Context, v any) *paramSnapshot {
 			snap.extra = append(snap.extra, sp)
 		}
 	}
-	return snap
+	return snap, plan
 }
 
 // detachedCopy copies v so a decode into v can't change the copy: a slice
