@@ -682,8 +682,10 @@ func TestBindDataWrapsFieldConversionErrors(t *testing.T) {
 	var unsupported struct {
 		Flags []bool `query:"flags"`
 	}
+	// A field binding can't fill is reported when the plan compiles, before
+	// any value is read.
 	err = bindData(&unsupported, map[string][]string{"flags": {"true"}}, "query")
-	if err == nil || !strings.Contains(err.Error(), "unsupported slice element type") {
+	if err == nil || !strings.Contains(err.Error(), "binding can't fill a []bool") {
 		t.Fatalf("err=%v", err)
 	}
 }

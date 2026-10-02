@@ -264,8 +264,9 @@ type servedSpec struct {
 }
 
 type encodedSpec struct {
-	routes int
-	body   []byte
+	routes  int
+	version uint64
+	body    []byte
 }
 
 func (s *servedSpec) serve(c *Context) error {
@@ -276,24 +277,25 @@ func (s *servedSpec) serve(c *Context) error {
 	return c.Data(MIMEJSON, body)
 }
 
-// bytes returns the encoded spec, rebuilding it when routes were registered
-// since it was built. Registration isn't concurrent with serving, so reading
-// the route count here is safe.
+// bytes returns the encoded spec, rebuilding it when routes were registered,
+// or their metadata changed, since it was built. Registration isn't
+// concurrent with serving, so reading the counts here is safe.
 func (s *servedSpec) bytes() ([]byte, error) {
-	routes := len(s.app.router.routeInfos)
-	if cached := s.cached.Load(); cached != nil && cached.routes == routes {
+	routes, version := len(s.app.router.routeInfos), s.app.router.docsVersion
+	current := func(c *encodedSpec) bool { return c != nil && c.routes == routes && c.version == version }
+	if cached := s.cached.Load(); current(cached) {
 		return cached.body, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cached := s.cached.Load(); cached != nil && cached.routes == routes {
+	if cached := s.cached.Load(); current(cached) {
 		return cached.body, nil
 	}
 	body, err := s.app.OpenAPISpec(s.cfg)
 	if err != nil {
 		return nil, err
 	}
-	s.cached.Store(&encodedSpec{routes: routes, body: body})
+	s.cached.Store(&encodedSpec{routes: routes, version: version, body: body})
 	return body, nil
 }
 
@@ -450,6 +452,17 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 
 	g := newSchemaGen()
 	g.types = cfg.Schemas
+	if a.defaultErrors {
+		// The error envelope is Zinc's: reserve its name before any user type
+		// can take it, so a user type named Error gets a qualified name
+		// rather than being replaced.
+		g.taken[errorSchemaName] = componentKey{t: reflect.TypeFor[errorEnvelopeMarker]()}
+	}
+	// OpenAPI can't hold two operations at one path and method, or two
+	// paths that differ only in parameter names, so either is an error, not
+	// a silent replacement.
+	shapes := map[string]string{} // path with parameter names removed -> path
+	ops := map[string]string{}    // method and OpenAPI path -> route pattern
 	// Without a Validator nothing enforces validate tags, so the spec doesn't
 	// claim their rules.
 	g.validation = a.config.Validator != nil
@@ -497,6 +510,15 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 			}
 		}
 		path := oaPath(meta.path)
+		if other, ok := ops[meta.method+" "+path]; ok {
+			return nil, fmt.Errorf("zinc: routes %s %s and %s %s are the same OpenAPI operation, %s %s; hide one with Route.Hidden", meta.method, other, meta.method, meta.path, meta.method, path)
+		}
+		ops[meta.method+" "+path] = meta.path
+		shape := pathShape(path)
+		if other, ok := shapes[shape]; ok && other != path {
+			return nil, fmt.Errorf("zinc: paths %s and %s differ only in parameter names, which OpenAPI doesn't allow; give the parameters the same names", other, path)
+		}
+		shapes[shape] = path
 		item, _ := doc.Paths.get(path)
 		item.set(strings.ToLower(meta.method), op)
 		slices.SortStableFunc(item, func(x, y orderedEntry[*oaOperation]) int {
@@ -538,19 +560,14 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	// one, then the input's query and header fields.
 	in := rd.in
 	var plan *bindingPlan
-	var fields map[int]reflect.StructField
 	if in != nil && base(in).Kind() == reflect.Struct {
 		in = base(in)
 		plan = bindingPlanFor(in)
-		fields = map[int]reflect.StructField{}
-		for i := range in.NumField() {
-			fields[i] = in.Field(i)
-		}
 	}
 	// A parameter is absent or a value, never null, so a pointer field is
 	// described by its element.
 	paramSchema := func(f bindingField) (*schema, bool) {
-		sf := fields[f.index]
+		sf := f.structField(in)
 		s := g.inputSchemaFor(base(sf.Type))
 		if s.ref != "" {
 			s = &schema{ref: s.ref} // annotations sit beside a shared $ref
@@ -719,7 +736,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 	if plan != nil && (len(plan.formFields) > 0 || len(plan.multipartFileFields) > 0) {
 		form := &schema{typ: []string{"object"}}
 		for _, f := range plan.formFields {
-			sf := st.Field(f.index)
+			sf := f.structField(st)
 			s := g.inputSchemaFor(sf.Type)
 			if s.ref != "" {
 				s = &schema{ref: s.ref}
@@ -733,7 +750,7 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		}
 		for _, f := range plan.multipartFileFields {
 			file := &schema{typ: []string{"string"}, contentMediaType: "application/octet-stream"}
-			if base(st.Field(f.index).Type).Kind() == reflect.Slice {
+			if base(f.structField(st).Type).Kind() == reflect.Slice {
 				file = &schema{typ: []string{"array"}, items: file}
 			}
 			form.properties = append(form.properties, property{name: f.name, schema: file})
@@ -804,6 +821,31 @@ func errorEnvelopeSchema() *schema {
 			required: []string{"status", "message"},
 		}}},
 		required: []string{"error"},
+	}
+}
+
+// errorEnvelopeMarker stands for Zinc's error envelope in the component
+// names a spec reserves.
+type errorEnvelopeMarker struct{}
+
+// pathShape is an OpenAPI path with its parameter names removed:
+// /pets/{id} and /pets/{name} share the shape /pets/{}.
+func pathShape(path string) string {
+	var b strings.Builder
+	for {
+		open := strings.IndexByte(path, '{')
+		if open < 0 {
+			b.WriteString(path)
+			return b.String()
+		}
+		end := strings.IndexByte(path[open:], '}')
+		if end < 0 {
+			b.WriteString(path)
+			return b.String()
+		}
+		b.WriteString(path[:open+1])
+		b.WriteByte('}')
+		path = path[open+end+1:]
 	}
 }
 

@@ -27,6 +27,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/0mjs/zinc"
 	"github.com/0mjs/zinc/middleware/recover"
@@ -38,7 +39,11 @@ type User struct {
 	Name string `json:"name"`
 }
 
-var users = map[string]User{"42": {ID: "42", Name: "Ada"}}
+// Handlers run concurrently, so shared state needs a lock.
+var (
+	mu    sync.RWMutex
+	users = map[string]User{"42": {ID: "42", Name: "Ada"}}
+)
 
 func main() {
 	app := zinc.New()
@@ -47,7 +52,9 @@ func main() {
 	api := app.Group("/api")
 
 	api.Get("/users/{id}", func(c *zinc.Context) error {
+		mu.RLock()
 		user, ok := users[c.Param("id")]
+		mu.RUnlock()
 		if !ok {
 			return zinc.NotFound("user not found")
 		}
@@ -59,7 +66,9 @@ func main() {
 		if err := c.Bind().JSON(&user); err != nil {
 			return err // 400 with the failing field
 		}
+		mu.Lock()
 		users[user.ID] = user
+		mu.Unlock()
 		return c.Status(http.StatusCreated).JSON(user)
 	})
 

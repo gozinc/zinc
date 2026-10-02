@@ -191,3 +191,37 @@ func TestOpenAPIDefaultGivesWay(t *testing.T) {
 		New(Config{OpenAPI: OpenAPIConfig{SecuritySchemes: map[string]OpenAPISecurityScheme{"o": {Type: "oauth2"}}}})
 	})
 }
+
+// The served spec follows metadata changed after the first request, not
+// only new routes.
+func TestOpenAPIServedSpecFollowsMetadata(t *testing.T) {
+	app := New()
+	route := app.Get("/x", func(c *Context) error { return nil })
+	other := app.Get("/y", func(c *Context) error { return nil })
+	first := getSpec(t, app, "GET", "/openapi.json", nil).Body.String()
+	if !strings.Contains(first, `"/x"`) {
+		t.Fatal("first spec lacks /x")
+	}
+	route.Hidden()
+	if strings.Contains(getSpec(t, app, "GET", "/openapi.json", nil).Body.String(), `"/x"`) {
+		t.Fatal("served spec still lists /x after Hidden")
+	}
+	other.Summary("Why")
+	if !strings.Contains(getSpec(t, app, "GET", "/openapi.json", nil).Body.String(), `"summary": "Why"`) {
+		t.Fatal("served spec misses a summary added later")
+	}
+	other.Name("y.show")
+	if !strings.Contains(getSpec(t, app, "GET", "/openapi.json", nil).Body.String(), `"operationId": "y.show"`) {
+		t.Fatal("served spec misses a name added later")
+	}
+	other.Status(http.StatusAccepted)
+	if !strings.Contains(getSpec(t, app, "GET", "/openapi.json", nil).Body.String(), `"202"`) {
+		t.Fatal("served spec misses a status set later")
+	}
+	// Unchanged metadata keeps the cached bytes.
+	a := getSpec(t, app, "GET", "/openapi.json", nil).Body.String()
+	b := getSpec(t, app, "GET", "/openapi.json", nil).Body.String()
+	if a != b {
+		t.Fatal("spec changed with no metadata change")
+	}
+}

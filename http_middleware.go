@@ -3,7 +3,11 @@
 
 package zinc
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/0mjs/zinc/internal/prerouting"
+)
 
 // FromHTTP adapts standard net/http middleware to Zinc middleware, so it can
 // run on a group or a single route instead of the whole app:
@@ -102,10 +106,16 @@ func Skip(skip func(*Context) bool, mw Middleware) Middleware {
 	if skip == nil || mw == nil {
 		panic("zinc: Skip needs a predicate and a middleware")
 	}
-	return func(c *Context) error {
+	wrapped := func(c *Context) error {
 		if skip(c) {
 			return c.Next()
 		}
 		return mw(c)
 	}
+	// Keep what Zinc knows about mw: middleware that must run before
+	// routing still can't be registered on a group when it's wrapped.
+	if name, ok := prerouting.Name(mw); ok {
+		prerouting.Mark(wrapped, name)
+	}
+	return wrapped
 }

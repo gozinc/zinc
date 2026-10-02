@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,12 +28,18 @@ type bindingPlan struct {
 	// hasDefaults reports whether any field has a default tag, so binding
 	// skips the defaults pass for types without one.
 	hasDefaults bool
+	// err is the first field binding can't fill. A Typed handler panics with
+	// it at registration; a binder returns it.
+	err error
 }
 
 // bindingField keeps both the wire name and Go field label: the former locates
 // input while the latter makes conversion errors actionable.
 type bindingField struct {
+	// index is the field's position in the struct; path is its index path
+	// when it's promoted from an embedded struct, and nil otherwise.
 	index      int
+	path       []int
 	name       string
 	headerName string
 	label      string
@@ -136,7 +143,11 @@ func bindTargetPlan(ptr any) (reflect.Value, *bindingPlan, error) {
 		return reflect.Value{}, nil, fmt.Errorf("binding target must point to a struct")
 	}
 
-	return val, bindingPlanFor(val.Type()), nil
+	plan := bindingPlanFor(val.Type())
+	if plan.err != nil {
+		return reflect.Value{}, nil, plan.err
+	}
+	return val, plan, nil
 }
 
 func bindingPlanFor(typ reflect.Type) *bindingPlan {
@@ -155,46 +166,155 @@ func bindingPlanFor(typ reflect.Type) *bindingPlan {
 // mistake shows at registration for a Typed handler.
 func compileBindingPlan(typ reflect.Type) *bindingPlan {
 	plan := &bindingPlan{}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	plan.compileFields(typ, typ, nil, 0)
+	return plan
+}
+
+// bindingTags are the tags that bind a field from outside the body.
+var bindingTags = [...]string{"path", "query", "form", "header", "cookie"}
+
+// hasBindingTag reports whether a binding tag opts the field in.
+func hasBindingTag(field reflect.StructField) bool {
+	for _, tag := range bindingTags {
+		if v, ok := field.Tag.Lookup(tag); ok && v != "-" {
+			return true
+		}
+	}
+	return false
+}
+
+// compileFields adds t's tagged fields to the plan. The fields of an untagged
+// embedded struct are promoted, as Go promotes them; path is t's index path
+// within root.
+func (plan *bindingPlan) compileFields(root, t reflect.Type, path []int, depth int) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.Anonymous && !hasBindingTag(field) {
+			et, isPtr := field.Type, field.Type.Kind() == reflect.Pointer
+			if isPtr {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct && depth < 8 {
+				if isPtr && field.PkgPath != "" {
+					// Binding can't allocate an unexported embedded pointer.
+					if plan.err == nil && hasTaggedFields(et) {
+						plan.err = fmt.Errorf("zinc: %s embeds *%s, whose tagged fields binding can't fill: the pointer is unexported; embed the struct itself, or export it", root, et.Name())
+					}
+					continue
+				}
+				plan.compileFields(root, et, append(slices.Clone(path), i), depth+1)
+				continue
+			}
+		}
 		// Unexported fields cannot be set through reflection and must never be
 		// made writable with unsafe solely for binding convenience.
 		if field.PkgPath != "" {
 			continue
 		}
+		var fieldPath []int
+		if path != nil {
+			fieldPath = append(slices.Clone(path), i)
+		}
+		plan.compileField(root, i, fieldPath, field)
+	}
+}
 
+// hasTaggedFields reports whether t, or a struct it embeds, has a field with
+// a binding tag.
+func hasTaggedFields(t reflect.Type) bool {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if hasBindingTag(f) {
+			return true
+		}
+		if et := base(f.Type); f.Anonymous && et.Kind() == reflect.Struct && et != t && hasTaggedFields(et) {
+			return true
+		}
+	}
+	return false
+}
+
+func (plan *bindingPlan) compileField(root reflect.Type, i int, path []int, field reflect.StructField) {
+	{
 		// One field may participate in several sources. The plan preserves that
 		// intentionally so Bind.All can apply its documented source precedence.
 		setter := compileFieldSetter(field.Type)
-		def := compileDefault(typ, field, setter)
+		if plan.err == nil && setter.unsupported() && hasBindingTag(field) {
+			plan.err = fmt.Errorf("zinc: %s.%s has a binding tag, but binding can't fill a %s; use a string, number or bool, a type with UnmarshalText, a pointer to one, or a slice of them", root, field.Name, field.Type)
+		}
+		def := compileDefault(root, field, setter)
 		if def != nil {
 			plan.hasDefaults = true
 		}
+		add := func(list *[]bindingField, compiled bindingField) {
+			compiled.path = path
+			*list = append(*list, compiled)
+		}
 		if compiled, ok := compileBindingField(i, field, setter, "path"); ok {
-			plan.pathFields = append(plan.pathFields, compiled)
+			add(&plan.pathFields, compiled)
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "query"); ok {
 			compiled.def = def
-			plan.queryFields = append(plan.queryFields, compiled)
+			add(&plan.queryFields, compiled)
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "form"); ok {
 			if setter.supportsFiles() {
-				plan.multipartFileFields = append(plan.multipartFileFields, compiled)
+				add(&plan.multipartFileFields, compiled)
 			} else {
 				compiled.def = def
-				plan.formFields = append(plan.formFields, compiled)
+				add(&plan.formFields, compiled)
 			}
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "header"); ok {
 			compiled.def = def
-			plan.headerFields = append(plan.headerFields, compiled)
+			add(&plan.headerFields, compiled)
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "cookie"); ok {
 			compiled.def = def
-			plan.cookieFields = append(plan.cookieFields, compiled)
+			add(&plan.cookieFields, compiled)
 		}
 	}
-	return plan
+}
+
+// value returns the field within v, the bound struct. A nil embedded
+// pointer on the way is allocated, as a value is about to be set.
+func (f bindingField) value(v reflect.Value) reflect.Value {
+	if f.path == nil {
+		return v.Field(f.index)
+	}
+	return promotedField(v, f.path)
+}
+
+func promotedField(v reflect.Value, path []int) reflect.Value {
+	for _, i := range path[:len(path)-1] {
+		v = v.Field(i)
+		if v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+	}
+	return v.Field(path[len(path)-1])
+}
+
+// structField returns the field's declaration within t, the bound struct.
+func (f bindingField) structField(t reflect.Type) reflect.StructField {
+	if f.path == nil {
+		return t.Field(f.index)
+	}
+	return t.FieldByIndex(f.path)
+}
+
+// unsupported reports whether binding can't fill the field at all.
+func (s fieldSetter) unsupported() bool {
+	switch s.kind {
+	case fieldSetterUnsupportedKind, fieldSetterUnsupportedSlice:
+		return true
+	case fieldSetterPointer:
+		return s.elem.unsupported()
+	}
+	return false
 }
 
 // compileDefault parses a field's default tag into the inputs a request
@@ -220,7 +340,7 @@ func applyDefaults(val reflect.Value, fields []bindingField) {
 	for _, field := range fields {
 		if field.def != nil {
 			// The value was checked when the plan compiled.
-			_ = field.setter.set(val.Field(field.index), field.def)
+			_ = field.setter.set(field.value(val), field.def)
 		}
 	}
 }
@@ -369,7 +489,7 @@ func bindFieldsFromValues(val reflect.Value, fields []bindingField, values url.V
 		if !ok || len(inputs) == 0 {
 			continue
 		}
-		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
+		if err := field.setter.set(field.value(val), inputs); err != nil {
 			return field.bindError("", err)
 		}
 	}
@@ -440,7 +560,7 @@ func bindFieldsFromQuery(val reflect.Value, fields []bindingField, c *Context) e
 			single := [1]string{first[i]}
 			inputs = single[:]
 		}
-		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
+		if err := field.setter.set(field.value(val), inputs); err != nil {
 			return field.bindError("", err)
 		}
 	}
@@ -465,7 +585,7 @@ func bindFieldsFromHeader(val reflect.Value, fields []bindingField, header http.
 		if len(inputs) == 0 {
 			continue
 		}
-		if err := field.setter.set(val.Field(field.index), inputs); err != nil {
+		if err := field.setter.set(field.value(val), inputs); err != nil {
 			return field.bindError("", err)
 		}
 	}
@@ -482,7 +602,7 @@ func bindFieldsFromCookies(val reflect.Value, fields []bindingField, req *http.R
 			continue
 		}
 		single := [1]string{cookie.Value}
-		if err := field.setter.set(val.Field(field.index), single[:]); err != nil {
+		if err := field.setter.set(field.value(val), single[:]); err != nil {
 			return field.bindError("", err)
 		}
 	}
@@ -500,7 +620,7 @@ func bindFieldsFromMultipartFiles(val reflect.Value, fields []bindingField, file
 		if len(inputs) == 0 {
 			continue
 		}
-		if err := field.setter.setFiles(val.Field(field.index), inputs); err != nil {
+		if err := field.setter.setFiles(field.value(val), inputs); err != nil {
 			return field.bindError("form", err)
 		}
 	}
@@ -519,7 +639,7 @@ func bindFieldsFromPath(val reflect.Value, fields []bindingField, c *Context) er
 			continue
 		}
 		single := [1]string{input}
-		if err := field.setter.set(val.Field(field.index), single[:]); err != nil {
+		if err := field.setter.set(field.value(val), single[:]); err != nil {
 			return field.bindError("path", err)
 		}
 	}

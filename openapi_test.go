@@ -531,3 +531,100 @@ func TestOpenAPITagsAndInfo(t *testing.T) {
 		mustPanicWith(t, tt.want, func() { New().OpenAPI("/openapi.json", tt.cfg) })
 	}
 }
+
+type Error struct {
+	Reason string `json:"reason"`
+}
+
+// Zinc's error envelope keeps its name; a user type named Error gets a
+// qualified one instead of being replaced.
+func TestOpenAPIUserErrorType(t *testing.T) {
+	app := New()
+	app.Get("/v", Typed(func(*Context, struct{}) (Error, error) { return Error{}, nil }))
+	spec, err := app.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	_ = json.Unmarshal(spec, &doc)
+	if !strings.Contains(string(doc.Components.Schemas["Error"]), `"error"`) {
+		t.Fatalf("Error is not the envelope: %s", doc.Components.Schemas["Error"])
+	}
+	if !strings.Contains(string(doc.Components.Schemas["zinc.Error"]), `"reason"`) {
+		t.Fatalf("the user's Error is missing: %v", slices.Collect(maps.Keys(doc.Components.Schemas)))
+	}
+	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/zinc.Error"`) {
+		t.Fatal("the response doesn't refer to the user's Error")
+	}
+	// With a custom error handler there's no envelope, so the name is free.
+	custom := New(Config{ErrorHandler: TextErrors})
+	custom.Get("/v", Typed(func(*Context, struct{}) (Error, error) { return Error{}, nil }))
+	spec, _ = custom.OpenAPISpec(OpenAPIConfig{Title: "T", Version: "1"})
+	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/Error"`) {
+		t.Fatalf("without the envelope the user's Error should keep its name:\n%s", spec)
+	}
+}
+
+func TestOpenAPIPathCollisions(t *testing.T) {
+	h := func(c *Context) error { return nil }
+	for _, tt := range []struct {
+		name     string
+		register func(app *App)
+		want     string
+	}{
+		{"parameter and catch-all", func(app *App) {
+			app.Get("/files/{path}", h)
+			app.Get("/files/{path...}", h)
+		}, "are the same OpenAPI operation, GET /files/{path}"},
+		{"renamed parameter", func(app *App) {
+			app.Get("/pets/{id}", h)
+			app.Post("/pets/{name}", h)
+		}, "paths /pets/{id} and /pets/{name} differ only in parameter names"},
+		{"nested renamed parameters", func(app *App) {
+			app.Get("/a/{x}/b/{y}", h)
+			app.Get("/a/{p}/b/{q}/c", h)
+			app.Put("/a/{p}/b/{q}", h)
+		}, "paths /a/{x}/b/{y} and /a/{p}/b/{q} differ only in parameter names"},
+	} {
+		app := New()
+		tt.register(app)
+		if _, err := app.OpenAPISpec(OpenAPIConfig{}); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: err = %v, want %q", tt.name, err, tt.want)
+		}
+	}
+
+	// Hiding one of the two resolves it, as the error suggests.
+	app := New()
+	app.Get("/files/{path}", h)
+	app.Get("/files/{path...}", h).Hidden()
+	if _, err := app.OpenAPISpec(OpenAPIConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	// The same names on several methods are fine.
+	app = New()
+	app.Get("/pets/{id}", h)
+	app.Put("/pets/{id}", h)
+	app.Get("/pets/{id}/photo", h)
+	if _, err := app.OpenAPISpec(OpenAPIConfig{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPathShape(t *testing.T) {
+	for in, want := range map[string]string{
+		"/":                  "/",
+		"/pets":              "/pets",
+		"/pets/{id}":         "/pets/{}",
+		"/a/{x}/b/{y}/c":     "/a/{}/b/{}/c",
+		"/v1/users:{action}": "/v1/users:{}",
+		"/broken/{x":         "/broken/{x",
+	} {
+		if got := pathShape(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}

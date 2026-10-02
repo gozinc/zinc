@@ -38,8 +38,9 @@ type docResponse struct {
 	typ    reflect.Type
 }
 
-// doc returns the route's metadata, creating it on first use.
+// doc returns the route's metadata for a change, creating it on first use.
 func (r *routeTable) doc(index uint32) *routeDoc {
+	r.docsVersion++
 	if r.routeDocs == nil {
 		r.routeDocs = make(map[uint32]*routeDoc)
 	}

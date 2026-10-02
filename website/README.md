@@ -35,8 +35,20 @@ The `zinc` Worker's build settings are:
 - Production branch: `dev`
 - Root directory: `website`
 - Build command: `npm run check:site`
-- Deploy command: `npx wrangler deploy`
+- Deploy command: the branch-tip check below, followed by `npx wrangler deploy`
 - Build cache: enabled
+
+The deploy command checks the remote `dev` tip immediately before publishing:
+
+```sh
+git fetch --no-tags https://github.com/0mjs/zinc.git dev && if [ "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)" ]; then npx wrangler deploy; else echo "Skipping stale docs build: dev has moved on."; fi
+```
+
+Keep this check in Cloudflare's deploy command so it also applies when an older
+commit is rebuilt. Delayed push events can otherwise publish old docs after a
+newer release has already deployed. A failed fetch prevents deployment; a build
+whose commit is no longer the branch tip skips publishing. This checks freshness
+at deployment start, so it does not serialize deployments already in progress.
 
 The build must pass the source-doc, Astro build, and generated-link checks
 before deployment. Cloudflare stores the deployment credential; GitHub Actions

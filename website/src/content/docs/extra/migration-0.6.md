@@ -7,7 +7,7 @@ slug: extra/migration-0.6
 Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.6.0
+go get github.com/0mjs/zinc@v0.6.1
 go test ./...
 ```
 
@@ -50,6 +50,19 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 - [API Docs](/middleware/apidocs/): a browsable page for the spec, with Scalar, Swagger UI, Stoplight Elements or ReDoc.
 - `zinc.SchemaProvider`, for a type that describes its own JSON Schema, and `zinc.EnumProvider`, for a named type that lists its values.
 - [Generate an API Client](/cookbook/openapi-client/): a recipe for a typed Go client with oapi-codegen.
+
+## Changes in 0.6.1
+
+- **Routes OpenAPI can't tell apart** make the spec fail to build, with an error naming both. Before, one replaced the other silently, or the spec had two paths differing only in parameter names, which OpenAPI forbids. Rename the parameters to match, or hide one route. See [Routes OpenAPI can't tell apart](/guide/openapi/#routes-openapi-cant-tell-apart).
+- **A type of yours named `Error`** keeps its own schema, listed under its package, such as `main.Error`. Before, Zinc's error schema replaced it.
+- **The served spec** picks up metadata changed after the first request, such as `.Hidden()` or `.Summary(...)`. Before, only new routes rebuilt it.
+- **Embedded structs bind.** Tagged fields of an embedded struct used to be ignored by binding, though the spec listed them; now they [bind](/guide/binding/#embedded-structs-bind-too).
+- **A field binding can't fill** (a `map`, a `[]bool`) panics when its typed handler is registered, and binders return the error, instead of failing only on a request that carried the value.
+- **A typed handler's own `c.Status(...)` wins** over `.Status(...)` on the route, `200` included. Before, `200` was treated as unset and replaced.
+- **`zinc.Form[T]`** reports a body over the limit as `413`, and a form that can't be parsed as a `400` with the cause, instead of "is required".
+- **CSRF's `FromForm`** honors `Config.BodyLimit`: a larger body gets `413`.
+- **Body Dump** records the response the client got, error responses included, with their real status: a `400` from binding was recorded as a `500` with no body. It captures the request body as the handler reads it, up to `MaxRequestBytes`, instead of reading the whole body first.
+- **`zinc.Skip`** keeps redirect and rewrite's startup check: wrapped in `Skip`, they still panic on a group.
 
 ## Benchmarks are scored with ties
 

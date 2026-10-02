@@ -91,18 +91,18 @@ The limits only cut the copy. The handler read all 26 bytes and the client recei
 
 ## Errors
 
-The middleware reads the whole request body before your handler runs, using `c.BodyBytes`. If that fails, for example because the body is over [`Config.BodyLimit`](/guide/configuration/), `Observe` still receives a snapshot with `Error` set and no bodies, and the request fails with that error:
+An error from your handler, or from later middleware, is turned into its response before the snapshot is taken, so `Status` and `ResponseBody` are what the client got. A body over [`Config.BodyLimit`](/guide/configuration/), for example:
 
 ```bash
 curl -i -X POST --data-binary @big.json http://localhost:8080/echo   # over Config.BodyLimit
 # HTTP/1.1 413 Request Entity Too Large
 ```
 
-Errors from the rest of the chain are passed through unchanged, and also appear in `Snapshot.Error`.
+gives a snapshot with `Status` 413, the error body Zinc sent, and `Error` set.
 
-:::note[Memory use]
-Because the whole request body is read up front, each request holds it in memory, up to `Config.BodyLimit`, whatever `MaxRequestBytes` is set to. `MaxRequestBytes` only limits the copy the snapshot keeps.
-:::
+## What gets captured
+
+The request body is copied as your handler reads it, up to `MaxRequestBytes`. A handler that never reads the body leaves `RequestBody` empty, and `RequestBytes` counts only what was read. The middleware never reads more of the body than your handler does, so it adds no memory beyond the copy.
 
 ## Related
 

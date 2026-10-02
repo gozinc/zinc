@@ -230,6 +230,7 @@ export default defineConfig({
           items: [
             page("FAQ", "/extra/faq/"),
             page("Benchmarks", "/extra/benchmarks/"),
+            page("Compatibility", "/extra/compatibility/"),
             {
               label: "Upgrading",
               items: [

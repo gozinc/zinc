@@ -60,41 +60,38 @@ func defaultConfig() Config {
 }
 
 // New captures request and response bodies for Config.Observe without
-// replacing the bytes visible to downstream handlers. Configure Redact before
-// exporting snapshots.
+// changing the bytes downstream handlers read or write. The request body is
+// copied as handlers read it, up to MaxRequestBytes, so a body nothing reads
+// isn't captured and capture never reads more than the handler does. An error
+// a handler returns is rendered while capture is active, so the snapshot holds
+// the response the client got. Configure Redact before exporting snapshots.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("bodydump", configs)
 	cfg := resolveBodyDumpConfig(config)
 
 	return func(c *zinc.Context) error {
-		requestBody, err := c.BodyBytes()
-		if err != nil {
-			snapshot := Snapshot{
-				Method:        c.Method(),
-				Path:          c.Path(),
-				RoutePath:     c.FullPath(),
-				Status:        inferBodyDumpStatus(nil, err),
-				RequestBytes:  0,
-				ResponseBytes: 0,
-				Error:         err,
-			}
-			if cfg.Redact != nil {
-				cfg.Redact(c, &snapshot)
-			}
-			cfg.Observe(c, snapshot)
-			return err
+		var request *bodyDumpCaptureReader
+		req := c.Request()
+		if req != nil && req.Body != nil && req.Body != http.NoBody {
+			request = &bodyDumpCaptureReader{ReadCloser: req.Body, limit: cfg.MaxRequestBytes}
+			req.Body = request
 		}
-
-		requestBytes := int64(len(requestBody))
-		requestBody, requestTruncated := limitBodyDumpCopy(requestBody, cfg.MaxRequestBytes)
 		baseWriter := c.Writer()
 		writer := newBodyDumpCaptureResponseWriter(baseWriter, cfg.MaxResponseBytes)
 		c.SetWriter(writer)
 		defer c.SetWriter(baseWriter)
 
-		err = c.Next()
+		err := c.Next()
+		if err != nil {
+			// Render the error now, into the capturing writer; the error
+			// handler runs once, so the later return is ignored.
+			c.HandleError(err)
+		}
 
 		c.SetWriter(baseWriter)
+		if request != nil {
+			req.Body = request.ReadCloser
+		}
 
 		logErr := c.LastError()
 		if logErr == nil {
@@ -106,13 +103,15 @@ func New(configs ...Config) zinc.Middleware {
 			Path:              c.Path(),
 			RoutePath:         c.FullPath(),
 			Status:            inferBodyDumpStatus(writer, logErr),
-			RequestBody:       requestBody,
 			ResponseBody:      writer.Bytes(),
-			RequestBytes:      requestBytes,
 			ResponseBytes:     writer.Size(),
-			RequestTruncated:  requestTruncated,
 			ResponseTruncated: writer.Truncated(),
 			Error:             logErr,
+		}
+		if request != nil {
+			snapshot.RequestBody = request.Bytes()
+			snapshot.RequestBytes = request.size
+			snapshot.RequestTruncated = request.truncated
 		}
 
 		if cfg.Redact != nil {
@@ -140,14 +139,38 @@ func resolveBodyDumpConfig(config Config) Config {
 	return cfg
 }
 
-func limitBodyDumpCopy(body []byte, limit int64) ([]byte, bool) {
-	if len(body) == 0 {
-		return nil, false
+// bodyDumpCaptureReader copies up to limit bytes of the request body as it's
+// read, and counts every byte read. A negative limit copies everything.
+type bodyDumpCaptureReader struct {
+	io.ReadCloser
+	limit     int64
+	size      int64
+	buf       bytes.Buffer
+	truncated bool
+}
+
+func (r *bodyDumpCaptureReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		r.size += int64(n)
+		chunk := p[:n]
+		if r.limit >= 0 {
+			if room := r.limit - int64(r.buf.Len()); int64(len(chunk)) > room {
+				chunk = chunk[:max(room, 0)]
+				r.truncated = true
+			}
+		}
+		r.buf.Write(chunk)
 	}
-	if limit < 0 || int64(len(body)) <= limit {
-		return append([]byte(nil), body...), false
+	return n, err
+}
+
+// Bytes returns a copy of the captured bytes, or nil for none.
+func (r *bodyDumpCaptureReader) Bytes() []byte {
+	if r.buf.Len() == 0 {
+		return nil
 	}
-	return append([]byte(nil), body[:limit]...), true
+	return append([]byte(nil), r.buf.Bytes()...)
 }
 
 func inferBodyDumpStatus(writer *bodyDumpCaptureResponseWriter, err error) int {
@@ -155,11 +178,7 @@ func inferBodyDumpStatus(writer *bodyDumpCaptureResponseWriter, err error) int {
 		return writer.Status()
 	}
 	if err != nil {
-		var httpErr *zinc.HTTPError
-		if errors.As(err, &httpErr) {
-			return httpErr.Code
-		}
-		return http.StatusInternalServerError
+		return zinc.StatusCode(err)
 	}
 	return http.StatusOK
 }

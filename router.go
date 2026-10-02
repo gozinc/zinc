@@ -41,6 +41,9 @@ type routeTable struct {
 	// only. Dispatch never reads it, and it's the last field so adding it
 	// moved nothing dispatch does read.
 	routeDocs map[uint32]*routeDoc
+	// docsVersion counts changes to route metadata after registration, such
+	// as Hidden or Summary, so a served spec knows when to rebuild.
+	docsVersion uint64
 }
 
 // Add registers handlers for method and path.

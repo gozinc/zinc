@@ -89,15 +89,6 @@
       "OpenAPISpec: zinc: GET /x names security scheme \"nope\", which OpenAPIConfig.SecuritySchemes doesn't define"
     ]
   },
-  "T30": {
-    "status": "gap",
-    "phase": "P13",
-    "reason": "A user type named Error is replaced by Zinc's error envelope (F01).",
-    "findings": [
-      "the user's Error schema was replaced by Zinc's error envelope",
-      "GET /v: response doesn't match its schema: jsonschema validation failed with 'https://zinc.test/audit.json#/paths/~1v/get/responses/200/content/application~1json/schema' - at '': missing property 'error' — body {\"reason\":\"a normal result\"}"
-    ]
-  },
   "V05": {
     "status": "design",
     "reason": "Registering the spec route on a path already in use panics, like any duplicate route.",
@@ -105,28 +96,18 @@
       "building the app panicked: route already registered for /openapi.json"
     ]
   },
-  "V09": {
-    "status": "gap",
-    "phase": "P13",
-    "reason": "The served spec doesn't follow metadata changed after the first request (F13).",
-    "findings": [
-      "building the app panicked: the served spec still lists a route hidden after the first request"
-    ]
-  },
   "X16": {
-    "status": "gap",
-    "phase": "P13",
-    "reason": "Two runtime routes become one OpenAPI operation without an error (F02).",
+    "status": "design",
+    "reason": "Two runtime routes that OpenAPI sees as one operation are an error when the spec is built (F02).",
     "findings": [
-      "two routes became one operation, catchall, without an error"
+      "OpenAPISpec: zinc: routes GET /files/{path} and GET /files/{path...} are the same OpenAPI operation, GET /files/{path}; hide one with Route.Hidden"
     ]
   },
   "X17": {
-    "status": "gap",
-    "phase": "P13",
-    "reason": "Path templates that differ only in parameter names are emitted, which OpenAPI forbids (F02).",
+    "status": "design",
+    "reason": "Paths that differ only in parameter names are an error when the spec is built, as OpenAPI forbids them (F02).",
     "findings": [
-      "two path templates differ only in parameter names, which OpenAPI forbids"
+      "OpenAPISpec: zinc: paths /pets/{id} and /pets/{name} differ only in parameter names, which OpenAPI doesn't allow; give the parameters the same names"
     ]
   }
 }
