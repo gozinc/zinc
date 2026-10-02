@@ -247,9 +247,9 @@ type App struct {
 	specPath string
 	// specs are the specs served with App.OpenAPI, which Validate builds.
 	specs []*servedSpec
-	// docsPage is the reference page served at docsPath when no route
-	// matches it; nil when Config.DocsPath is "-" or there's no spec.
-	docsPage []byte
+	// docs is the reference page served at docsPath when no route matches
+	// it; nil when Config.DocsPath is "-" or there's no spec.
+	docs     *docsPage
 	docsPath string
 }
 
@@ -307,17 +307,33 @@ func New(config ...Config) *App {
 	return app
 }
 
-// renderDocs renders the reference page for the spec at specPath.
+// renderDocs sets up the reference page for the spec at specPath. It's
+// rendered on its first request, so an app that never serves it, such as one
+// built per test, doesn't pay for the template.
 func (a *App) renderDocs(specPath string) {
-	title := a.config.OpenAPI.Title
-	if title == "" {
-		title, _ = defaultOpenAPIInfo()
+	a.docs = &docsPage{specPath: specPath, title: a.config.OpenAPI.Title}
+}
+
+// docsPage is the built-in reference page, rendered once, when first served.
+type docsPage struct {
+	specPath, title string
+	once            sync.Once
+	page            []byte
+	err             error
+}
+
+func (d *docsPage) serve(c *Context) error {
+	d.once.Do(func() {
+		title := d.title
+		if title == "" {
+			title, _ = defaultOpenAPIInfo()
+		}
+		d.page, d.err = docspage.Render(docspage.Scalar, d.specPath, title, "")
+	})
+	if d.err != nil {
+		return d.err
 	}
-	page, err := docspage.Render(docspage.Scalar, specPath, title, "")
-	if err != nil {
-		panic("zinc: " + err.Error())
-	}
-	a.docsPage = page
+	return c.Data("text/html; charset=utf-8", d.page)
 }
 
 // builtinRoutes lists the endpoints the app serves itself, the spec and the
@@ -332,7 +348,7 @@ func (a *App) builtinRoutes() []RouteInfo {
 	if a.spec != nil {
 		add(a.specPath, "zinc.OpenAPISpec")
 	}
-	if a.docsPage != nil {
+	if a.docs != nil {
 		add(a.docsPath, "zinc.DocsPage")
 	}
 	return out
@@ -666,7 +682,7 @@ func (a *App) RouteNotFound(path string, handlers ...HandlerFunc) {
 	case a.specPath:
 		a.spec, a.specPath = nil, ""
 	case a.docsPath:
-		a.docsPage, a.docsPath = nil, ""
+		a.docs, a.docsPath = nil, ""
 	}
 }
 
