@@ -33,7 +33,7 @@ Yes. Standard handlers can serve routes through `HandleHTTP` or own subtrees thr
 
 ## How fast is it?
 
-For 0.6.0, Zinc was fastest, by 3% or more, in 63 of 93 scenarios against Gin and Echo, with 9 more tied within 3%. Against the bare routers BunRouter and Chi it was fastest in 32 of 66 routing scenarios, with 11 ties. All were measured together on 29 September 2026. Every request pool holds 10,000 distinct paths, so no result comes from a cache. Common string-response routes use 16 B and one allocation per request. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
+For 0.7.0, Zinc was fastest, by 3% or more, in 63 of 93 scenarios against Gin and Echo, with 6 more tied within 3%. Against the bare routers BunRouter and Chi it was fastest in 32 of 66 routing scenarios, with 12 ties. All were measured together on 2 October 2026. Every request pool holds 10,000 distinct paths, so no result comes from a cache. Common string-response routes use 16 B and one allocation per request. See [Benchmarks](/extra/benchmarks/) for the full measurements, losses, and reproduction steps.
 
 ## Does Zinc have dependencies?
 

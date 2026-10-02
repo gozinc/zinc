@@ -9,7 +9,7 @@ examples/*
 .vscode/*
 *.txt
 benchmarks/*.test
-benchmarks/results/
+benchmarks/results
 
 # Docs
 website/node_modules/
@@ -26,6 +26,6 @@ website/pnpm-debug.log*
 .env*
 
 # Local benchmark run history (zincbench)
-/benchmarks/results/
+/benchmarks/results
 audits
 tmp
