@@ -21,7 +21,7 @@ Zinc sits between the two styles: the ergonomics of Gin and Echo, with Chi's com
 
 ## Is Zinc production-ready?
 
-Zinc is **pre-1.0**. Its behavior is covered by tests, and the security-relevant middleware is documented with its limits. The public API can still change between minor versions. Pin a version, and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading.
+Zinc is **pre-1.0**. Its behavior is covered by tests, and the security-relevant middleware is documented with its limits. The public API can still change between minor versions; [Compatibility](/extra/compatibility/) says exactly what each kind of release can change. Pin a version, and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading.
 
 ## Why does a handler return an error?
 
