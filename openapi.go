@@ -251,7 +251,7 @@ func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc)
 		panic(err.Error())
 	}
 	a.spec, a.specPath = nil, ""
-	if a.docsPage != nil {
+	if a.docs != nil {
 		// The reference page follows the spec to its new path.
 		a.renderDocs(path)
 	}
