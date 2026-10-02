@@ -163,3 +163,48 @@ func TestValidateResponses(t *testing.T) {
 		t.Errorf("error: %v", got)
 	}
 }
+
+func TestAppValidate(t *testing.T) {
+	type out struct {
+		Location string `header:"Location"`
+		Name     string `json:"name" openapi:"readonly,secret"`
+	}
+	type echo struct {
+		Region string `header:"X-Region" json:"region"`
+	}
+	type plainIn struct {
+		Code string `json:"code" validate:"alphanum"`
+	}
+	app := New()
+	app.Get("/out", Typed(func(*Context, struct{}) (out, error) { return out{}, nil }))
+	app.Get("/echo", Typed(func(_ *Context, in echo) (echo, error) { return in, nil }))
+	app.Post("/plain", func(c *Context) error { return nil }).Input(plainIn{})
+	app.Get("/a/{id}", func(c *Context) error { return nil })
+	app.Get("/a/{name}/x", func(c *Context) error { return nil })
+	app.Post("/a/{name}", func(c *Context) error { return nil })
+	err := app.Validate()
+	if err == nil {
+		t.Fatal("no problems found")
+	}
+	for _, want := range []string{
+		`GET /out: zinc.out.Location has header:"Location" but is sent in the JSON body`,
+		`GET /out: zinc.out.Name: unknown openapi tag word "secret"`,
+		`POST /plain: zinc: Zinc's built-in validator doesn't enforce these validate rules: zinc.plainIn.Code: alphanum`,
+		`differ only in parameter names`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "echo") {
+		t.Errorf("an echoed input's header field was reported:\n%v", err)
+	}
+	clean := New()
+	clean.Get("/ok", Typed(func(*Context, struct{}) (echo, error) { return echo{}, nil }))
+	if err := clean.Validate(); err == nil || !strings.Contains(err.Error(), "X-Region") {
+		t.Errorf("a non-echoed output with a body header field: %v", err)
+	}
+	if err := New().Validate(); err != nil {
+		t.Errorf("empty app: %v", err)
+	}
+}

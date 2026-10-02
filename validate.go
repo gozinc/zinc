@@ -499,17 +499,17 @@ func isUUID(s string, version byte) bool {
 	return version == 0 || s[14] == version
 }
 
-// checkRuleSupport panics when a typed handler's input or output uses a
+// ruleSupportError reports a typed handler's input or output using a
 // validate rule the app's validator doesn't declare, so no rule in a tag is
 // silently unenforced. A validator that declares nothing isn't checked.
-func checkRuleSupport(types handlerTypes, cfg *Config) {
+func ruleSupportError(types handlerTypes, cfg *Config) error {
 	var v Validator
 	if cfg != nil {
 		v = cfg.Validator
 	}
 	enforced := enforcedRules(v)
 	if enforced == nil {
-		return
+		return nil
 	}
 	for _, t := range []reflect.Type{types.in, types.out} {
 		if t == nil {
@@ -528,8 +528,7 @@ func checkRuleSupport(types handlerTypes, cfg *Config) {
 		}
 		// Zinc's own rules can also fail on a field type, such as min on a bool.
 		if v == nil {
-			if st := nestedStruct(t); st != nil && rulePlanFor(st) != nil {
-				plan := rulePlanFor(st)
+			if plan := rulePlanFor(nestedStruct(t)); plan != nil {
 				for _, u := range plan.unsupported {
 					if !slices.Contains(missing, u) {
 						missing = append(missing, u)
@@ -542,9 +541,10 @@ func checkRuleSupport(types handlerTypes, cfg *Config) {
 			if v != nil {
 				who = fmt.Sprintf("the Validator (%T)", v)
 			}
-			panic(fmt.Sprintf("zinc: %s doesn't enforce these validate rules: %s; use rules it declares, or a Validator that declares them with RuleSet", who, strings.Join(missing, ", ")))
+			return fmt.Errorf("zinc: %s doesn't enforce these validate rules: %s; use rules it declares, or a Validator that declares them with RuleSet", who, strings.Join(missing, ", "))
 		}
 	}
+	return nil
 }
 
 // ruleTypes lists t and the struct types nested in it, which validation

@@ -416,6 +416,9 @@ func (g *schemaGen) inputDiffers(t reflect.Type) bool {
 // nestedStruct returns the struct inside t, through pointers, slices, arrays
 // and maps, unless its JSON isn't its Go shape.
 func nestedStruct(t reflect.Type) reflect.Type {
+	if t == nil {
+		return nil
+	}
 	for {
 		switch t.Kind() {
 		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:

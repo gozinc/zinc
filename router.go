@@ -131,7 +131,9 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 
 	types, typed := describeHandler(finalHandler)
 	if typed {
-		checkRuleSupport(types, r.config)
+		if err := ruleSupportError(types, r.config); err != nil {
+			panic(err.Error())
+		}
 	}
 	// The tree checks for conflicts and records the route; it is the only
 	// place a registration can fail from here on.

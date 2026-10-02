@@ -256,6 +256,7 @@ func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc)
 		a.renderDocs(path)
 	}
 	spec := &servedSpec{app: a, cfg: cfg}
+	a.specs = append(a.specs, spec)
 	handlers := append(append([]HandlerFunc(nil), middleware...), spec.serve)
 	return a.Get(path, handlers...).Hidden()
 }
