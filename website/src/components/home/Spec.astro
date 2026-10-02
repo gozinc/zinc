@@ -1,0 +1,416 @@
+---
+// The typed handler is the API's description: the same code, the spec Zinc
+// builds from it, the request it refuses, and the reference page. Every
+// output here is from a real run of the code shown.
+import { Code } from "astro:components";
+import zincFrost from "../../themes/zinc-frost.json";
+
+// Tabs become four spaces, as in the other sections' code.
+const handler = `type CreateUser struct {
+    OrgID  string \`path:"org"\`
+    DryRun bool   \`query:"dry_run"\`
+    Email  string \`json:"email" validate:"required,email"\`
+}
+
+api.Post("/orgs/{org}/users", zinc.Typed(createUser)).
+    Status(http.StatusCreated)`;
+
+const spec = `"post": {
+  "parameters": [
+    { "name": "org", "in": "path", "required": true,
+      "schema": { "type": "string" } },
+    { "name": "dry_run", "in": "query", "schema": { "type": "boolean" } }
+  ],
+  "requestBody": { "required": true, "content": { "application/json":
+    { "schema": { "$ref": "#/components/schemas/CreateUserBody" } } } },
+  "responses": {
+    "201": { "description": "Created", "content": { "application/json":
+      { "schema": { "$ref": "#/components/schemas/User" } } } },
+    "400": { "description": "Bad Request", … },
+    "422": { "description": "Unprocessable Entity", … },
+    "500": { "description": "Internal Server Error", … }
+  }
+}
+
+"CreateUserBody": {
+  "type": "object",
+  "properties": { "email": { "type": "string", "format": "email" } },
+  "required": ["email"]
+}`;
+
+const refused = `POST /api/orgs/acme/users
+{"email":"nope"}
+
+HTTP/1.1 422 Unprocessable Entity
+{"error":{"status":422,"message":"validation failed",
+  "fields":{"email":"must be an email address"}}}`;
+
+const tabs = [
+  { id: "code", label: "createUser.go", note: "What you write" },
+  { id: "spec", label: "GET /openapi.json", note: "What Zinc describes" },
+  { id: "refuse", label: "POST, bad email", note: "What Zinc enforces" },
+  { id: "docs", label: "GET /docs", note: "What your users read" },
+];
+
+const reads = [
+  ["path · query · header · cookie", "parameters, typed and required as declared"],
+  ["json, xml, decoders", "the request body, in every format binding accepts"],
+  ["validate", "lengths, ranges, formats, choices: the rules Zinc checks"],
+  ["the return type", "the success body, its media type and status"],
+  ["header fields", "response headers and cookies"],
+  [".Errors · .Example · .Security", "error responses, checked examples, auth"],
+];
+---
+
+<section class="spec" data-spec>
+  <div class="copy">
+    <p class="kicker">OpenAPI 3.1, built in</p>
+    <h2>Your types are the spec.</h2>
+    <p>
+      Every Zinc app serves an OpenAPI 3.1 spec at <code>/openapi.json</code> and a reference page at <code>/docs</code>, built from the structs and return types you already wrote. No comments to keep
+      in step, no generator to run, no second framework.
+    </p>
+    <ul class="reads">
+      {reads.map(([from, to]) => (
+        <li><code>{from}</code><span>{to}</span></li>
+      ))}
+    </ul>
+    <p class="honest">
+      A rule appears in the spec only when it's checked on requests, and a mistake, such as two routes
+      OpenAPI can't tell apart, fails at startup. Not yet: YAML output and polymorphic types.
+    </p>
+    <div class="links">
+      <a class="more" href="/guide/openapi/">OpenAPI guide →</a>
+      <a class="more alt" href="/guide/coming-from-huma-or-fuego/">Coming from Huma or Fuego →</a>
+    </div>
+  </div>
+
+  <figure class="panel" aria-label="A typed handler, the spec Zinc builds from it, a refused request and the reference page">
+    <div class="tabs" role="tablist" aria-label="The same route, four ways" data-tabs>
+      {tabs.map((t, i) => (
+        <button type="button" role="tab" aria-selected={String(i === 0)} tabindex={i === 0 ? "0" : "-1"} data-tab={t.id}>
+          <span class="tnote">{t.note}</span>
+          <span class="tlabel">{t.label}</span>
+        </button>
+      ))}
+    </div>
+    <div class="pane" data-pane="code"><Code code={handler} lang="go" theme={zincFrost as any} /></div>
+    <div class="pane" data-pane="spec" hidden><Code code={spec} lang="json" theme={zincFrost as any} /></div>
+    <div class="pane" data-pane="refuse" hidden><Code code={refused} lang="text" theme={zincFrost as any} /></div>
+    <div class="pane docs" data-pane="docs" hidden>
+      <div class="mock" aria-hidden="true">
+        <div class="side">
+          <b>Users</b><span class="v">1.0.0</span>
+          <span class="op"><i class="post">POST</i>/api/orgs/{"{org}"}/users</span>
+        </div>
+        <div class="main">
+          <span class="h">Create user</span>
+          <span class="row"><code>org</code> path · string · required</span>
+          <span class="row"><code>dry_run</code> query · boolean</span>
+          <span class="row"><code>email</code> body · string · email · required</span>
+          <span class="row ok">201 User · 400 Error · 422 Error · 500 Error</span>
+          <span class="try">Test request</span>
+        </div>
+      </div>
+      <p class="caption">A sketch of the Scalar page every app serves at <code>/docs</code>. Move it, swap the renderer, or turn it off with one setting.</p>
+    </div>
+    <figcaption>Output from a real run of the code in the first tab; the spec is abbreviated where it says …</figcaption>
+  </figure>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-spec]").forEach((root) => {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-tab]")];
+    const panes = [...root.querySelectorAll<HTMLElement>("[data-pane]")];
+    const select = (i: number, focus = false) => {
+      const n = (i + tabs.length) % tabs.length;
+      tabs.forEach((t, j) => {
+        t.setAttribute("aria-selected", String(j === n));
+        t.tabIndex = j === n ? 0 : -1;
+      });
+      panes.forEach((p) => (p.hidden = p.dataset.pane !== tabs[n].dataset.tab));
+      if (focus) tabs[n].focus();
+    };
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => select(i));
+      t.addEventListener("keydown", (e) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (step) {
+          e.preventDefault();
+          select(i + step, true);
+        }
+      });
+    });
+  });
+</script>
+
+<style>
+  .spec {
+    align-items: start;
+    display: grid;
+    gap: clamp(2.5rem, 6vw, 5rem);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .kicker {
+    color: var(--z-muted);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    letter-spacing: 0.04em;
+    margin: 0 0 1rem;
+  }
+
+  h2 {
+    color: var(--z-text);
+    font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
+    letter-spacing: -0.035em;
+    margin: 0 0 1.1rem;
+    text-wrap: balance;
+  }
+
+  .copy > p {
+    color: var(--z-muted);
+    font-size: 1rem;
+    line-height: 1.65;
+    margin: 0 0 1.5rem;
+    max-width: 46ch;
+  }
+
+  .copy code {
+    color: var(--z-text);
+    font-size: 0.86em;
+  }
+
+  .reads {
+    display: grid;
+    gap: 0.55rem;
+    list-style: none;
+    margin: 0 0 1.5rem;
+    padding: 0;
+  }
+
+  .reads li {
+    align-items: baseline;
+    display: grid;
+    font-size: 0.86rem;
+    gap: 0.25rem 0.9rem;
+    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+    margin: 0;
+  }
+
+  .reads code {
+    color: var(--z-zn);
+    font: 500 0.76rem/1.4 var(--sl-font-mono);
+  }
+
+  .reads span {
+    color: var(--z-muted);
+  }
+
+  .copy > p.honest {
+    border-left: 2px solid var(--z-zn);
+    color: var(--z-soft);
+    font-size: 0.86rem;
+    padding-left: 0.85rem;
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.4rem;
+  }
+
+  .more {
+    color: var(--z-text);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .more.alt {
+    color: var(--z-muted);
+  }
+
+  .more:hover {
+    color: var(--z-zn);
+  }
+
+  .panel {
+    background: var(--z-panel);
+    border: 1px solid #1f242a;
+    border-radius: 12px;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .tabs {
+    border-bottom: 1px solid #1f242a;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .tabs button {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--z-muted);
+    cursor: pointer;
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.8rem 0.9rem 0.7rem;
+    text-align: left;
+  }
+
+  .tabs button[aria-selected="true"] {
+    background: var(--z-plate);
+    border-bottom-color: var(--z-zn);
+    color: var(--z-text);
+  }
+
+  .tabs button:focus-visible {
+    outline: 1.5px solid var(--z-zn);
+    outline-offset: -3px;
+  }
+
+  .tnote {
+    font: 400 0.68rem/1 var(--sl-font-mono);
+    color: var(--z-soft);
+  }
+
+  .tlabel {
+    font: 500 0.78rem/1.2 var(--sl-font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .pane {
+    background: var(--z-plate);
+    min-height: 22rem;
+  }
+
+  .pane :global(.astro-code) {
+    background: var(--z-plate) !important;
+    border: 0;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    margin: 0;
+    overflow-x: auto;
+    padding: 1rem 1.1rem;
+  }
+
+  .mock {
+    display: grid;
+    gap: 0;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    margin: 1rem 1.1rem 0;
+    border: 1px solid #1f242a;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 0.78rem;
+  }
+
+  .side,
+  .main {
+    display: grid;
+    align-content: start;
+    gap: 0.55rem;
+    padding: 0.9rem;
+  }
+
+  .side {
+    background: var(--z-panel);
+    border-right: 1px solid #1f242a;
+    color: var(--z-muted);
+  }
+
+  .side b,
+  .main .h {
+    color: var(--z-text);
+    font-weight: 600;
+  }
+
+  .v {
+    color: var(--z-soft);
+    font: 400 0.68rem/1 var(--sl-font-mono);
+  }
+
+  .op {
+    font: 400 0.7rem/1.3 var(--sl-font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .op.dim {
+    opacity: 0.55;
+  }
+
+  .op i {
+    font-style: normal;
+    font-weight: 600;
+    margin-right: 0.35rem;
+  }
+
+  .op i.post {
+    color: #7ec699;
+  }
+
+  .op i.get {
+    color: #7aa7e0;
+  }
+
+  .row {
+    color: var(--z-muted);
+    font: 400 0.72rem/1.4 var(--sl-font-mono);
+  }
+
+  .row code {
+    color: var(--z-text);
+  }
+
+  .row.ok {
+    color: var(--z-soft);
+  }
+
+  .try {
+    border: 1px solid var(--z-zn);
+    border-radius: 6px;
+    color: var(--z-zn);
+    font: 500 0.72rem/1 var(--sl-font-mono);
+    justify-self: start;
+    padding: 0.45rem 0.7rem;
+  }
+
+  .caption {
+    color: var(--z-soft);
+    font-size: 0.78rem;
+    margin: 0.8rem 1.1rem 1rem;
+  }
+
+  .caption code {
+    font-size: 0.9em;
+  }
+
+  figcaption {
+    border-top: 1px solid #1f242a;
+    color: var(--z-soft);
+    font: 400 0.68rem/1.4 var(--sl-font-mono);
+    padding: 0.6rem 1.1rem;
+  }
+
+  @media (max-width: 60rem) {
+    .spec {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .tabs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .reads li,
+    .mock {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .side {
+      border-right: 0;
+      border-bottom: 1px solid #1f242a;
+    }
+  }
+</style>

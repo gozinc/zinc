@@ -108,6 +108,7 @@ export default defineConfig({
             page("Installation", "/guide/installation/"),
             page("Your First Route", "/guide/first-route/"),
             page("Coming from Gin or Echo", "/guide/coming-from-gin-or-echo/"),
+            page("Coming from Huma or Fuego", "/guide/coming-from-huma-or-fuego/"),
           ],
         },
         {
