@@ -141,6 +141,23 @@ A request to `/pets` gets `Limit` 20, `Sort` "name" and `Kinds` `[cat dog]`; `/p
 
 The default is checked against the field's type when the struct is first used: at registration for a [typed handler](/guide/typed-handlers/), so `default:"lots"` on an `int` panics at startup. [OpenAPI](/guide/openapi/) specs list each default.
 
+## Restrict an uploaded file's type
+
+A `media` tag on a file field lists the content types it accepts. A file of another type is a `400` naming the field:
+
+```go
+type Avatar struct {
+	File *multipart.FileHeader `form:"avatar" media:"image/png,image/jpeg"`
+}
+```
+
+```bash
+curl -F 'avatar=@notes.txt;type=text/plain' localhost:8080/avatar
+# {"error":{"status":400,"message":"invalid form field","fields":{"avatar":"must be image/png or image/jpeg"}}}
+```
+
+The type checked is the one the client declares for the part. Check the file's contents too before trusting it. Zinc's server removes the temporary files of a multipart upload when the request ends.
+
 ## Tell a missing value from zero
 
 Make a field a pointer when "not sent" and "sent as zero" mean different things. It stays `nil` when the value is absent:

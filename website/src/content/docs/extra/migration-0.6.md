@@ -7,7 +7,7 @@ slug: extra/migration-0.6
 Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.6.2
+go get github.com/0mjs/zinc@v0.6.3
 go test ./...
 ```
 
@@ -74,6 +74,16 @@ These change behavior on purpose. Check each against your app.
 - **`.Status(201)` sets the status for plain handlers too.** It used to document `201` while a plain handler sent `200` unless it called `c.Status` itself. Now it's the status of whatever the route writes, unless a handler sets another or returns an error.
 - **CORS on a group answers preflight requests.** `app.Group("/api", cors.New())` used to leave the browser's automatic `OPTIONS` request without CORS headers; now the group's CORS middleware answers it.
 - **Every app serves a reference page at `/docs`**, next to its spec, unless a route of your own uses the path. For a private API, set `zinc.Config{DocsPath: "-"}`, or turn the spec off, which turns the page off too. `Routes()` and `FindRoute()` list both endpoints, with `Builtin` set.
+
+## Changes in 0.6.3
+
+0.6.3 adds API; nothing you have stops working.
+
+- **Typed handlers send more than JSON.** Return `zinc.Text`, `HTML`, `Bytes`, `File`, `Stream` or `Redirect`, and the spec documents the media type. See [Send text, files and redirects](/guide/typed-handlers/#send-text-files-and-redirects).
+- **`.Produces(status, types...)` and `.Consumes(types...)`** declare media types Zinc can't tell from the code.
+- **`.Status` accepts redirect codes**, `301`, `302`, `303`, `307` and `308`, as well as `2xx`.
+- **Request bodies list every format binding accepts**: XML when the input has `xml` tags, and each configured decoder's media type. A `string` input is a `text/plain` body.
+- **A `media` tag on a file field** documents and enforces the upload's content type.
 
 ## Benchmarks are scored with ties
 

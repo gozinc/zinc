@@ -148,7 +148,7 @@ A typed handler answers `200` by default. Declare another success status on the 
 app.Post("/users", zinc.Typed(createUser)).Status(zinc.StatusCreated) // 201
 ```
 
-`Status` accepts only `2xx` codes. Anything else panics when the route is registered.
+`Status` accepts `2xx` codes, and the redirect codes `301`, `302`, `303`, `307` and `308` for a [`Redirect`](#send-text-files-and-redirects) output. Anything else panics when the route is registered.
 
 ## Send no body
 
@@ -175,6 +175,35 @@ curl -X DELETE localhost:8080/users/abc
 ```
 
 Here `enqueue` is any function of the form `func(*zinc.Context, T) (zinc.NoContent, error)`.
+
+## Send text, files and redirects
+
+The output type says what the response is. Anything else is sent as JSON; these types are sent as what they are, and the [OpenAPI](/guide/openapi/) spec documents each one's media type:
+
+| Return | Sends |
+|---|---|
+| `zinc.Text("hello")` | `text/plain` |
+| `zinc.HTML("<h1>Hi</h1>")` | `text/html` |
+| `zinc.Bytes{Type: "text/csv", Data: b}` | `Data` as `Type`, or `application/octet-stream` |
+| `zinc.File{Path: "report.pdf", Name: "q3.pdf"}` | A file from disk, or from `FS` when set; `Name` makes it a download |
+| `zinc.Stream{Type: "text/event-stream", Reader: r}` | `r` copied to the response, then closed if it's an `io.Closer` |
+| `zinc.Redirect("/new")` | `302`, or the route's redirect status, with `Location` |
+
+```go
+type Range struct {
+	From string `query:"from"`
+}
+
+app.Get("/reports/sales.csv", zinc.Typed(func(c *zinc.Context, in Range) (zinc.Bytes, error) {
+	return zinc.Bytes{Type: "text/csv", Data: salesCSV(in.From)}, nil // salesCSV: your code
+})).Produces(http.StatusOK, "text/csv")
+
+app.Get("/old-docs", zinc.Typed(func(*zinc.Context, struct{}) (zinc.Redirect, error) {
+	return "/docs", nil
+})).Status(http.StatusMovedPermanently)
+```
+
+`Bytes`, `File` and `Stream` choose their media type when the handler runs, so the spec lists them as `application/octet-stream` unless the route says otherwise with `.Produces(status, mediaTypes...)`.
 
 ## Return an error
 
@@ -224,13 +253,13 @@ curl -i -X POST localhost:8080/orgs/acme/users \
 
 ## When to use a plain handler
 
-A typed handler always answers with JSON, or nothing. Write a plain `func(c *zinc.Context) error` for routes that send HTML, files, streams or server-sent events, or that need to choose the format from the `Accept` header. Both kinds of handler work side by side in the same app.
+A typed handler answers with JSON, nothing, or one of the [output types](#send-text-files-and-redirects). Write a plain `func(c *zinc.Context) error` for routes that send events one at a time with `c.SSE`, render templates, or choose the format from the `Accept` header. Both kinds of handler work side by side in the same app.
 
 ## Good to know
 
 ### Which status wins
 
-A status you set inside the function with `c.Status(...)` wins over the one declared with `.Status(...)` on the route. If the function writes the response itself, for example with `c.Redirect`, Zinc ignores the returned value and sends what you wrote.
+A status you set inside the function with `c.Status(...)` wins over the one declared with `.Status(...)` on the route. If the function writes the response itself, for example with `c.Data`, Zinc ignores the returned value and sends what you wrote, but the spec still describes the output type. Return an output type instead, so the two agree.
 
 ### Typed and plain handlers bind the same way
 

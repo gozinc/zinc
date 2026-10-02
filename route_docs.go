@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 // routeDoc is a route's OpenAPI metadata. Registration and Route methods
@@ -29,6 +30,10 @@ type routeDoc struct {
 	// list (a public route) from no setting at all.
 	security    [][]string
 	securitySet bool
+	// produces lists media types by status, from Route.Produces; consumes
+	// lists the request body's, from Route.Consumes.
+	produces map[int][]string
+	consumes []string
 }
 
 // docResponse is an extra response declared with Route.Response. A nil typ
@@ -131,6 +136,45 @@ func (r Route) Response(status int, v any) Route {
 	}
 	doc.responses = append(doc.responses, response)
 	return r
+}
+
+// Produces declares the media types the route sends with status, such as
+// .Produces(200, "text/csv"). Use it where Zinc can't tell from the route: a
+// plain handler, or a Bytes, File or Stream output, whose media type is
+// chosen when the handler runs. It applies to the success status or a status
+// declared with Response. Calling it again for a status replaces its types.
+func (r Route) Produces(status int, mediaTypes ...string) Route {
+	if status < 100 || status > 599 {
+		panic(fmt.Sprintf("zinc: Produces status %d is not an HTTP status", status))
+	}
+	mustMediaTypes("Produces", mediaTypes)
+	doc := r.doc("Produces")
+	if doc.produces == nil {
+		doc.produces = map[int][]string{}
+	}
+	doc.produces[status] = slices.Clone(mediaTypes)
+	return r
+}
+
+// Consumes declares the media types the route accepts as a request body,
+// such as .Consumes("text/csv"), in place of the ones Zinc infers from the
+// input type.
+func (r Route) Consumes(mediaTypes ...string) Route {
+	mustMediaTypes("Consumes", mediaTypes)
+	doc := r.doc("Consumes")
+	doc.consumes = slices.Clone(mediaTypes)
+	return r
+}
+
+func mustMediaTypes(method string, mediaTypes []string) {
+	if len(mediaTypes) == 0 {
+		panic("zinc: " + method + " needs at least one media type, such as \"text/csv\"")
+	}
+	for _, mt := range mediaTypes {
+		if i := strings.IndexByte(mt, '/'); i <= 0 || i == len(mt)-1 || strings.ContainsAny(mt, " ;,") {
+			panic(fmt.Sprintf("zinc: %s media type %q isn't a type/subtype, such as \"text/csv\"", method, mt))
+		}
+	}
 }
 
 // Errors declares error statuses the route can answer by returning an error,

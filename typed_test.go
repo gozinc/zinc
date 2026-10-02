@@ -111,8 +111,8 @@ func TestTypedRejectsMisuse(t *testing.T) {
 	for name, fn := range map[string]func(){
 		"non-struct input": func() { Typed(func(c *Context, id int) (member, error) { return member{}, nil }) },
 		"nil function":     func() { Typed[struct{}, member](nil) },
-		"non-2xx status": func() {
-			New().Get("/x", Typed(func(c *Context, in struct{}) (member, error) { return member{}, nil })).Status(302)
+		"non-success, non-redirect status": func() {
+			New().Get("/x", Typed(func(c *Context, in struct{}) (member, error) { return member{}, nil })).Status(304)
 		},
 	} {
 		func() {
