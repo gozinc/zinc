@@ -91,13 +91,18 @@ func (r Route) Name(name string) Route {
 // route that creates a resource. It's the status of whatever the route
 // writes, for typed and plain handlers alike, unless a handler or middleware
 // sets another with Context.Status, or returns an error. The spec documents
-// it. It panics unless code is 2xx.
+// it. It panics unless code is a success status (2xx) or a redirect (301,
+// 302, 303, 307 or 308), the status a Redirect output or Context.Redirect
+// sends.
 func (r Route) Status(code int) Route {
 	if r.table == nil {
 		panic("zinc: Status on a route that was not registered")
 	}
-	if code < 200 || code > 299 {
-		panic(fmt.Sprintf("zinc: route status %d is not a success status", code))
+	switch {
+	case code >= 200 && code <= 299:
+	case code == 301, code == 302, code == 303, code == 307, code == 308:
+	default:
+		panic(fmt.Sprintf("zinc: route status %d is not a success or redirect status", code))
 	}
 	r.table.routeInfos[r.index].status = uint16(code)
 	r.table.setDefaultStatus(r.index, code)

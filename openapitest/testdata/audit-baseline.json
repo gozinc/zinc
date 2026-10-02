@@ -1,28 +1,4 @@
 {
-  "B07": {
-    "status": "gap",
-    "phase": "P22",
-    "reason": "A text/plain request body is documented as JSON; media types come in 0.6.3.",
-    "findings": [
-      "a text/plain body is documented as map[content:map[application/json:map[schema:map[type:string]]]]"
-    ]
-  },
-  "B08": {
-    "status": "gap",
-    "phase": "P22",
-    "reason": "XML request bodies are accepted but not documented.",
-    "findings": [
-      "the route accepts XML, but only JSON is documented"
-    ]
-  },
-  "B09": {
-    "status": "gap",
-    "phase": "P22",
-    "reason": "Configured decoders' media types aren't documented.",
-    "findings": [
-      "configured decoders' media types aren't documented"
-    ]
-  },
   "M07": {
     "status": "gap",
     "phase": "P29",
@@ -67,19 +43,18 @@
       "GET /x: status 403 isn't documented"
     ]
   },
-  "R21": {
-    "status": "gap",
-    "phase": "P22",
-    "reason": "A typed handler writing CSV is documented as JSON.",
-    "findings": [
-      "GET /csv: sent text/csv, documented [application/json]"
-    ]
-  },
   "R23": {
     "status": "design",
     "reason": "Without the recover middleware, a panic reaches net/http, as documented.",
     "findings": [
       "GET /panic: the handler's panic reached net/http: boom"
+    ]
+  },
+  "R30": {
+    "status": "design",
+    "reason": "The handler writes a body its output type doesn't describe; no spec can know. Return zinc.Bytes with Produces (R21).",
+    "findings": [
+      "GET /csv: sent text/csv, documented [application/json]"
     ]
   },
   "S08": {

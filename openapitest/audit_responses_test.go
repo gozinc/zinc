@@ -182,7 +182,82 @@ func responseScenarios() []scenario {
 					f.add("a route with security usually documents 401; Zinc adds none")
 				}
 			}},
-		{id: "R21", area: "Responses", title: "Typed handler writing its own non-JSON body",
+		{id: "R21", area: "Responses", title: "Typed handler sending CSV (Bytes and Produces)",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/csv", zinc.Typed(func(c *zinc.Context, _ struct{}) (zinc.Bytes, error) {
+					return zinc.Bytes{Type: "text/csv", Data: []byte("a,b\n")}, nil
+				})).Produces(http.StatusOK, "text/csv")
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/csv")},
+			expect: func(f *findings, s spec) {
+				if mediaSchema(s.response("GET", "/csv", 200), "text/csv") == nil {
+					f.add("text/csv isn't documented with a string schema: %v", s.response("GET", "/csv", 200))
+				}
+			}},
+		{id: "R24", area: "Responses", title: "Text output",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/hello", zinc.Typed(func(*zinc.Context, struct{}) (zinc.Text, error) { return "hello", nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/hello")},
+			expect: func(f *findings, s spec) {
+				if !typeIs(mediaSchema(s.response("GET", "/hello", 200), "text/plain"), "string") {
+					f.add("Text should be a text/plain string")
+				}
+			}},
+		{id: "R25", area: "Responses", title: "HTML output",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/page", zinc.Typed(func(*zinc.Context, struct{}) (zinc.HTML, error) { return "<h1>hi</h1>", nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/page")}},
+		{id: "R26", area: "Responses", title: "File output as a download",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/report", zinc.Typed(func(*zinc.Context, struct{}) (zinc.File, error) {
+					return zinc.File{Path: filepath.Join(dir, "report.csv"), Name: "report.csv"}, nil
+				})).Produces(http.StatusOK, "text/csv")
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/report")}},
+		{id: "R27", area: "Responses", title: "Stream output as server-sent events",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/events", zinc.Typed(func(*zinc.Context, struct{}) (zinc.Stream, error) {
+					return zinc.Stream{Type: "text/event-stream", Reader: strings.NewReader("data: hi\n\n")}, nil
+				})).Produces(http.StatusOK, "text/event-stream")
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/events")}},
+		{id: "R28", area: "Responses", title: "Redirect output with a 301",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/old", zinc.Typed(func(*zinc.Context, struct{}) (zinc.Redirect, error) { return "/new", nil })).Status(http.StatusMovedPermanently)
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{{method: "GET", target: "/old", status: http.StatusMovedPermanently}},
+			expect: func(f *findings, s spec) {
+				if r := s.response("GET", "/old", 301); r == nil || r["headers"] == nil {
+					f.add("a 301 with a Location header should be documented: %v", s.op("GET", "/old")["responses"])
+				}
+			}},
+		{id: "R29", area: "Responses", title: "Plain handler with Produces",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/export", func(c *zinc.Context) error { return c.Data("text/csv", []byte("a,b\n")) }).Produces(http.StatusOK, "text/csv")
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/export")},
+			expect: func(f *findings, s spec) {
+				if s.response("GET", "/export", 200) == nil || s.op("GET", "/export")["responses"].(map[string]any)["default"] != nil {
+					f.add("Produces should document a 200, with no default fallback")
+				}
+			}},
+		{id: "R30", area: "Responses", title: "Typed handler writing a body its output type doesn't describe",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
 				app.Get("/csv", zinc.Typed(func(c *zinc.Context, _ struct{}) (item, error) {
@@ -190,7 +265,8 @@ func responseScenarios() []scenario {
 				}))
 				return app, zinc.OpenAPIConfig{}
 			},
-			probes: []probe{get("/csv")}},
+			probes: []probe{get("/csv")},
+			note:   "The handler bypasses its output type; no spec can know. Return zinc.Bytes with Produces instead (R21)."},
 		{id: "R22", area: "Responses", title: "Output declared on a plain handler, sent as JSON",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()

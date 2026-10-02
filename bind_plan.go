@@ -274,6 +274,9 @@ type bindingField struct {
 	// def is the parsed default tag: the inputs bound when the request leaves
 	// the field out. It's nil without a default.
 	def []string
+	// media lists the content types a file field accepts, from its media
+	// tag; nil accepts any.
+	media []string
 }
 
 // bindFieldError carries source and field attribution through the binder without
@@ -502,6 +505,7 @@ func (plan *bindingPlan) compileField(root reflect.Type, i int, path []int, fiel
 		}
 		if compiled, ok := compileBindingField(i, field, setter, "form"); ok {
 			if setter.supportsFiles() {
+				compiled.media = mediaTag(field)
 				add(&plan.multipartFileFields, compiled)
 			} else {
 				compiled.def = def
@@ -863,6 +867,15 @@ func bindFieldsFromMultipartFiles(val reflect.Value, fields []bindingField, file
 		if len(inputs) == 0 {
 			continue
 		}
+		if len(field.media) > 0 {
+			for _, file := range inputs {
+				if got := requestMediaType(file.Header.Get(HeaderContentType)); !slices.Contains(field.media, got) {
+					want := strings.Join(field.media, " or ")
+					return &bindFieldError{Source: "form", Field: field.label, Name: field.name, Reason: "must be " + want,
+						Err: fmt.Errorf("file %q is %q, want %s", file.Filename, got, want)}
+				}
+			}
+		}
 		if err := field.setter.setFiles(field.value(val), inputs); err != nil {
 			return field.bindError("form", err)
 		}
@@ -1043,4 +1056,20 @@ func requestMediaType(header string) string {
 	// remain available on the request for the format-specific parser.
 	base, _, _ := strings.Cut(header, ";")
 	return strings.TrimSpace(base)
+}
+
+// mediaTag returns a file field's accepted content types, from a tag such
+// as media:"image/png,image/jpeg".
+func mediaTag(field reflect.StructField) []string {
+	text, ok := field.Tag.Lookup("media")
+	if !ok || text == "" {
+		return nil
+	}
+	var out []string
+	for _, mt := range strings.Split(text, ",") {
+		if mt = strings.TrimSpace(mt); mt != "" {
+			out = append(out, mt)
+		}
+	}
+	return out
 }

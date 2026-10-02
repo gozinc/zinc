@@ -35,7 +35,9 @@ type NoContent struct{}
 // goes to the error handler like any other.
 //
 // The response status is the one fn sets with c.Status, or else the one
-// declared with Route.Status, or else 200. Use NoContent as Out for a response without
+// declared with Route.Status, or else 200. Out is written as JSON, except
+// for Zinc's output types: NoContent, Text, HTML, Bytes, File, Stream and
+// Redirect, each written and documented as what it is. Use NoContent as Out for a response without
 // a body; it answers 204 unless another status is declared. If fn writes the
 // response itself, its output is ignored.
 func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
@@ -54,6 +56,8 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	types := handlerTypes{in: inType, out: reflect.TypeFor[Out]()}
 	bindInput := inType.NumField() > 0
 	_, noContent := any(*new(Out)).(NoContent)
+	// write is nil for JSON, the common case, so it costs nothing there.
+	write := outputWriter[Out]()
 
 	h := func(c *Context) error {
 		if c.index == describeIndex {
@@ -77,6 +81,9 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 		}
 		if noContent {
 			return c.NoContent()
+		}
+		if write != nil {
+			return write(c, out)
 		}
 		return c.JSON(out)
 	}

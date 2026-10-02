@@ -197,7 +197,34 @@ func bodyScenarios() []scenario {
 					f.add("GET should have no documented body")
 				}
 			},
-			note: "Binding still decodes a body sent with GET; the spec leaves it out on purpose."},
+			note: "Binding doesn't read a GET body, and the spec documents none."},
+		{id: "B17", area: "Bodies", title: "Consumes on a plain handler",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Post("/import", func(c *zinc.Context) error {
+					var s string
+					if err := c.Bind().Text(&s); err != nil {
+						return err
+					}
+					return c.NoContent()
+				}).Input("").Consumes("text/csv")
+				return app, zinc.OpenAPIConfig{}
+			},
+			expect: func(f *findings, s spec) {
+				if !typeIs(s.requestSchema("POST", "/import", "text/csv"), "string") {
+					f.add("text/csv body should be a string: %v", s.op("POST", "/import")["requestBody"])
+				}
+			}},
+		{id: "B18", area: "Bodies", title: "Multipart upload restricted to PNG",
+			build:  typedPost[pngUpload]("/avatar", zinc.Config{}),
+			probes: []probe{{method: "POST", target: "/avatar", body: pngMultipart("image/png"), contentType: "multipart/form-data; boundary=zinc", status: 204}, {method: "POST", target: "/avatar", body: pngMultipart("text/plain"), contentType: "multipart/form-data; boundary=zinc", status: 400}},
+			expect: func(f *findings, s spec) {
+				mt, _ := s.op("POST", "/avatar")["requestBody"].(map[string]any)["content"].(map[string]any)["multipart/form-data"].(map[string]any)
+				enc, _ := mt["encoding"].(map[string]any)
+				if enc["avatar"] == nil || prop(s.requestSchema("POST", "/avatar", "multipart/form-data"), "avatar")["contentMediaType"] != "image/png" {
+					f.add("the media tag should give the part's content type: %v", mt)
+				}
+			}},
 		{id: "B11", area: "Bodies", title: "DELETE with a body",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
@@ -245,4 +272,13 @@ func bodyScenarios() []scenario {
 			probes: []probe{post("/pets", `{"name":"Rex","colour":"brown"}`, 204)},
 			note:   "encoding/json ignores unknown fields, so the schema mustn't forbid them."},
 	}
+}
+
+type pngUpload struct {
+	Avatar *multipart.FileHeader `form:"avatar" media:"image/png"`
+}
+
+// pngMultipart is a multipart body with one file part of content type ct.
+func pngMultipart(ct string) string {
+	return "--zinc\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\nContent-Type: " + ct + "\r\n\r\n\x89PNG\r\n--zinc--\r\n"
 }

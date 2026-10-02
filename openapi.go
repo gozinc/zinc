@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"runtime/debug"
@@ -364,11 +365,24 @@ type oaRequestBody struct {
 
 type oaResponse struct {
 	Description string                  `json:"description"`
+	Headers     orderedMap[oaHeader]    `json:"headers,omitempty"`
 	Content     orderedMap[oaMediaType] `json:"content,omitempty"`
 }
 
+type oaHeader struct {
+	Description string  `json:"description,omitempty"`
+	Required    bool    `json:"required,omitempty"`
+	Schema      *schema `json:"schema"`
+}
+
 type oaMediaType struct {
-	Schema *schema `json:"schema,omitempty"`
+	Schema   *schema                `json:"schema,omitempty"`
+	Encoding orderedMap[oaEncoding] `json:"encoding,omitempty"`
+}
+
+// oaEncoding describes one part of a multipart body.
+type oaEncoding struct {
+	ContentType string `json:"contentType"`
 }
 
 // orderedMap is a JSON object that keeps insertion order, so paths follow
@@ -616,7 +630,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	// The body. GET and HEAD requests have none in practice, so they're
 	// never documented with one.
 	if rd.in != nil && meta.method != http.MethodGet && meta.method != http.MethodHead {
-		if body := buildRequestBody(g, rd.in, plan); body != nil {
+		if body := buildRequestBody(g, a, rd, plan); body != nil {
 			op.RequestBody = body
 			hasInput = true
 		}
@@ -626,20 +640,37 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	// ones the route declares. A declared status replaces a derived one.
 	status := int(meta.status)
 	out := rd.out
-	noContent := out == reflect.TypeFor[NoContent]()
+	kind := kindOf(out)
+	noContent := kind == outputNoContent
 	if status == 0 {
-		status = http.StatusOK
-		if noContent {
+		switch {
+		case noContent:
 			status = http.StatusNoContent
+		case kind == outputRedirect:
+			status = http.StatusFound
+		default:
+			status = http.StatusOK
 		}
 	}
 	success := &oaResponse{Description: http.StatusText(status)}
+	produced := rd.produces[status]
 	switch {
-	case out == nil:
+	case kind == outputRedirect:
+		success.Headers = orderedMap[oaHeader]{{"Location", oaHeader{
+			Description: "Where the client is sent.",
+			Required:    true,
+			Schema:      &schema{typ: []string{"string"}, format: "uri-reference"},
+		}}}
+	case noContent || status == http.StatusNoContent:
+	case out == nil && produced == nil:
 		// A plain handler may write anything.
 		success.Content = anyContent()
-	case !noContent && status != http.StatusNoContent:
-		success.Content = orderedMap[oaMediaType]{{"application/json", oaMediaType{Schema: g.schemaFor(out)}}}
+	default:
+		value, defaults := outputMedia(out, kind)
+		if produced == nil {
+			produced = defaults
+		}
+		success.Content = g.mediaContent(value, modeOutput, produced)
 	}
 	responses := map[int]*oaResponse{}
 	// Without an output type or a success status, Zinc can't know what the
@@ -650,7 +681,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 			Description: "The handler's response. Route.Output or Route.Response describes it.",
 			Content:     anyContent(),
 		}
-	} else if !declaresSuccess(rd) || out != nil || meta.status != 0 {
+	} else if !declaresSuccess(rd) || out != nil || meta.status != 0 || rd.produces[status] != nil {
 		responses[status] = success
 	}
 	// Any route can fail, so every one documents a 500. The error body is
@@ -673,7 +704,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	}
 	for _, r := range rd.responses {
 		resp := &oaResponse{Description: http.StatusText(r.status)}
-		if r.typ != nil {
+		if produced := rd.produces[r.status]; produced != nil {
+			resp.Content = g.mediaContent(r.typ, modeOutput, produced)
+		} else if r.typ != nil {
 			resp.Content = orderedMap[oaMediaType]{{"application/json", oaMediaType{Schema: g.schemaFor(r.typ)}}}
 		}
 		responses[r.status] = resp
@@ -693,14 +726,54 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 }
 
 // declaresSuccess reports whether the route documents a 2xx with
-// Route.Response.
+// Route.Response or Route.Produces.
 func declaresSuccess(rd *routeDoc) bool {
 	for _, r := range rd.responses {
 		if r.status >= 200 && r.status < 300 {
 			return true
 		}
 	}
+	for status := range rd.produces {
+		if status >= 200 && status < 300 {
+			return true
+		}
+	}
 	return false
+}
+
+// outputMedia returns the value type a typed output's body describes, nil
+// for opaque bytes, and the media types it's sent as unless Produces says
+// otherwise.
+func outputMedia(out reflect.Type, kind outputKind) (reflect.Type, []string) {
+	switch kind {
+	case outputText:
+		return nil, []string{"text/plain"}
+	case outputHTML:
+		return nil, []string{"text/html"}
+	case outputBytes, outputFile, outputStream:
+		return nil, []string{"application/octet-stream"}
+	}
+	return out, []string{"application/json"}
+}
+
+// mediaContent documents a body as each of mediaTypes. With a value type,
+// every media type carries its schema; without one, text media are strings
+// and other media carry no schema, as their bytes are opaque.
+func (g *schemaGen) mediaContent(t reflect.Type, mode schemaMode, mediaTypes []string) orderedMap[oaMediaType] {
+	var out orderedMap[oaMediaType]
+	for _, mt := range mediaTypes {
+		var s *schema
+		switch {
+		case t != nil && mode == modeBody:
+			s = g.bodySchemaFor(t)
+		case t != nil:
+			s = g.schema(t, mode)
+		case strings.HasPrefix(mt, "text/"):
+			s = &schema{typ: []string{"string"}}
+		}
+		out.set(mt, oaMediaType{Schema: s})
+	}
+	return out
 }
 
 // anyContent is a body of any media type and shape.
@@ -709,14 +782,36 @@ func anyContent() orderedMap[oaMediaType] {
 }
 
 // buildRequestBody describes the body an input type accepts: JSON for its
-// body fields, and a form for its form fields.
-func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaRequestBody {
+// body fields, XML when it has xml tags, each configured decoder's media
+// type, and a form for its form fields. A string input is text, a []byte
+// input opaque bytes. Route.Consumes replaces the inferred media types.
+func buildRequestBody(g *schemaGen, a *App, rd *routeDoc, plan *bindingPlan) *oaRequestBody {
+	in := rd.in
 	body := &oaRequestBody{}
-	if base(in).Kind() != reflect.Struct {
-		body.Content.set("application/json", oaMediaType{Schema: g.inputSchemaFor(in)})
+	bt := base(in)
+	if len(rd.consumes) > 0 {
+		switch {
+		case bt.Kind() == reflect.String || (bt.Kind() == reflect.Slice && bt.Elem().Kind() == reflect.Uint8):
+			body.Content = g.mediaContent(nil, modeInput, rd.consumes)
+		case bt.Kind() == reflect.Struct:
+			body.Content = g.mediaContent(bt, modeBody, rd.consumes)
+		default:
+			body.Content = g.mediaContent(in, modeInput, rd.consumes)
+		}
 		return body
 	}
-	st := base(in)
+	if bt.Kind() != reflect.Struct {
+		switch {
+		case bt.Kind() == reflect.String && !reflect.PointerTo(bt).Implements(textUnmarshalerType):
+			body.Content.set("text/plain", oaMediaType{Schema: &schema{typ: []string{"string"}}})
+		case bt.Kind() == reflect.Slice && bt.Elem().Kind() == reflect.Uint8:
+			body.Content.set("application/octet-stream", oaMediaType{})
+		default:
+			body.Content.set("application/json", oaMediaType{Schema: g.inputSchemaFor(in)})
+		}
+		return body
+	}
+	st := bt
 	var jsonProps, required bool
 	for _, f := range jsonFields(st) {
 		if f.param {
@@ -735,7 +830,16 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 		}
 	}
 	if jsonProps {
-		body.Content.set("application/json", oaMediaType{Schema: g.bodySchemaFor(st)})
+		s := g.bodySchemaFor(st)
+		body.Content.set("application/json", oaMediaType{Schema: s})
+		if hasTag(st, "xml") {
+			body.Content.set("application/xml", oaMediaType{Schema: s})
+		}
+		for _, mt := range slices.Sorted(maps.Keys(a.decoders)) {
+			if mt != "application/json" && mt != "application/xml" {
+				body.Content.set(mt, oaMediaType{Schema: s})
+			}
+		}
 	}
 	if plan != nil && (len(plan.formFields) > 0 || len(plan.multipartFileFields) > 0) {
 		form := &schema{typ: []string{"object"}}
@@ -752,18 +856,26 @@ func buildRequestBody(g *schemaGen, in reflect.Type, plan *bindingPlan) *oaReque
 			}
 			form.properties = append(form.properties, property{name: f.name, schema: s})
 		}
+		var encoding orderedMap[oaEncoding]
 		for _, f := range plan.multipartFileFields {
-			file := &schema{typ: []string{"string"}, contentMediaType: "application/octet-stream"}
+			media := "application/octet-stream"
+			if len(f.media) == 1 {
+				media = f.media[0]
+			}
+			file := &schema{typ: []string{"string"}, contentMediaType: media}
 			if base(f.structField(st).Type).Kind() == reflect.Slice {
 				file = &schema{typ: []string{"array"}, items: file}
 			}
 			form.properties = append(form.properties, property{name: f.name, schema: file})
+			if len(f.media) > 0 {
+				encoding.set(f.name, oaEncoding{ContentType: strings.Join(f.media, ", ")})
+			}
 		}
 		mediaType := "application/x-www-form-urlencoded"
 		if len(plan.multipartFileFields) > 0 {
 			mediaType = "multipart/form-data"
 		}
-		body.Content.set(mediaType, oaMediaType{Schema: form})
+		body.Content.set(mediaType, oaMediaType{Schema: form, Encoding: encoding})
 	}
 	if len(body.Content) == 0 {
 		return nil
@@ -945,4 +1057,18 @@ func defaultOpenAPIInfo() (title, version string) {
 		version = strings.TrimPrefix(v, "v")
 	}
 	return title, version
+}
+
+// hasTag reports whether t, or a struct it embeds, has a field with tag.
+func hasTag(t reflect.Type, tag string) bool {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if _, ok := f.Tag.Lookup(tag); ok {
+			return true
+		}
+		if et := base(f.Type); f.Anonymous && et.Kind() == reflect.Struct && et != t && hasTag(et, tag) {
+			return true
+		}
+	}
+	return false
 }
