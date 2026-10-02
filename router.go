@@ -129,6 +129,12 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	info := newRouteMeta(method, registeredPath, name, finalHandler, paramNames.slice(), false)
 	mask := methodMaskFor(method)
 
+	types, typed := describeHandler(finalHandler)
+	if typed {
+		if err := ruleSupportError(types, r.config); err != nil {
+			panic(err.Error())
+		}
+	}
 	// The tree checks for conflicts and records the route; it is the only
 	// place a registration can fail from here on.
 	route := newRadixRoute(&r.arena, precomposed, infoIndex, paramNames)
@@ -150,7 +156,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 			r.preflight[key] = append(r.preflight[key], h)
 		}
 	}
-	if types, ok := describeHandler(finalHandler); ok {
+	if typed {
 		doc := r.doc(infoIndex)
 		doc.in, doc.out, doc.typed = types.in, types.out, true
 	}

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 )
 
 // Validator validates a value after binding.
@@ -162,7 +163,10 @@ func bindRequest(c *Context, v any) error {
 	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
 		return wrapBindError("path", err)
 	}
-	return c.Validate(v)
+	if c.app == nil {
+		return nil
+	}
+	return c.validate(v, plan.rules)
 }
 
 // bindRequestBody decodes an optional body into v without validating it. A
@@ -224,7 +228,8 @@ func bindBody(c *Context, v any) error {
 	if decode := c.decoderFor(mediaType); decode != nil {
 		return decodeBody(c, decode, v, true)
 	}
-	if snap := snapshotParams(c, v); snap != nil {
+	snap, plan := snapshotParams(c, v)
+	if snap != nil {
 		defer snap.restore()
 	}
 	switch mediaType {
@@ -259,7 +264,11 @@ func bindBody(c *Context, v any) error {
 	default:
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 	}
-	return c.Validate(v)
+	// Put the parameter fields back before validating, not after.
+	if snap != nil {
+		snap.restore()
+	}
+	return c.validateWith(v, plan)
 }
 
 // bindQuery binds query values, then validates v.
@@ -274,7 +283,7 @@ func bindQuery(c *Context, v any) error {
 	if err := bindFieldsFromValues(val, plan.queryFields, c.QueryValues()); err != nil {
 		return wrapBindError("query", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindForm binds URL-encoded or multipart form values, then validates v.
@@ -298,7 +307,7 @@ func bindForm(c *Context, v any) error {
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
 		}
-		return c.Validate(v)
+		return c.validateWith(v, plan)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -307,7 +316,7 @@ func bindForm(c *Context, v any) error {
 	if err := bindFieldsFromValues(val, plan.formFields, req.Form); err != nil {
 		return wrapBindError("form", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindHeader binds request headers, then validates v.
@@ -322,7 +331,7 @@ func bindHeader(c *Context, v any) error {
 	if err := bindFieldsFromHeader(val, plan.headerFields, c.Request().Header); err != nil {
 		return wrapBindError("header", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindCookie binds request cookies, then validates v.
@@ -337,7 +346,7 @@ func bindCookie(c *Context, v any) error {
 	if err := bindFieldsFromCookies(val, plan.cookieFields, c.Request()); err != nil {
 		return wrapBindError("cookie", err)
 	}
-	return c.Validate(v)
+	return c.validateWith(v, plan)
 }
 
 // bindPath binds route parameters, then validates v.
@@ -349,7 +358,10 @@ func bindPath(c *Context, v any) error {
 	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
 		return wrapBindError("path", err)
 	}
-	return c.Validate(v)
+	if c.app == nil {
+		return nil
+	}
+	return c.validate(v, plan.rules)
 }
 
 // Bind returns the request binder facade for this context.
@@ -374,7 +386,7 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
-	snap := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
 	if snap != nil {
 		snap.restore()
@@ -388,7 +400,7 @@ func (b *Bind) JSON(v any) error {
 	if decodeErr != nil {
 		return classifyJSONDecodeError(decodeErr)
 	}
-	return b.c.Validate(v)
+	return b.c.validateWith(v, plan)
 }
 
 // Text decodes and validates a non-empty plain-text request body.
@@ -404,7 +416,7 @@ func (b *Bind) XML(v any) error {
 	if decode := b.c.decoderFor("application/xml"); decode != nil {
 		return decodeBody(b.c, decode, v, true)
 	}
-	snap := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
@@ -420,7 +432,7 @@ func (b *Bind) XML(v any) error {
 	if decodeErr != nil {
 		return wrapBindError("body", decodeErr)
 	}
-	return b.c.Validate(v)
+	return b.c.validateWith(v, plan)
 }
 
 // Form binds URL-encoded or multipart form values, then validates v.
@@ -448,14 +460,34 @@ func (b *Bind) Path(v any) error {
 	return bindPath(b.c, v)
 }
 
-// Validate invokes the configured Validator, or succeeds when none is set. A
-// failure is returned as a *ValidationError, which the default error handler
-// answers with 422, unless the validator's error already carries a status.
+// Validate checks v, a pointer to a struct, as binding does. Enum values,
+// from an enum tag or an EnumProvider type, are always checked. Then the
+// configured Validator runs, or, when there's none, Zinc checks v's validate
+// tags with BuiltinRules. A failure is a *ValidationError, which the default
+// error handler answers with 422, unless the validator's error already
+// carries a status.
 func (c *Context) Validate(v any) error {
-	if c.app == nil || c.app.config.Validator == nil {
+	if c.app == nil {
 		return nil
 	}
-	err := c.app.config.Validator.Validate(v)
+	return c.validate(v, rulePlanOf(v))
+}
+
+// validate is Validate with v's rule plan already found.
+func (c *Context) validate(v any, plan *rulePlan) error {
+	custom := c.app.config.Validator
+	if plan != nil {
+		if custom == nil && len(plan.unsupported) > 0 {
+			return fmt.Errorf("zinc: validate rules Zinc doesn't enforce: %s; set Config.Validator to a validator that does", strings.Join(plan.unsupported, ", "))
+		}
+		if errs := plan.check(reflect.ValueOf(v).Elem(), custom == nil, "", nil); errs != nil {
+			return &ValidationError{Err: errs}
+		}
+	}
+	if custom == nil {
+		return nil
+	}
+	err := custom.Validate(v)
 	if err == nil {
 		return nil
 	}
@@ -463,6 +495,28 @@ func (c *Context) Validate(v any) error {
 		return err
 	}
 	return &ValidationError{Err: err}
+}
+
+// validateWith validates v whose binding plan, which may be nil, is known,
+// so the rule plan needs no lookup.
+func (c *Context) validateWith(v any, plan *bindingPlan) error {
+	if c.app == nil {
+		return nil
+	}
+	var rules *rulePlan
+	if plan != nil {
+		rules = plan.rules
+	}
+	return c.validate(v, rules)
+}
+
+// rulePlanOf returns the rule plan for v, a pointer to a struct, or nil.
+func rulePlanOf(v any) *rulePlan {
+	t := reflect.TypeOf(v)
+	if t == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct || reflect.ValueOf(v).IsNil() {
+		return nil
+	}
+	return rulePlanFor(t.Elem())
 }
 
 func setFieldValue(value reflect.Value, inputs []string) error {

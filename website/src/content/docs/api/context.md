@@ -57,7 +57,7 @@ Typed versions are package functions, because Go methods can't be generic:
 | Method | Purpose |
 |---|---|
 | `Bind()` | The binder: `All`, `Path`, `Query`, `Header`, `Form`, `Body`, `JSON`, `XML`, `Text` |
-| `Validate(v)` | Runs the configured `Validator` directly |
+| `Validate(v)` | Checks `v` as binding does: enum values, then the configured `Validator` or Zinc's built-in rules |
 | `BodyLimit()` | The application's request-body budget, for middleware that transforms bodies |
 
 See [Binding](/guide/binding/).

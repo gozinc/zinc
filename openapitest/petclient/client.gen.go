@@ -20,8 +20,9 @@ import (
 
 // Defines values for CreatePetBodyKind.
 const (
-	CreatePetBodyKindCat CreatePetBodyKind = "cat"
-	CreatePetBodyKindDog CreatePetBodyKind = "dog"
+	CreatePetBodyKindCat   CreatePetBodyKind = "cat"
+	CreatePetBodyKindDog   CreatePetBodyKind = "dog"
+	CreatePetBodyKindEmpty CreatePetBodyKind = ""
 )
 
 // Valid indicates whether the value is a known member of the CreatePetBodyKind enum.
@@ -30,6 +31,8 @@ func (e CreatePetBodyKind) Valid() bool {
 	case CreatePetBodyKindCat:
 		return true
 	case CreatePetBodyKindDog:
+		return true
+	case CreatePetBodyKindEmpty:
 		return true
 	default:
 		return false
@@ -616,8 +619,6 @@ type ListPetsResponse struct {
 	JSON200 *[]Pet
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *Error
-	// JSON422 the response for an HTTP 422 `application/json` response
-	JSON422 *Error
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *Error
 }
@@ -630,11 +631,6 @@ func (r ListPetsResponse) GetJSON200() *[]Pet {
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
 func (r ListPetsResponse) GetJSON400() *Error {
 	return r.JSON400
-}
-
-// GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r ListPetsResponse) GetJSON422() *Error {
-	return r.JSON422
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -676,8 +672,6 @@ type DeletePetResponse struct {
 	HTTPResponse *http.Response
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *Error
-	// JSON422 the response for an HTTP 422 `application/json` response
-	JSON422 *Error
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *Error
 }
@@ -685,11 +679,6 @@ type DeletePetResponse struct {
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
 func (r DeletePetResponse) GetJSON400() *Error {
 	return r.JSON400
-}
-
-// GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r DeletePetResponse) GetJSON422() *Error {
-	return r.JSON422
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -735,8 +724,6 @@ type GetPetResponse struct {
 	JSON400 *Error
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *Error
-	// JSON422 the response for an HTTP 422 `application/json` response
-	JSON422 *Error
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *Error
 }
@@ -754,11 +741,6 @@ func (r GetPetResponse) GetJSON400() *Error {
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
 func (r GetPetResponse) GetJSON404() *Error {
 	return r.JSON404
-}
-
-// GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r GetPetResponse) GetJSON422() *Error {
-	return r.JSON422
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -1038,13 +1020,6 @@ func ParseListPetsResponse(rsp *http.Response) (*ListPetsResponse, error) {
 		}
 		response.JSON400 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON422 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1080,13 +1055,6 @@ func ParseDeletePetResponse(rsp *http.Response) (*DeletePetResponse, error) {
 			return nil, err
 		}
 		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON422 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest Error
@@ -1134,13 +1102,6 @@ func ParseGetPetResponse(rsp *http.Response) (*GetPetResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON422 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest Error

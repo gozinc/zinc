@@ -245,6 +245,8 @@ type App struct {
 	// Config.OpenAPIPath is "-" or App.OpenAPI took over.
 	spec     *servedSpec
 	specPath string
+	// specs are the specs served with App.OpenAPI, which Validate builds.
+	specs []*servedSpec
 	// docs is the reference page served at docsPath when no route matches
 	// it; nil when Config.DocsPath is "-" or there's no spec.
 	docs     *docsPage

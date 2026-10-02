@@ -130,7 +130,17 @@ func defaultLog(logger *slog.Logger) func(*zinc.Context, Values) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return func(_ *zinc.Context, v Values) error {
+	return func(c *zinc.Context, v Values) error {
+		// The request's context carries values a handler may log, such as a
+		// trace span. When the client went away it's cancelled, and a handler
+		// may skip a record with a cancelled context, so it's detached then;
+		// only then, as detaching allocates.
+		ctx := context.Background()
+		if c != nil {
+			if ctx = c.Context(); ctx.Err() != nil {
+				ctx = context.WithoutCancel(ctx)
+			}
+		}
 		attrs := make([]slog.Attr, 0, 14)
 		attrs = append(attrs, slog.String("method", v.Method), slog.String("uri", v.URI))
 		if v.RoutePath != "" {
@@ -158,10 +168,10 @@ func defaultLog(logger *slog.Logger) func(*zinc.Context, Values) error {
 		// The level follows the status the client received: a 404 or a
 		// failed validation is normal traffic, a 5xx is a server fault.
 		if v.Status >= http.StatusInternalServerError {
-			logger.LogAttrs(context.Background(), slog.LevelError, "REQUEST_ERROR", attrs...)
+			logger.LogAttrs(ctx, slog.LevelError, "REQUEST_ERROR", attrs...)
 			return nil
 		}
-		logger.LogAttrs(context.Background(), slog.LevelInfo, "REQUEST", attrs...)
+		logger.LogAttrs(ctx, slog.LevelInfo, "REQUEST", attrs...)
 		return nil
 	}
 }

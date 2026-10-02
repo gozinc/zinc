@@ -65,6 +65,7 @@ curl http://localhost:8080/openapi.json
     "responses": {
       "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pet" } } } },
       "400": { "description": "Bad Request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "422": { "description": "Unprocessable Entity", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "500": { "description": "Internal Server Error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
     }
   }
@@ -79,11 +80,11 @@ The spec is public by default. For a private API, [protect it or turn it off](#s
 |---|---|
 | `path:"store"` fields | Path parameters, with the field's type. Every `{name}` in the route is listed, as a string if no field binds it. |
 | `query`, `header` and `cookie` fields | Query, header and cookie parameters. `validate:"required"` makes one required, and `default:"20"` documents the value [binding](/guide/binding/#default-values) fills in when the request leaves it out. |
-| `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required only with `validate:"required"` and a validator. The same schema is listed as `application/xml` when the input has `xml` tags, and under each [configured decoder](/guide/customization/#body-formats)'s media type. |
+| `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required with `validate:"required"`, or when its rules reject a missing value. The same schema is listed as `application/xml` when the input has `xml` tags, and under each [configured decoder](/guide/customization/#body-formats)'s media type. |
 | `form` fields | A form body, or `multipart/form-data` when a field holds a file. A field tagged both `json` and `form` is in both bodies, since binding reads it from either. A file field's `media:"image/png"` tag documents the part's content type, and binding rejects other types. |
 | The output type | The success response. `zinc.NoContent` gives `204` with no body. Fields without `omitempty` are required, since they're always sent. The [output types](/guide/typed-handlers/#send-text-files-and-redirects) document their media type: `text/plain`, `text/html`, `application/octet-stream`, or a redirect with `Location`. |
 | `.Status(201)` | The success status. |
-| A route with input | A `400` response, and a `422` when the app has a [validator](/guide/binding/#validation). |
+| A route with input | A `400` response, and a `422` when the input has [validation](/guide/binding/#validation) rules or enums, or the app has its own `Validator`. |
 | Every route | A `500` response. |
 
 Routes are listed in the order you register them. GET and HEAD routes never get a request body in the spec.
@@ -280,6 +281,48 @@ A config the spec can't be valid with, such as a license without a name, panics 
 
 To show the spec as a page, add [API Docs](/middleware/apidocs/).
 
+## Edit the spec
+
+For what no option covers, edit the spec as JSON. `Extensions` adds `x-` members to its root, `Route.Operation` edits one operation, and `Mutate` edits the whole spec last:
+
+```go
+app.Get("/pets", listPets).Operation(func(op map[string]any) { // listPets: your handler
+	op["x-rate-limit"] = 100
+})
+
+app.OpenAPI("/openapi.json", zinc.OpenAPIConfig{
+	Title: "Pet Store", Version: "1.0.0",
+	Extensions: map[string]any{"x-logo": map[string]any{"url": "https://example.com/logo.png"}},
+	Mutate: func(spec map[string]any) error {
+		spec["info"].(map[string]any)["x-audience"] = "partners"
+		return nil
+	},
+})
+```
+
+Zinc keeps its own order and adds new members after it. The result is checked again, so a hook can't leave the spec broken:
+
+```text
+zinc: the spec after its hooks: #/paths/~1pets/get/responses/200: $ref #/components/responses/Pets doesn't resolve
+```
+
+## Check the app before serving
+
+`app.Validate()` builds every spec the app serves and checks the routes, without a request. Call it at startup or in a test, so a mistake fails there:
+
+```go
+if err := app.Validate(); err != nil {
+	log.Fatal(err)
+}
+```
+
+```text
+zinc: paths /pets/{id} and /pets/{name} differ only in parameter names, which OpenAPI doesn't allow; give the parameters the same names
+POST /pets: main.Created.Location has header:"Location" but is sent in the JSON body, so no header is sent; add json:"-" to send it as a header
+```
+
+It also reports `openapi` tag words it doesn't know, and validate rules the validator doesn't enforce on types given to `.Input` and `.Output`.
+
 ## Write the spec to a file
 
 `app.OpenAPISpec(cfg)` returns the spec as JSON without serving anything. Build it in a test to keep a copy in your repository, and a change to the API's shape shows up in the diff:
@@ -320,26 +363,25 @@ Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embe
 
 | Tag | Adds |
 |---|---|
-| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices. Only when the app has a validator. With `omitempty`, the zero value is allowed too, as the validator allows it. |
+| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices: the rules the validator [enforces](#the-spec-claims-the-rules-that-are-enforced). With `omitempty`, the zero value is allowed too, as the validator allows it. |
 | `doc:"The pet's ID."` | A description |
 | `example:"7"` | An example value |
-| `enum:"s,m,l"` | The values the field takes, or its elements for a slice. It documents them; `validate:"oneof=s m l"` enforces them |
+| `enum:"s,m,l"` | The values the field takes, or its elements for a slice. Zinc checks them on input, whatever the validator |
 
-With a [validator](/guide/binding/#validation) configured, the `Pet` above becomes:
+The request body of the first example, `CreatePetBody`, becomes:
 
 ```json
-"Pet": {
+"CreatePetBody": {
   "type": "object",
   "properties": {
-    "id": { "type": "integer", "format": "int64", "description": "The pet's ID.", "examples": [7] },
     "name": { "type": "string", "minLength": 1, "maxLength": 40 },
     "kind": { "type": "string", "enum": ["cat", "dog"] }
   },
-  "required": ["name"]
+  "required": ["name", "kind"]
 }
 ```
 
-Without a validator, the same schema keeps `description` and `examples` but drops `minLength`, `maxLength`, `enum` and `required`: nothing would enforce them.
+`kind` is required although it has no `required` rule: `oneof=cat dog` rejects the empty string a missing field binds as, so a request without it gets a `422`. Add `omitempty` to make it optional.
 
 ### Enums
 
@@ -421,9 +463,9 @@ An entry there wins over everything else, including the types Zinc knows, such a
 
 ## Good to know
 
-### Validation rules appear only with a validator
+### The spec claims the rules that are enforced
 
-Zinc doesn't check `validate` tags itself: a [validator](/guide/binding/#validation) you configure does. Without one, nothing enforces the rules, so the spec leaves them out: no required fields, lengths or choices, and no `422`. `doc` and `example` tags always apply.
+`validate` tags become schema keywords, such as `minLength` and `format: email`, only for rules something enforces: Zinc's [built-in rules](/guide/binding/#validation), or the rules your `Validator` lists with `RuleSet`. A validator without `RuleSet` makes no claims. A field whose rules reject a missing value, such as `oneof=cat dog` or `min=1` without `omitempty`, is listed as required, because a request without it gets a `422`. `422` is documented only on routes that can send it.
 
 ### Error bodies follow your error handler
 
@@ -459,4 +501,4 @@ Hidden routes, mounts and static files, and methods OpenAPI 3.1 has no field for
 
 - [API Docs](/middleware/apidocs/): show the spec as a page with Scalar, Swagger UI, Stoplight Elements or ReDoc.
 - [Typed Handlers](/guide/typed-handlers/): write handlers whose types describe themselves.
-- [Binding](/guide/binding/): the tags the spec reads, and how to add a validator.
+- [Binding](/guide/binding/): the tags the spec reads, and the validation rules.

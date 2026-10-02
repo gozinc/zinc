@@ -1,13 +1,4 @@
 {
-  "M07": {
-    "status": "gap",
-    "phase": "P29",
-    "reason": "The spec claims validate rules a validator may not enforce (F12); validators will declare what they enforce.",
-    "findings": [
-      "the spec claims minLength from a tag no validator enforces",
-      "GET /v: response doesn't match its schema: jsonschema validation failed with 'https://zinc.test/audit.json#/paths/~1v/get/responses/200/content/application~1json/schema' - at '/name': minLength: got 1, want 3 — body {\"name\":\"x\"}"
-    ]
-  },
   "R07": {
     "status": "design",
     "reason": "A custom error handler's body is unknown to Zinc, so the 500 is documented without one.",

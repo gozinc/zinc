@@ -17,7 +17,7 @@ app := zinc.New(zinc.Config{
 | I want to… | Set | See |
 |---|---|---|
 | Change how errors look, or log them | `ErrorHandler` | [Change the error response](#change-the-error-response) |
-| Validate input after every bind | `Validator` | [Validate every bind](#validate-every-bind) |
+| Validate input your own way | `Validator` | [Validate every bind](#validate-every-bind) |
 | Accept or send YAML, TOML or another format | `Decoders`, `Encoders` | [Body formats](#body-formats) |
 | Use a faster JSON library | `Decoders`, `Encoders` | [Use a different JSON library](#use-a-different-json-library) |
 | Render HTML templates | `Renderer` | [Render templates](#render-templates) |
@@ -60,7 +60,7 @@ curl http://localhost:8080/report
 
 ## Validate every bind
 
-A validator runs after every successful bind. It's any type with this method:
+Zinc checks `validate` tags itself, with its [built-in rules](/guide/binding/#validation). To check input another way, set `Validator`; it runs after every successful bind in place of Zinc's rules. It's any type with this method:
 
 ```go
 type Validator interface {
@@ -99,7 +99,7 @@ curl -X POST http://localhost:8080/signup -H 'Content-Type: application/json' -d
 # {"error":{"status":422,"message":"validation failed"}}
 ```
 
-For go-playground/validator, [Binding](/guide/binding/) has a three-line adapter and shows how to name the failing fields in the response.
+For go-playground/validator, [Binding](/guide/binding/#use-go-playgroundvalidator) has a short adapter. Give yours a `RuleSet() []string` method listing the `validate` rules it enforces, and the OpenAPI spec claims them; without it the spec claims none.
 
 ## Body formats
 

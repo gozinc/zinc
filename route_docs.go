@@ -37,6 +37,8 @@ type routeDoc struct {
 	// examples are named examples, from Route.Example and
 	// Route.RequestExample, in the order given.
 	examples []docExample
+	// operationHooks edit the route's operation, from Route.Operation.
+	operationHooks []func(op map[string]any)
 }
 
 // docExample is a named example of a response, or of the request body when
@@ -211,6 +213,24 @@ func mustExampleName(method, name string) string {
 		panic("zinc: " + method + " needs a name, such as \"a cat\"")
 	}
 	return name
+}
+
+// Operation adds a hook that edits the route's operation in the spec, as
+// decoded JSON, for what no Route method sets, such as an extension:
+//
+//	app.Get("/pets", listPets).Operation(func(op map[string]any) {
+//		op["x-rate-limit"] = 100
+//	})
+//
+// Hooks run in the order added, before OpenAPIConfig.Mutate, and the spec is
+// checked again after them.
+func (r Route) Operation(hook func(op map[string]any)) Route {
+	if hook == nil {
+		panic("zinc: Operation hook is nil")
+	}
+	doc := r.doc("Operation")
+	doc.operationHooks = append(doc.operationHooks, hook)
+	return r
 }
 
 // Consumes declares the media types the route accepts as a request body,

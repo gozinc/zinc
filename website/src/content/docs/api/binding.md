@@ -3,7 +3,7 @@ title: Binding
 description: Reference for c.Bind(), struct tags, BindError, Validator, and body decoders.
 ---
 
-`c.Bind()` returns a binder for the current request. Each method decodes into a pointer to a struct, then runs the configured `Validator`. See the [Binding guide](/guide/binding/) for examples.
+`c.Bind()` returns a binder for the current request. Each method decodes into a pointer to a struct, then validates it. See the [Binding guide](/guide/binding/) for examples.
 
 Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.com/0mjs/zinc#Bind).
 
@@ -58,7 +58,18 @@ type Validator interface {
 }
 ```
 
-Set `Config.Validator` to run validation after every bind. `c.Validate(v)` calls it directly.
+Set `Config.Validator` to run validation after every bind, in place of Zinc's built-in rules. `c.Validate(v)` validates as binding does.
+
+```go
+type RuleSetValidator interface {
+	Validator
+	RuleSet() []string
+}
+
+func BuiltinRules() []string
+```
+
+A `RuleSetValidator` lists the `validate` rules it enforces: the OpenAPI spec claims only those, and a typed handler using another rule panics at registration. Without `Config.Validator`, Zinc checks `BuiltinRules`: `required`, `omitempty`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, `oneof`, `email`, `uuid`, `uuid4`, `url`, `uri` and `http_url`, through nested structs, slices and maps. Values from `enum` tags and `EnumProvider` types are checked with any validator. A failure is a `*ValidationError`, `422`, whose `Fields()` names each field as the client sent it.
 
 ## Decoders
 

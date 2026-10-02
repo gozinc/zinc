@@ -142,7 +142,8 @@ Each of these fields swaps one part of Zinc's behavior for your own:
 | Field | Replaces |
 |---|---|
 | `ErrorHandler` | How returned errors become responses (`zinc.DefaultErrorHandler`) |
-| `Validator` | Validation after every bind (none by default) |
+| `Validator` | Validation after every bind, in place of Zinc's built-in rules |
+| `ValidateResponses` | Checks typed handlers' outputs against their rules, for development and tests |
 | `Renderer` | Template rendering for `c.Render` (none by default) |
 | `Decoders` | Request body formats beyond JSON, XML and forms, or a different JSON library |
 | `Encoders` | Response formats for `c.Encode` and `c.Negotiate`, or a different JSON library |

@@ -17,6 +17,10 @@ type playground struct{ v *validator.Validate }
 
 func (p playground) Validate(v any) error { return p.v.Struct(v) }
 
+// RuleSet declares the rules the audit's types use, all of which
+// go-playground/validator enforces, so the spec claims them.
+func (playground) RuleSet() []string { return append(zinc.BuiltinRules(), "dive") }
+
 func validated() zinc.Config { return zinc.Config{Validator: playground{validator.New()}} }
 
 type pathInt struct {

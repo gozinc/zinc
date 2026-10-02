@@ -106,7 +106,7 @@ A value that doesn't parse is a `400` naming the field, a validation failure is 
 ## What you get
 
 - **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.
-- **Binding:** path, query, header, form, multipart, JSON, and XML input, with an optional validator. YAML, TOML, or a faster JSON library plug in per app with one map entry, and Zinc itself requires no other module.
+- **Binding:** path, query, header, form, multipart, JSON, and XML input, validated by `validate` tags with built-in rules, or a validator you plug in. YAML, TOML, or a faster JSON library plug in per app with one map entry, and Zinc itself requires no other module.
 - **Responses:** JSON, text, files, streams, templates, and redirects.
 - **Errors:** JSON error responses by default, short constructors like `zinc.NotFound("…")`, and domain errors that choose their own status. Internal error text never reaches clients.
 - **Middleware:** security, observability, limits, and transport, listed below.
@@ -149,7 +149,7 @@ OpenTelemetry uses the standard `otelhttp` package through `UseHTTP`. The [middl
 
 ## Performance
 
-Zinc is scored against Gin and Echo on 93 scenarios, and against the bare routers BunRouter and Chi on the 66 routing ones, with every framework measured together in one run on an Apple M1 Pro. Every request pool holds 10,000 distinct paths, so nothing is answered from a cache. For 0.6.0, Zinc was fastest by 3% or more in 63 of 93 against the frameworks, with 9 more tied within 3%, and 5.2% from the fastest on average; against the routers, 32 of 66 with 11 ties. The [benchmark report](./BENCHMARKS.md) has every scenario, every loss, the environment, and the commands. Results vary by workload and machine, so run the suite against the revision you deploy.
+Zinc is scored against Gin and Echo on 93 scenarios, and against the bare routers BunRouter and Chi on the 66 routing ones, with every framework measured together in one run on an Apple M1 Pro. Every request pool holds 10,000 distinct paths, so nothing is answered from a cache. For 0.7.0, Zinc was fastest by 3% or more in 63 of 93 against the frameworks, with 6 more tied within 3%, and 5.7% from the fastest on average; against the routers, 32 of 66 with 12 ties. The [benchmark report](./BENCHMARKS.md) has every scenario, every loss, the environment, and the commands. Results vary by workload and machine, so run the suite against the revision you deploy.
 
 ## Good to know
 

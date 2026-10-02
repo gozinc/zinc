@@ -58,6 +58,14 @@ type OpenAPIConfig struct {
 	//		reflect.TypeFor[decimal.Decimal](): {"type": "string", "format": "decimal"},
 	//	}
 	Schemas map[reflect.Type]map[string]any
+	// Extensions adds specification extensions to the spec's root, such as
+	// "x-logo". Each key must start with "x-".
+	Extensions map[string]any
+	// Mutate edits the finished spec, as decoded JSON, for what Zinc has no
+	// option for. It runs after Extensions and every Route.Operation hook.
+	// The result is checked again: it must still be OpenAPI 3.1 with a title
+	// and version, and every local $ref must resolve.
+	Mutate func(spec map[string]any) error
 }
 
 // OpenAPIContact is who to contact about the API.
@@ -220,11 +228,17 @@ func (a *App) OpenAPISpec(cfg OpenAPIConfig) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	var out any = doc
+	if len(cfg.Extensions) > 0 || cfg.Mutate != nil || len(doc.hooks) > 0 {
+		if out, err = applySpecHooks(doc, cfg); err != nil {
+			return nil, err
+		}
+	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(out); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -256,6 +270,7 @@ func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc)
 		a.renderDocs(path)
 	}
 	spec := &servedSpec{app: a, cfg: cfg}
+	a.specs = append(a.specs, spec)
 	handlers := append(append([]HandlerFunc(nil), middleware...), spec.serve)
 	return a.Get(path, handlers...).Hidden()
 }
@@ -312,6 +327,8 @@ var oaMethods = []string{
 }
 
 type oaDocument struct {
+	// hooks are the Route.Operation hooks, run on the decoded spec.
+	hooks        []operationHook
 	OpenAPI      string                               `json:"openapi"`
 	Info         oaInfo                               `json:"info"`
 	Servers      []OpenAPIServer                      `json:"servers,omitempty"`
@@ -516,9 +533,9 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	// a silent replacement.
 	shapes := map[string]string{} // path with parameter names removed -> path
 	ops := map[string]string{}    // method and OpenAPI path -> route pattern
-	// Without a Validator nothing enforces validate tags, so the spec doesn't
-	// claim their rules.
-	g.validation = a.config.Validator != nil
+	// The spec claims only the validate rules the app's validator enforces:
+	// Zinc's built-in ones, or those a RuleSetValidator declares.
+	g.rules = enforcedRules(a.config.Validator)
 	usesErrors := false
 	table := a.router
 	for i, meta := range table.routeInfos {
@@ -577,6 +594,9 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 		shapes[shape] = path
 		item, _ := doc.Paths.get(path)
 		item.set(strings.ToLower(meta.method), op)
+		for _, fn := range rd.operationHooks {
+			doc.hooks = append(doc.hooks, operationHook{path: path, method: strings.ToLower(meta.method), fn: fn})
+		}
 		slices.SortStableFunc(item, func(x, y orderedEntry[*oaOperation]) int {
 			return slices.Index(oaMethods, strings.ToUpper(x.key)) - slices.Index(oaMethods, strings.ToUpper(y.key))
 		})
@@ -736,7 +756,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	responses[http.StatusInternalServerError] = errorResponse(http.StatusInternalServerError, errorBody)
 	if hasInput {
 		responses[http.StatusBadRequest] = errorResponse(http.StatusBadRequest, errorBody)
-		if a.config.Validator != nil {
+		// A configured Validator may refuse anything; Zinc's own checks only
+		// a type with rules or enums.
+		if a.config.Validator != nil || (rd.in != nil && base(rd.in).Kind() == reflect.Struct && rulePlanFor(base(rd.in)) != nil) {
 			responses[http.StatusUnprocessableEntity] = errorResponse(http.StatusUnprocessableEntity, errorBody)
 		}
 	}
@@ -872,7 +894,7 @@ func buildRequestBody(g *schemaGen, a *App, rd *routeDoc, plan *bindingPlan) *oa
 		_, hasForm := f.tag.Lookup("form")
 		if hasJSON || !hasForm {
 			jsonProps = true
-			if g.validation && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
+			if g.rules["required"] && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
 				required = true
 			}
 		}
@@ -1099,6 +1121,11 @@ func checkOpenAPIConfig(cfg OpenAPIConfig) error {
 	}
 	if cfg.ExternalDocs != nil && cfg.ExternalDocs.URL == "" {
 		return errors.New("zinc: OpenAPIConfig.ExternalDocs needs URL")
+	}
+	for key := range cfg.Extensions {
+		if !strings.HasPrefix(key, "x-") {
+			return fmt.Errorf("zinc: OpenAPIConfig.Extensions key %q must start with \"x-\"", key)
+		}
 	}
 	for _, tag := range cfg.Tags {
 		if tag.Name == "" {
