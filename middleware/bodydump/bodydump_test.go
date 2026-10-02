@@ -208,11 +208,55 @@ func TestBodyDumpInfersErrorStatus(t *testing.T) {
 	if !errors.Is(got.Error, zinc.ErrUnauthorized) {
 		t.Fatalf("snapshot error=%v", got.Error)
 	}
-	if got.ResponseBytes != 0 {
-		t.Fatalf("response bytes=%d", got.ResponseBytes)
+	// The error response is rendered while capture is active, so the
+	// snapshot holds what the client got.
+	if string(got.ResponseBody) != rec.Body.String() || got.ResponseBytes != int64(rec.Body.Len()) {
+		t.Fatalf("response body=%q (%d bytes), client got %q", got.ResponseBody, got.ResponseBytes, rec.Body.String())
 	}
-	if string(got.ResponseBody) != "" {
-		t.Fatalf("response body=%q", string(got.ResponseBody))
+}
+
+// An error carrying its own status, such as a BindError, is recorded with
+// the status the client got, not 500.
+func TestBodyDumpRecordsBindErrors(t *testing.T) {
+	app := zinc.New()
+	var got Snapshot
+	app.Use(New(Config{Observe: func(_ *zinc.Context, s Snapshot) { got = s }}))
+	app.Get("/", func(c *zinc.Context) error { _, err := zinc.Query[int](c, "id"); return err })
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?id=abc", nil))
+	if rec.Code != http.StatusBadRequest || got.Status != rec.Code || string(got.ResponseBody) != rec.Body.String() {
+		t.Fatalf("client %d %q, snapshot %d %q", rec.Code, rec.Body, got.Status, got.ResponseBody)
+	}
+}
+
+// The request body is captured as the handler reads it: no more than the
+// handler reads, and no more than MaxRequestBytes of that.
+func TestBodyDumpCapturesWhatTheHandlerReads(t *testing.T) {
+	var got Snapshot
+	app := zinc.New(zinc.Config{BodyLimit: -1})
+	app.Use(New(Config{Observe: func(_ *zinc.Context, s Snapshot) { got = s }, MaxRequestBytes: 4}))
+	app.Post("/ignore", func(c *zinc.Context) error { return c.NoContent() })
+	app.Post("/read", func(c *zinc.Context) error {
+		body, err := c.BodyString()
+		if err != nil {
+			return err
+		}
+		return c.String(body)
+	})
+
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/ignore", strings.NewReader(strings.Repeat("x", 1<<20))))
+	if got.RequestBytes != 0 || got.RequestBody != nil {
+		t.Fatalf("an unread body was captured: %d bytes", got.RequestBytes)
+	}
+
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/read", strings.NewReader("abcdefgh")))
+	if rec.Body.String() != "abcdefgh" {
+		t.Fatalf("the handler read %q", rec.Body)
+	}
+	if string(got.RequestBody) != "abcd" || got.RequestBytes != 8 || !got.RequestTruncated {
+		t.Fatalf("capture %q, %d bytes, truncated %v", got.RequestBody, got.RequestBytes, got.RequestTruncated)
 	}
 }
 
@@ -225,9 +269,10 @@ func TestBodyDumpObservesBodyReadFailure(t *testing.T) {
 			got = snapshot
 		},
 	}))
+	// The handler reads the body; its read error reaches the snapshot.
 	app.Post("/upload", func(c *zinc.Context) error {
-		t.Fatal("handler should not run")
-		return nil
+		_, err := c.BodyBytes()
+		return err
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/upload", &failingReadCloser{
@@ -467,4 +512,31 @@ func (w *bodyDumpPushResponseWriter) Push(target string, opts *http.PushOptions)
 	w.target = target
 	w.opts = opts
 	return w.err
+}
+
+func BenchmarkBodyDump(b *testing.B) {
+	app := zinc.New()
+	app.Use(New(Config{Observe: func(*zinc.Context, Snapshot) {}}))
+	app.Post("/echo", func(c *zinc.Context) error {
+		body, err := c.BodyBytes()
+		if err != nil {
+			return err
+		}
+		return c.Data("application/json", body)
+	})
+	app.Get("/fail", func(c *zinc.Context) error { return zinc.NotFound("no") })
+	payload := strings.Repeat(`{"sku":"A-7","qty":2}`, 20)
+	b.Run("Echo", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			req := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(payload))
+			app.ServeHTTP(httptest.NewRecorder(), req)
+		}
+	})
+	b.Run("Error", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/fail", nil))
+		}
+	})
 }

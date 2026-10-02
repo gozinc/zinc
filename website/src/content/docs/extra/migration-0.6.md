@@ -61,6 +61,8 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 - **A typed handler's own `c.Status(...)` wins** over `.Status(...)` on the route, `200` included. Before, `200` was treated as unset and replaced.
 - **`zinc.Form[T]`** reports a body over the limit as `413`, and a form that can't be parsed as a `400` with the cause, instead of "is required".
 - **CSRF's `FromForm`** honors `Config.BodyLimit`: a larger body gets `413`.
+- **Body Dump** records the response the client got, error responses included, with their real status: a `400` from binding was recorded as a `500` with no body. It captures the request body as the handler reads it, up to `MaxRequestBytes`, instead of reading the whole body first.
+- **`zinc.Skip`** keeps redirect and rewrite's startup check: wrapped in `Skip`, they still panic on a group.
 
 ## Benchmarks are scored with ties
 

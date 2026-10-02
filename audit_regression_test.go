@@ -181,7 +181,6 @@ func TestAuditCSRFFormBodyLimit(t *testing.T) {
 
 // F10: bodydump records the response the client got.
 func TestAuditBodydumpSeesTheResponse(t *testing.T) {
-	pending(t, "P15", "F10")
 	var seen bodydump.Snapshot
 	app := zinc.New()
 	app.Use(bodydump.New(bodydump.Config{Observe: func(_ *zinc.Context, s bodydump.Snapshot) { seen = s }}))
@@ -195,7 +194,6 @@ func TestAuditBodydumpSeesTheResponse(t *testing.T) {
 // F11: wrapping rewrite in Skip keeps the check that it can't run on a
 // group.
 func TestAuditSkipKeepsPreroutingMark(t *testing.T) {
-	pending(t, "P15", "F11")
 	mw := zinc.Skip(func(*zinc.Context) bool { return false }, rewrite.New(rewrite.Config{Rules: map[string]string{"/api/old": "/api/new"}}))
 	mustPanicAudit(t, func() { zinc.New().Group("/api", mw) })
 }
