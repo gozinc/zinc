@@ -214,6 +214,25 @@ func metadataScenarios() []scenario {
 				return app, zinc.OpenAPIConfig{}
 			},
 			probes: []probe{get("/v?color=red"), {method: "GET", target: "/v?color=green", status: 422}}},
+		{id: "M11", area: "Metadata", title: "Spec hooks: extensions, an operation hook and Mutate",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/v", zinc.Typed(func(*zinc.Context, struct{}) (item, error) { return item{ID: 1}, nil })).
+					Operation(func(op map[string]any) { op["x-internal"] = true })
+				return app, zinc.OpenAPIConfig{
+					Extensions: map[string]any{"x-api-id": "audit"},
+					Mutate: func(spec map[string]any) error {
+						spec["servers"] = []any{map[string]any{"url": "https://api.example.com"}}
+						return nil
+					},
+				}
+			},
+			probes: []probe{get("/v")},
+			expect: func(f *findings, s spec) {
+				if s.op("GET", "/v")["x-internal"] != true || s.raw["x-api-id"] != "audit" || s.raw["servers"] == nil {
+					f.add("hooks didn't apply: %v", s.raw)
+				}
+			}},
 		{id: "M06", area: "Metadata", title: "Example on a body field",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				type in struct {
