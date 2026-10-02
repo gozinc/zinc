@@ -102,6 +102,12 @@ type Config struct {
 	// OpenAPI describes the API in the served spec: its title, version,
 	// security schemes and more.
 	OpenAPI OpenAPIConfig
+	// DocsPath is where the app serves a browsable reference page for its
+	// spec, for GET and HEAD requests no route or mount answers. Empty means
+	// DefaultDocsPath; "-" serves none, and neither does an app that serves
+	// no spec. The page loads Scalar from a CDN; middleware/apidocs serves
+	// it elsewhere, with another renderer, or from your own files.
+	DocsPath string
 
 	// Deprecated: RouteCacheSize is ignored. Zinc 0.5 removed the route
 	// cache: the route tree matches faster than the cache could look a path

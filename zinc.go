@@ -70,8 +70,13 @@ func (a *App) dispatch(ctx *Context) error {
 
 	// The default spec is checked only after routing missed, so matched
 	// requests pay nothing for it.
-	if a.spec != nil && path == a.specPath && (method == MethodGet || method == MethodHead) {
-		return a.spec.serve(ctx)
+	if method == MethodGet || method == MethodHead {
+		if a.spec != nil && path == a.specPath {
+			return a.spec.serve(ctx)
+		}
+		if a.docs != nil && path == a.docsPath {
+			return a.docs.serve(ctx)
+		}
 	}
 
 	if handled, err := a.handleRouteNotFound(ctx); handled {
@@ -81,6 +86,10 @@ func (a *App) dispatch(ctx *Context) error {
 	allowedHeader := allowed.header(a.autoHead, a.autoOptions)
 	if method == MethodOptions && a.autoOptions && allowedHeader != "" {
 		ctx.SetHeader(HeaderAllow, allowedHeader)
+		if chain := a.preflightChain(ctx, path); chain != nil {
+			ctx.setHandlers(chain)
+			return ctx.Next()
+		}
 		return ctx.Status(StatusNoContent).NoContent()
 	}
 
@@ -252,4 +261,29 @@ func (m *mountedHandler) strippedRequest(request *http.Request) *http.Request {
 	}
 	mountedRequest.RequestURI = cloneRequestURI(mountedRequest.URL)
 	return mountedRequest
+}
+
+// preflightChain returns the middleware to run for a CORS preflight request:
+// the preflight-aware middleware, such as cors, of the route the request asks
+// about in Access-Control-Request-Method, then the automatic 204. It returns
+// nil when there's none, so the plain automatic OPTIONS answers.
+func (a *App) preflightChain(ctx *Context, path string) []HandlerFunc {
+	if len(a.router.preflight) == 0 {
+		return nil
+	}
+	requested := ctx.Header("Access-Control-Request-Method")
+	if requested == "" {
+		return nil
+	}
+	found := &Context{}
+	if a.router.findInto(requested, path, found) == nil {
+		return nil
+	}
+	mws := a.router.preflight[found.routeInfo.method+" "+found.routeInfo.path]
+	if len(mws) == 0 {
+		return nil
+	}
+	chain := make([]HandlerFunc, 0, len(mws)+1)
+	chain = append(chain, mws...)
+	return append(chain, func(c *Context) error { return c.Status(StatusNoContent).NoContent() })
 }

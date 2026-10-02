@@ -7,7 +7,7 @@ slug: extra/migration-0.6
 Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.6.1
+go get github.com/0mjs/zinc@v0.6.2
 go test ./...
 ```
 
@@ -63,6 +63,17 @@ Move it to `app.Use`, or `app.UsePrefix` for the group's paths. On a single rout
 - **CSRF's `FromForm`** honors `Config.BodyLimit`: a larger body gets `413`.
 - **Body Dump** records the response the client got, error responses included, with their real status: a `400` from binding was recorded as a `500` with no body. It captures the request body as the handler reads it, up to `MaxRequestBytes`, instead of reading the whole body first.
 - **`zinc.Skip`** keeps redirect and rewrite's startup check: wrapped in `Skip`, they still panic on a group.
+
+## Changes in 0.6.2
+
+These change behavior on purpose. Check each against your app.
+
+- **The body only fills body fields.** A field tagged only `path`, `query`, `header` or `cookie` is no longer filled from a JSON, XML or decoder body when a key matches its name. Before, `{"Role":"admin"}` could set a `header:"X-Role"` field when the header was missing. To accept a field from either, tag it for both, such as `header:"X-Role" json:"role"`. See [The body only fills body fields](/guide/binding/#the-body-only-fills-body-fields).
+- **`c.Bind().All` reads headers and cookies**, as a typed handler always has. A plain handler using `All` on a struct with `header` or `cookie` fields now fills them.
+- **GET and HEAD bodies aren't bound** by `All` or typed handlers. `c.Bind().JSON` and the other single-source binders still read them.
+- **`.Status(201)` sets the status for plain handlers too.** It used to document `201` while a plain handler sent `200` unless it called `c.Status` itself. Now it's the status of whatever the route writes, unless a handler sets another or returns an error.
+- **CORS on a group answers preflight requests.** `app.Group("/api", cors.New())` used to leave the browser's automatic `OPTIONS` request without CORS headers; now the group's CORS middleware answers it.
+- **Every app serves a reference page at `/docs`**, next to its spec, unless a route of your own uses the path. For a private API, set `zinc.Config{DocsPath: "-"}`, or turn the spec off, which turns the page off too. `Routes()` and `FindRoute()` list both endpoints, with `Builtin` set.
 
 ## Benchmarks are scored with ties
 

@@ -125,6 +125,15 @@ UseHTTP: otelMiddleware                 standard net/http, outermost
 
 Within each level, middleware runs in the order you registered it. On the way out, the same list runs in reverse.
 
+## Where a request goes
+
+1. **App middleware** (`app.Use`) and **prefix middleware** (`app.UsePrefix`) run for every request, before routing, so they see misses too.
+2. **Routing** picks the route for the method and path.
+3. **The route's chain** runs: its groups' middleware, outer groups first, then the route's own middleware and handler. A route's `.Status` is set before the chain starts.
+4. **The error handler** turns a returned error into the response, once.
+
+When no route matches, step 3 is replaced by one of these, in order: a mount; the built-in [spec and docs page](/guide/openapi/#serve-the-spec); a `RouteNotFound` handler; the automatic `OPTIONS` answer, which runs the matching route's [CORS middleware](/middleware/cors/#on-a-group) for preflights; a `405` with `Allow`; or a `404`. Each still runs inside step 1, so app middleware sees every request.
+
 ## Stop a request early
 
 Return an error instead of calling `c.Next()`:

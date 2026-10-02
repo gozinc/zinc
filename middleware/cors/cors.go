@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/internal/preflight"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -78,7 +79,7 @@ func New(configs ...Config) zinc.Middleware {
 	allowHeadersStr := strings.Join(config.AllowHeaders, ",")
 	exposeHeadersStr := strings.Join(config.ExposeHeaders, ",")
 
-	return func(c *zinc.Context) error {
+	mw := func(c *zinc.Context) error {
 		c.Writer().Header().Add("Vary", "Origin")
 		c.Writer().Header().Add("Vary", "Access-Control-Request-Method")
 		c.Writer().Header().Add("Vary", "Access-Control-Request-Headers")
@@ -127,4 +128,8 @@ func New(configs ...Config) zinc.Middleware {
 
 		return c.Next()
 	}
+	// Answer preflight requests for a group's routes too: Zinc runs
+	// marked middleware on the automatic OPTIONS response.
+	preflight.Mark(mw)
+	return mw
 }

@@ -97,19 +97,19 @@ func (e *BindError) Unwrap() error {
 	return e.Err
 }
 
-// bindAll binds body, query, and path data, then validates v.
+// bindAll binds every source a typed handler binds, then validates v.
 func bindAll(c *Context, v any) error {
-	return bindRequest(c, v, false)
+	return bindRequest(c, v)
 }
 
-// bindRequest fills v from the body first, then headers and cookies when
-// withHeaders is set, then query values, then path parameters, and validates
-// once at the end. Default tags fill their fields before any source. Later
-// sources overwrite earlier ones, so a value from the URL always
-// wins over a body key that happens to match the same field: encoding/json
-// matches keys case-insensitively, so {"id": ...} would otherwise replace a
-// `path:"id"` field.
-func bindRequest(c *Context, v any, withHeaders bool) error {
+// bindRequest fills v from the body first, then headers, cookies, query
+// values and path parameters, and validates once at the end. Default tags
+// fill their fields before any source. A field tagged only for the path,
+// query, headers or cookies is never filled from the body: encoding/json
+// matches keys to field names case-insensitively, so each body decode resets
+// those fields. A GET or HEAD request's body isn't read, as it has no meaning
+// there and the spec never documents one.
+func bindRequest(c *Context, v any) error {
 	mediaType := requestMediaType(c.Header(HeaderContentType))
 	if mediaType == "text/plain" {
 		return bindPlainTextBody(c, v, false)
@@ -131,21 +131,25 @@ func bindRequest(c *Context, v any, withHeaders bool) error {
 	if plan.hasDefaults {
 		applyDefaults(val, plan.formFields)
 		applyDefaults(val, plan.queryFields)
-		if withHeaders {
-			applyDefaults(val, plan.headerFields)
-			applyDefaults(val, plan.cookieFields)
+		applyDefaults(val, plan.headerFields)
+		applyDefaults(val, plan.cookieFields)
+	}
+	if method := c.Method(); method != MethodGet && method != MethodHead {
+		if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
+			return err
+		}
+		// Only a decoded body can name these fields; a form binds by tag.
+		if len(plan.paramOnly) > 0 && c.bodyRead && plan.bodyMentionsParams(c.body) {
+			plan.keepParamsOutOfBody(val)
 		}
 	}
-	if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
-		return err
-	}
 	req := c.Request()
-	if withHeaders && len(plan.headerFields) > 0 && req != nil {
+	if len(plan.headerFields) > 0 && req != nil {
 		if err := bindFieldsFromHeader(val, plan.headerFields, req.Header); err != nil {
 			return wrapBindError("header", err)
 		}
 	}
-	if withHeaders && len(plan.cookieFields) > 0 {
+	if len(plan.cookieFields) > 0 {
 		if err := bindFieldsFromCookies(val, plan.cookieFields, req); err != nil {
 			return wrapBindError("cookie", err)
 		}
@@ -219,6 +223,9 @@ func bindBody(c *Context, v any) error {
 	mediaType := requestMediaType(c.Header(HeaderContentType))
 	if decode := c.decoderFor(mediaType); decode != nil {
 		return decodeBody(c, decode, v, true)
+	}
+	if snap := snapshotParams(c, v); snap != nil {
+		defer snap.restore()
 	}
 	switch mediaType {
 	case "", "application/json":
@@ -367,7 +374,11 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
+	snap := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
+	if snap != nil {
+		snap.restore()
+	}
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}
@@ -393,9 +404,13 @@ func (b *Bind) XML(v any) error {
 	if decode := b.c.decoderFor("application/xml"); decode != nil {
 		return decodeBody(b.c, decode, v, true)
 	}
+	snap := snapshotParams(b.c, v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
+	if snap != nil {
+		snap.restore()
+	}
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}

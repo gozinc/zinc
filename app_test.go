@@ -563,7 +563,7 @@ func TestRouteIntrospectionHelpers(t *testing.T) {
 
 	var getRoutes []RouteInfo
 	for _, route := range app.Routes() {
-		if route.Method == MethodGet {
+		if route.Method == MethodGet && !route.Builtin {
 			getRoutes = append(getRoutes, route)
 		}
 	}
@@ -588,7 +588,7 @@ func TestMountedRouteIntrospection(t *testing.T) {
 		t.Fatalf("found=%+v", found)
 	}
 
-	routes := app.Routes()
+	routes := withoutBuiltins(app.Routes())
 	if len(routes) != 1 || !routes[0].Mounted || routes[0].Path != "/sub" {
 		t.Fatalf("routes=%v", routes)
 	}
@@ -666,7 +666,7 @@ func TestAppAndDispatchEdgeCoverage(t *testing.T) {
 	t.Run("routes without mounts returns router routes directly", func(t *testing.T) {
 		app := New()
 		app.Get("/plain", func(c *Context) error { return c.String("ok") })
-		routes := app.Routes()
+		routes := withoutBuiltins(app.Routes())
 		if len(routes) != 1 || routes[0].Path != "/plain" {
 			t.Fatalf("routes=%v", routes)
 		}
@@ -998,5 +998,23 @@ func TestHTTPErrorIsMatchesByStatus(t *testing.T) {
 	cause := errors.New("db down")
 	if !errors.Is(ErrServiceUnavailable.Wrap(cause), cause) {
 		t.Fatal("cause no longer reachable through errors.Is")
+	}
+}
+
+func withoutBuiltins(routes []RouteInfo) []RouteInfo {
+	var out []RouteInfo
+	for _, r := range routes {
+		if !r.Builtin {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// An app built per test, or per route-set benchmark, shouldn't pay for the
+// docs page it never serves: rendering it in New cost 47µs and 361 allocs.
+func TestNewDoesNotRenderTheDocsPage(t *testing.T) {
+	if allocs := testing.AllocsPerRun(20, func() { _ = New() }); allocs > 20 {
+		t.Fatalf("New allocates %.0f times; the docs page should render on its first request", allocs)
 	}
 }

@@ -225,3 +225,64 @@ func TestOpenAPIServedSpecFollowsMetadata(t *testing.T) {
 		t.Fatal("spec changed with no metadata change")
 	}
 }
+
+func TestDocsPageServedByDefault(t *testing.T) {
+	app := New(Config{OpenAPI: OpenAPIConfig{Title: "Shop", Version: "1"}})
+	rec := getSpec(t, app, "GET", "/docs", nil)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `<title>Shop</title>`) || !strings.Contains(body, `data-spec="/openapi.json"`) {
+		t.Fatalf("docs page: %d %s", rec.Code, body)
+	}
+	// Scalar's own buttons are off, and examples use the page's address.
+	for _, want := range []string{"baseServerURL: location.origin", "agent: { disabled: true }", "mcp: { disabled: true }", "showDeveloperTools: 'never'"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %s", want)
+		}
+	}
+
+	var builtins []RouteInfo
+	for _, r := range app.Routes() {
+		if r.Builtin {
+			builtins = append(builtins, r)
+		}
+	}
+	if len(builtins) != 2 || builtins[0].Path != "/openapi.json" || builtins[1].Path != "/docs" {
+		t.Fatalf("Routes builtins: %+v", builtins)
+	}
+	if info, ok := app.FindRoute("GET", "/docs"); !ok || !info.Builtin {
+		t.Fatalf("FindRoute /docs: %+v %v", info, ok)
+	}
+	if _, ok := app.FindRoute("POST", "/docs"); ok {
+		t.Fatal("FindRoute POST /docs found a built-in")
+	}
+}
+
+func TestDocsPageGivesWay(t *testing.T) {
+	for name, tt := range map[string]struct {
+		app  func() *App
+		path string
+		want int
+	}{
+		"off":            {func() *App { return New(Config{DocsPath: "-"}) }, "/docs", 404},
+		"no spec":        {func() *App { return New(Config{OpenAPIPath: "-"}) }, "/docs", 404},
+		"moved":          {func() *App { return New(Config{DocsPath: "/reference"}) }, "/reference", 200},
+		"own route wins": {func() *App { a := New(); a.Get("/docs", func(c *Context) error { return c.String("mine") }); return a }, "/docs", 200},
+		"own 404 wins": {func() *App {
+			a := New()
+			a.RouteNotFound("/docs", func(c *Context) error { return c.String("gone") })
+			return a
+		}, "/docs", 404},
+	} {
+		if rec := getSpec(t, tt.app(), "GET", tt.path, nil); rec.Code != tt.want || (name == "own route wins" && rec.Body.String() != "mine") {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
+	}
+
+	// App.OpenAPI moves the spec; the page follows it.
+	app := New()
+	app.OpenAPI("/v1/openapi.json", OpenAPIConfig{})
+	if body := getSpec(t, app, "GET", "/docs", nil).Body.String(); !strings.Contains(body, `data-spec="/v1/openapi.json"`) {
+		t.Fatalf("page didn't follow the spec: %s", body)
+	}
+	mustPanicWith(t, `Config.DocsPath "docs" must start with /`, func() { New(Config{DocsPath: "docs"}) })
+}
