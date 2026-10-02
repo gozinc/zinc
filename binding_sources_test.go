@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -122,5 +123,25 @@ func TestSingleSourceBindersCompose(t *testing.T) {
 	app.ServeHTTP(w, r)
 	if w.Code != http.StatusNoContent || got.Team != 42 || got.Trace != "abc" || strings.Join(got.Tags, ",") != "a,b" || got.Ratio != 0.5 || !got.Active || got.Limit == nil || *got.Limit != 5 || got.Name != "Ada" {
 		t.Fatalf("%d %+v", w.Code, got)
+	}
+}
+
+func TestBodyMentionsParams(t *testing.T) {
+	plan := bindingPlanFor(reflect.TypeFor[sourced]())
+	for _, tt := range []struct {
+		body string
+		want bool
+	}{
+		{`{"Role":"admin"}`, true},
+		{`{"ROLE":1}`, true},
+		{`<role>x</role>`, true},
+		{`{"limit":5}`, true},
+		{`{"name":"Ada","tenant":"x"}`, false},
+		{`{"r":1}`, false},
+		{``, false},
+	} {
+		if got := plan.bodyMentionsParams([]byte(tt.body)); got != tt.want {
+			t.Errorf("%q: %v", tt.body, got)
+		}
 	}
 }

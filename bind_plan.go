@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // bindingPlan is the immutable, type-specific description used by every bind
@@ -37,6 +38,51 @@ type bindingPlan struct {
 	// them: the body never fills a field the struct says comes from
 	// elsewhere.
 	paramOnly []bindingField
+	// paramNames are the paramOnly fields' Go names in lower case: the names
+	// a decoder matches body keys against. A body that mentions none of
+	// them can't have filled those fields, so nothing needs resetting.
+	// paramNamesFold is set when a name isn't ASCII, whose case folding the
+	// scan doesn't attempt; such a plan always resets.
+	paramNames     []string
+	paramNamesFold bool
+	// paramFirst marks the bytes, either case, that start a param name, so
+	// the scan is one pass over the body.
+	paramFirst [256]bool
+}
+
+// bodyMentionsParams reports whether body could have filled a
+// parameter-only field: whether any of their names appear in it, ignoring
+// ASCII case, as encoding/json matches them.
+func (plan *bindingPlan) bodyMentionsParams(body []byte) bool {
+	if plan.paramNamesFold {
+		return true
+	}
+	for i, b := range body {
+		if !plan.paramFirst[b] {
+			continue
+		}
+		for _, name := range plan.paramNames {
+			if len(name) <= len(body)-i && hasFoldPrefixASCII(body[i:], name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasFoldPrefixASCII reports whether s starts with name, a lower-case ASCII
+// string, ignoring ASCII case.
+func hasFoldPrefixASCII(s []byte, name string) bool {
+	for j := 0; j < len(name); j++ {
+		b := s[j]
+		if 'A' <= b && b <= 'Z' {
+			b += 'a' - 'A'
+		}
+		if b != name[j] {
+			return false
+		}
+	}
+	return true
 }
 
 // bodyTags are the struct tags that opt a field into the body. Zinc can't ask
@@ -97,17 +143,21 @@ type savedParam struct {
 }
 
 // snapshotParams records v's parameter-only fields before a body decode. It
-// returns false when v has none, so there's nothing to restore.
-func snapshotParams(v any) (paramSnapshot, bool) {
+// returns nil when there's nothing to restore: v has none, or the body
+// doesn't mention them, so the decode can't touch them.
+func snapshotParams(c *Context, v any) *paramSnapshot {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
-		return paramSnapshot{}, false
+		return nil
 	}
 	plan := bindingPlanFor(rv.Elem().Type())
 	if len(plan.paramOnly) == 0 {
-		return paramSnapshot{}, false
+		return nil
 	}
-	snap := paramSnapshot{plan: plan, val: rv.Elem()}
+	if body, err := c.readAndCacheBodyBytes(); err == nil && !plan.bodyMentionsParams(body) {
+		return nil
+	}
+	snap := &paramSnapshot{plan: plan, val: rv.Elem()}
 	for i, f := range plan.paramOnly {
 		fv := promotedOrField(rv.Elem(), f)
 		var sp savedParam
@@ -135,7 +185,7 @@ func snapshotParams(v any) (paramSnapshot, bool) {
 			snap.extra = append(snap.extra, sp)
 		}
 	}
-	return snap, true
+	return snap
 }
 
 // detachedCopy copies v so a decode into v can't change the copy: a slice
@@ -425,6 +475,19 @@ func (plan *bindingPlan) compileField(root reflect.Type, i int, path []int, fiel
 		}
 		if paramOnly(field) {
 			plan.paramOnly = append(plan.paramOnly, bindingField{index: i, path: path, setter: setter, def: def})
+			name := strings.ToLower(field.Name)
+			plan.paramNames = append(plan.paramNames, name)
+			if name != "" && name[0] < utf8.RuneSelf {
+				plan.paramFirst[name[0]] = true
+				if 'a' <= name[0] && name[0] <= 'z' {
+					plan.paramFirst[name[0]-'a'+'A'] = true
+				}
+			}
+			for i := 0; i < len(name); i++ {
+				if name[i] >= utf8.RuneSelf {
+					plan.paramNamesFold = true
+				}
+			}
 		}
 		add := func(list *[]bindingField, compiled bindingField) {
 			compiled.path = path
