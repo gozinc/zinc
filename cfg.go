@@ -85,8 +85,16 @@ type Config struct {
 	// "application/xml" replaces the built-in encoder, including for
 	// Context.JSON and Context.XML.
 	Encoders map[string]Encoder
-	// Validator runs after successful default binding, or through Context.Validate.
+	// Validator checks bound input, after binding and through
+	// Context.Validate. Nil means Zinc checks validate tags itself, with
+	// BuiltinRules. A RuleSetValidator declares the rules it enforces, the
+	// only ones the OpenAPI spec claims.
 	Validator Validator
+	// ValidateResponses checks each typed handler's output with the same
+	// rules before it's sent, and answers 500 when it fails, so a response
+	// that breaks the spec's contract shows up in development and tests.
+	// It costs a check per response; leave it off in production.
+	ValidateResponses bool
 	// Renderer provides named template rendering.
 	Renderer Renderer
 	// ErrorHandler receives errors returned by handlers and middleware.

@@ -25,6 +25,20 @@ type oaValidator struct{}
 
 func (oaValidator) Validate(any) error { return nil }
 
+// RuleSet declares the built-in rules, so the golden spec claims them.
+func (oaValidator) RuleSet() []string { return BuiltinRules() }
+
+// oaSilentValidator validates without declaring its rules.
+type oaSilentValidator struct{}
+
+func (oaSilentValidator) Validate(any) error { return nil }
+
+// oaLengthValidator declares only length rules.
+type oaLengthValidator struct{}
+
+func (oaLengthValidator) Validate(any) error { return nil }
+func (oaLengthValidator) RuleSet() []string  { return []string{"min", "max", "omitempty"} }
+
 type oaPet struct {
 	ID    int64    `json:"id" doc:"The pet's ID." example:"7"`
 	Name  string   `json:"name" validate:"required,min=1,max=40"`
@@ -208,9 +222,10 @@ func TestOpenAPISpecErrorsAndDefaults(t *testing.T) {
 	}
 }
 
-// Without a Validator nothing enforces validate tags, so their rules stay
-// out of the spec; doc and example tags still apply.
-func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
+// The spec claims only the validate rules something enforces: Zinc's own
+// without a Validator, those a RuleSetValidator declares, and none for a
+// Validator that doesn't say. doc and example tags always apply.
+func TestOpenAPIClaimsOnlyEnforcedRules(t *testing.T) {
 	build := func(cfg Config) string {
 		app := New(cfg)
 		app.Post("/stores/{store}/pets", Typed(func(*Context, oaCreatePet) (oaPet, error) { return oaPet{}, nil }))
@@ -221,31 +236,25 @@ func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
 		}
 		return string(spec)
 	}
-	without, with := build(Config{}), build(Config{Validator: oaValidator{}})
-	// The Error envelope's own required fields are a fact about the body, not
-	// a validate rule, so check the pet schemas and the operations only.
+	builtin, silent := build(Config{}), build(Config{Validator: oaSilentValidator{}})
 	var doc struct {
 		Components struct{ Schemas map[string]json.RawMessage }
 		Paths      json.RawMessage
 	}
-	if err := json.Unmarshal([]byte(without), &doc); err != nil {
+	if err := json.Unmarshal([]byte(silent), &doc); err != nil {
 		t.Fatal(err)
 	}
-	// Request schemas: nothing required without a Validator. oaPet is a
-	// response schema, so its required list comes from omitempty instead.
-	for _, name := range []string{"oaCreatePetBody"} {
-		if strings.Contains(string(doc.Components.Schemas[name]), `"required"`) {
-			t.Errorf("without a Validator, %s has required fields: %s", name, doc.Components.Schemas[name])
-		}
+	// Request schemas: nothing required when the validator doesn't say.
+	// oaPet is a response schema, so its required list comes from omitempty.
+	if strings.Contains(string(doc.Components.Schemas["oaCreatePetBody"]), `"required"`) {
+		t.Errorf("a silent validator's oaCreatePetBody has required fields: %s", doc.Components.Schemas["oaCreatePetBody"])
 	}
 	if !strings.Contains(string(doc.Components.Schemas["oaPet"]), `"required"`) {
 		t.Errorf("the response schema oaPet lost its always-sent fields: %s", doc.Components.Schemas["oaPet"])
 	}
-	if strings.Contains(string(doc.Paths), `"required": true`) && strings.Count(string(doc.Paths), `"required": true`) != 1 {
-		t.Errorf("without a Validator, more than the path parameter is required:\n%s", doc.Paths)
+	if strings.Count(string(doc.Paths), `"required": true`) != 1 {
+		t.Errorf("with a silent validator, more than the path parameter is required:\n%s", doc.Paths)
 	}
-	// oneof becomes an enum only with a validator; the enum tag and
-	// EnumProvider always document their values.
 	kindEnum := func(spec string) bool {
 		var d struct {
 			Components struct {
@@ -257,17 +266,32 @@ func TestOpenAPIValidationRulesNeedAValidator(t *testing.T) {
 		_ = json.Unmarshal([]byte(spec), &d)
 		return d.Components.Schemas["oaPet"].Properties["kind"]["enum"] != nil
 	}
-	if !kindEnum(with) || kindEnum(without) {
-		t.Errorf("oaPet.kind's oneof: with a validator %v, without %v", kindEnum(with), kindEnum(without))
+	if !kindEnum(builtin) || kindEnum(silent) {
+		t.Errorf("oaPet.kind's oneof: built-in %v, silent %v", kindEnum(builtin), kindEnum(silent))
 	}
-	for _, rule := range []string{`"minLength"`, `"maxLength"`, `"minimum": 1`, `"422"`} {
-		if !strings.Contains(with, rule) {
-			t.Errorf("with a Validator, the spec lacks %s", rule)
+	for _, rule := range []string{`"minLength"`, `"maxLength"`, `"minimum": 1`} {
+		if !strings.Contains(builtin, rule) {
+			t.Errorf("the built-in validator's spec lacks %s", rule)
 		}
-		if strings.Contains(without, rule) {
-			t.Errorf("without a Validator, the spec claims %s", rule)
+		if strings.Contains(silent, rule) {
+			t.Errorf("a silent validator's spec claims %s", rule)
 		}
 	}
+	// A silent validator may still refuse a request, so 422 is documented.
+	if !strings.Contains(builtin, `"422"`) || !strings.Contains(silent, `"422"`) {
+		t.Error("422 should be documented for both")
+	}
+	// A rule the validator doesn't declare fails at registration.
+	mustPanicWith(t, "the Validator (zinc.oaLengthValidator) doesn't enforce these validate rules: zinc.oaCreatePet.Tenant: required", func() {
+		build(Config{Validator: oaLengthValidator{}})
+	})
+	mustPanicWith(t, "Zinc's built-in validator doesn't enforce these validate rules: zinc.oaDive.Tags: dive", func() {
+		type oaDive struct {
+			Tags []string `json:"tags" validate:"dive,min=1"`
+		}
+		New().Post("/", Typed(func(*Context, oaDive) (NoContent, error) { return NoContent{}, nil }))
+	})
+	without := silent
 	// Header and path parameters are still listed, just not marked required
 	// by a validate tag (path parameters are always required).
 	if !strings.Contains(without, `"name": "X-Tenant"`) || !strings.Contains(without, `"description": "The pet's ID."`) {

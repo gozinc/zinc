@@ -110,10 +110,9 @@ type componentKey struct {
 type schemaGen struct {
 	// types holds schemas the config gives to types by hand.
 	types map[reflect.Type]map[string]any
-	// validation reports whether validate tags reach the schema. The spec
-	// builder turns it off when the app has no Validator, since nothing would
-	// enforce the rules.
-	validation bool
+	// rules are the validate-tag rules the app's validator enforces, the
+	// only ones the schema claims; nil when the validator doesn't say.
+	rules      map[string]bool
 	components map[string]*schema
 	names      map[componentKey]string
 	taken      map[string]componentKey
@@ -124,7 +123,7 @@ type schemaGen struct {
 
 func newSchemaGen() *schemaGen {
 	return &schemaGen{
-		validation: true,
+		rules:      enforcedRules(nil),
 		components: map[string]*schema{},
 		names:      map[componentKey]string{},
 		taken:      map[string]componentKey{},
@@ -436,7 +435,10 @@ func nestedStruct(t reflect.Type) reflect.Type {
 
 // validateRequired reports whether a validator would require the field.
 func (g *schemaGen) validateRequired(f jsonField) bool {
-	if !g.validation {
+	if g.zeroFails(f) {
+		return true
+	}
+	if !g.rules["required"] {
 		return false
 	}
 	for _, token := range strings.Split(f.tag.Get("validate"), ",") {
@@ -777,10 +779,40 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	if text, ok := f.tag.Lookup("enum"); ok {
 		applyEnumTag(target, text, f)
 	}
-	if !g.validation {
+	if g.rules == nil {
 		return false
 	}
-	return applyValidateTag(target, f.tag.Get("validate"), base(f.typ), f.asString)
+	required := applyValidateTag(target, f.tag.Get("validate"), base(f.typ), f.asString, g.rules)
+	return required || g.zeroFails(f)
+}
+
+// zeroFails reports whether a field's validate rules reject its zero value,
+// which is what a request that leaves the field out binds, so the field is
+// required in practice: oneof=cat dog or min=1 without omitempty or a
+// default. A pointer is nil when left out, and nil skips the rules, so it
+// never is.
+func (g *schemaGen) zeroFails(f jsonField) bool {
+	tag := f.tag.Get("validate")
+	if g.rules == nil || tag == "" || f.asString || f.typ.Kind() == reflect.Pointer || hasValidateToken(tag, "omitempty") {
+		return false
+	}
+	if _, ok := f.tag.Lookup("default"); ok {
+		return false // binding fills it
+	}
+	zero := reflect.Zero(f.typ)
+	for _, token := range strings.Split(tag, ",") {
+		key, param, _ := strings.Cut(strings.TrimSpace(token), "=")
+		if key == "dive" {
+			return false
+		}
+		if key == "required" || !g.rules[key] {
+			continue
+		}
+		if check, ok := compileRule(key, param, f.typ); ok && check(zero) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // applyEnumTag lists an enum tag's comma-separated values, parsed as the
@@ -807,7 +839,7 @@ func applyEnumTag(s *schema, text string, f jsonField) {
 // applyValidateTag reads the go-playground validator tokens that have a
 // JSON Schema meaning. Zinc doesn't depend on the validator; unknown tokens
 // are ignored, and anything after "dive" describes elements, so it stops.
-func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool) (required bool) {
+func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool, rules map[string]bool) (required bool) {
 	if tag == "" {
 		return false
 	}
@@ -836,6 +868,9 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool) (req
 		key, value, _ := strings.Cut(strings.TrimSpace(token), "=")
 		if key == "dive" {
 			return required
+		}
+		if !rules[key] {
+			continue
 		}
 		if key == "required" {
 			required = true

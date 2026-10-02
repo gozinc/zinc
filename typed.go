@@ -100,6 +100,11 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 		if noContent {
 			return c.NoContent()
 		}
+		if c.app != nil && c.app.config.ValidateResponses {
+			if err := c.validateOutput(out); err != nil {
+				return err
+			}
+		}
 		if write != nil {
 			return write(c, out)
 		}

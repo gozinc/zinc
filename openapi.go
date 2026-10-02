@@ -516,9 +516,9 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	// a silent replacement.
 	shapes := map[string]string{} // path with parameter names removed -> path
 	ops := map[string]string{}    // method and OpenAPI path -> route pattern
-	// Without a Validator nothing enforces validate tags, so the spec doesn't
-	// claim their rules.
-	g.validation = a.config.Validator != nil
+	// The spec claims only the validate rules the app's validator enforces:
+	// Zinc's built-in ones, or those a RuleSetValidator declares.
+	g.rules = enforcedRules(a.config.Validator)
 	usesErrors := false
 	table := a.router
 	for i, meta := range table.routeInfos {
@@ -736,7 +736,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	responses[http.StatusInternalServerError] = errorResponse(http.StatusInternalServerError, errorBody)
 	if hasInput {
 		responses[http.StatusBadRequest] = errorResponse(http.StatusBadRequest, errorBody)
-		if a.config.Validator != nil {
+		// A configured Validator may refuse anything; Zinc's own checks only
+		// a type with rules or enums.
+		if a.config.Validator != nil || (rd.in != nil && base(rd.in).Kind() == reflect.Struct && rulePlanFor(base(rd.in)) != nil) {
 			responses[http.StatusUnprocessableEntity] = errorResponse(http.StatusUnprocessableEntity, errorBody)
 		}
 	}
@@ -872,7 +874,7 @@ func buildRequestBody(g *schemaGen, a *App, rd *routeDoc, plan *bindingPlan) *oa
 		_, hasForm := f.tag.Lookup("form")
 		if hasJSON || !hasForm {
 			jsonProps = true
-			if g.validation && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
+			if g.rules["required"] && strings.Contains(","+f.tag.Get("validate")+",", ",required,") {
 				required = true
 			}
 		}

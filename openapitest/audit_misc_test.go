@@ -168,6 +168,52 @@ func metadataScenarios() []scenario {
 					f.add("the spec claims minLength from a tag no validator enforces")
 				}
 			}},
+		{id: "M08", area: "Metadata", title: "Built-in validator: the rules claimed are the rules enforced",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				type in struct {
+					Name  string `json:"name" validate:"required,min=2"`
+					Email string `json:"email" validate:"omitempty,email"`
+				}
+				app := zinc.New()
+				app.Post("/v", zinc.Typed(func(_ *zinc.Context, v in) (in, error) { return v, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{post("/v", `{"name":"Tom"}`, 200), post("/v", `{"name":"T"}`, 422), post("/v", `{"name":"Tom","email":"x"}`, 422)},
+			expect: func(f *findings, s spec) {
+				body := s.requestSchema("POST", "/v", "application/json")
+				if prop(body, "name")["minLength"] == nil || !has(required(body), "name") {
+					f.add("the built-in rules aren't claimed: %v", body)
+				}
+			}},
+		{id: "M09", area: "Metadata", title: "A rule the zero value fails makes the field required",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				type in struct {
+					Page int `query:"page" validate:"min=1"`
+					Size int `query:"size" validate:"min=1" default:"20"`
+				}
+				app := zinc.New()
+				app.Get("/v", zinc.Typed(func(*zinc.Context, in) (item, error) { return item{ID: 1}, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{{method: "GET", target: "/v", status: 422}, get("/v?page=1")},
+			expect: func(f *findings, s spec) {
+				if s.param("GET", "/v", "query", "page")["required"] != true {
+					f.add("page is refused when absent, so it's required")
+				}
+				if s.param("GET", "/v", "query", "size")["required"] == true {
+					f.add("size has a default, so it's never absent")
+				}
+			}},
+		{id: "M10", area: "Metadata", title: "Enum values are enforced with any validator",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				type in struct {
+					Color string `query:"color" enum:"red,blue"`
+				}
+				app := zinc.New(zinc.Config{Validator: noopValidator{}})
+				app.Get("/v", zinc.Typed(func(*zinc.Context, in) (item, error) { return item{ID: 1}, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/v?color=red"), {method: "GET", target: "/v?color=green", status: 422}}},
 		{id: "M06", area: "Metadata", title: "Example on a body field",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				type in struct {

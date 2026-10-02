@@ -29,6 +29,9 @@ type bindingPlan struct {
 	// hasDefaults reports whether any field has a default tag, so binding
 	// skips the defaults pass for types without one.
 	hasDefaults bool
+	// rules checks the type's validate tags and enum values; nil when it
+	// has none.
+	rules *rulePlan
 	// err is the first field binding can't fill. A Typed handler panics with
 	// it at registration; a binder returns it.
 	err error
@@ -395,7 +398,7 @@ func bindingPlanFor(typ reflect.Type) *bindingPlan {
 // compileBindingPlan panics on a default tag the field can't hold, so the
 // mistake shows at registration for a Typed handler.
 func compileBindingPlan(typ reflect.Type) *bindingPlan {
-	plan := &bindingPlan{}
+	plan := &bindingPlan{rules: rulePlanFor(typ)}
 	plan.compileFields(typ, typ, nil, 0)
 	return plan
 }

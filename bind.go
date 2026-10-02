@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 )
 
 // Validator validates a value after binding.
@@ -162,7 +163,10 @@ func bindRequest(c *Context, v any) error {
 	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
 		return wrapBindError("path", err)
 	}
-	return c.Validate(v)
+	if c.app == nil {
+		return nil
+	}
+	return c.validate(v, plan.rules)
 }
 
 // bindRequestBody decodes an optional body into v without validating it. A
@@ -349,7 +353,10 @@ func bindPath(c *Context, v any) error {
 	if err := bindFieldsFromPath(val, plan.pathFields, c); err != nil {
 		return wrapBindError("path", err)
 	}
-	return c.Validate(v)
+	if c.app == nil {
+		return nil
+	}
+	return c.validate(v, plan.rules)
 }
 
 // Bind returns the request binder facade for this context.
@@ -448,14 +455,34 @@ func (b *Bind) Path(v any) error {
 	return bindPath(b.c, v)
 }
 
-// Validate invokes the configured Validator, or succeeds when none is set. A
-// failure is returned as a *ValidationError, which the default error handler
-// answers with 422, unless the validator's error already carries a status.
+// Validate checks v, a pointer to a struct, as binding does. Enum values,
+// from an enum tag or an EnumProvider type, are always checked. Then the
+// configured Validator runs, or, when there's none, Zinc checks v's validate
+// tags with BuiltinRules. A failure is a *ValidationError, which the default
+// error handler answers with 422, unless the validator's error already
+// carries a status.
 func (c *Context) Validate(v any) error {
-	if c.app == nil || c.app.config.Validator == nil {
+	if c.app == nil {
 		return nil
 	}
-	err := c.app.config.Validator.Validate(v)
+	return c.validate(v, rulePlanOf(v))
+}
+
+// validate is Validate with v's rule plan already found.
+func (c *Context) validate(v any, plan *rulePlan) error {
+	custom := c.app.config.Validator
+	if plan != nil {
+		if custom == nil && len(plan.unsupported) > 0 {
+			return fmt.Errorf("zinc: validate rules Zinc doesn't enforce: %s; set Config.Validator to a validator that does", strings.Join(plan.unsupported, ", "))
+		}
+		if errs := plan.check(reflect.ValueOf(v).Elem(), custom == nil, "", nil); errs != nil {
+			return &ValidationError{Err: errs}
+		}
+	}
+	if custom == nil {
+		return nil
+	}
+	err := custom.Validate(v)
 	if err == nil {
 		return nil
 	}
@@ -463,6 +490,15 @@ func (c *Context) Validate(v any) error {
 		return err
 	}
 	return &ValidationError{Err: err}
+}
+
+// rulePlanOf returns the rule plan for v, a pointer to a struct, or nil.
+func rulePlanOf(v any) *rulePlan {
+	t := reflect.TypeOf(v)
+	if t == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct || reflect.ValueOf(v).IsNil() {
+		return nil
+	}
+	return rulePlanFor(t.Elem())
 }
 
 func setFieldValue(value reflect.Value, inputs []string) error {

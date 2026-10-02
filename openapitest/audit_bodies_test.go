@@ -5,6 +5,7 @@ package openapitest
 
 import (
 	"bytes"
+	"encoding/json"
 	"mime/multipart"
 
 	"github.com/0mjs/zinc"
@@ -179,7 +180,7 @@ func bodyScenarios() []scenario {
 			}},
 		{id: "B09", area: "Bodies", title: "Custom decoder (YAML-like)",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
-				app := zinc.New(zinc.Config{Decoders: map[string]zinc.Decoder{"application/x-kv": func(b []byte, v any) error { return nil }}})
+				app := zinc.New(zinc.Config{Decoders: map[string]zinc.Decoder{"application/x-kv": func(b []byte, v any) error { return json.Unmarshal([]byte(`{"name":"x"}`), v) }}})
 				app.Post("/kv", zinc.Typed(func(_ *zinc.Context, in newPet) (zinc.NoContent, error) { return zinc.NoContent{}, nil }))
 				return app, zinc.OpenAPIConfig{}
 			},

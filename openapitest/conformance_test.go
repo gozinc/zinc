@@ -43,7 +43,7 @@ type pet struct {
 type createPet struct {
 	Store string `path:"store"`
 	Name  string `json:"name" validate:"required,min=1,max=40"`
-	Kind  string `json:"kind" validate:"oneof=cat dog"`
+	Kind  string `json:"kind" validate:"omitempty,oneof=cat dog"`
 }
 
 type petID struct {
@@ -58,18 +58,9 @@ type conflict struct {
 	Reason string `json:"reason"`
 }
 
-// strictValidator enforces what the tags on createPet say, so 422s are real.
-type strictValidator struct{}
-
-func (strictValidator) Validate(v any) error {
-	if in, ok := v.(*createPet); ok && (in.Name == "" || len(in.Name) > 40) {
-		return errors.New("name: must be 1 to 40 characters")
-	}
-	return nil
-}
-
 func conformanceApp() *zinc.App {
-	app := zinc.New(zinc.Config{Validator: strictValidator{}})
+	// No Validator: Zinc enforces createPet's tags itself, so 422s are real.
+	app := zinc.New()
 	full := pet{ID: 7, Name: "Rex", Kind: "dog", Owner: &owner{Email: "ada@example.com"}, Tags: []string{"good"},
 		Born: time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC), Weight: 12.5, Chipped: true,
 		Extra: map[string]string{"colour": "brown"}, Parent: &pet{ID: 1, Name: "Max", Kind: "dog", Tags: []string{}}}

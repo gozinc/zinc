@@ -110,11 +110,12 @@ func TestSchemaStructComponent(t *testing.T) {
 		t.Fatalf("component:\n got %s\nwant %s", got, want)
 	}
 	// A response always carries a field without omitempty, so the output
-	// schema requires it; a request only has to carry validate:"required".
+	// schema requires it; a request has to carry validate:"required", and a
+	// field whose rules reject its zero value, such as min=1 or oneof.
 	if got := schemaJSON(t, g.inputSchemaFor(reflect.TypeFor[schemaUser]())); got != `{"$ref":"#/components/schemas/schemaUserInput"}` {
 		t.Fatalf("input ref: %s", got)
 	}
-	if got := string(mustJSON(t, g.components["schemaUserInput"].required)); got != `["email"]` {
+	if got := string(mustJSON(t, g.components["schemaUserInput"].required)); got != `["email","name","role"]` {
 		t.Fatalf("input required: %s", got)
 	}
 	// schemaAddress's city has no omitempty, so responses require it and
@@ -324,7 +325,8 @@ func TestSanitizeComponentName(t *testing.T) {
 }
 
 // With the validator's omitempty, a zero value skips the other rules, so the
-// schema must accept it too.
+// schema must accept it too. Without it, the zero value fails, so a request
+// must send the field: code is required.
 func TestSchemaValidateOmitEmptyAllowsZero(t *testing.T) {
 	type pet struct {
 		Kind  string `json:"kind" validate:"omitempty,oneof=cat dog"`
@@ -337,7 +339,7 @@ func TestSchemaValidateOmitEmptyAllowsZero(t *testing.T) {
 	g := newSchemaGen()
 	ref := schemaJSON(t, g.inputSchemaFor(reflect.TypeFor[pet]()))
 	name := strings.TrimPrefix(strings.Trim(ref, `{}"`), `$ref":"#/components/schemas/`)
-	want := `{"type":"object","properties":{"kind":{"type":"string","enum":["cat","dog",""]},"email":{"type":"string","maxLength":80},"age":{"type":"integer","format":"int64","maximum":30},"size":{"type":"integer","format":"int64","enum":[1,2,0]},"tags":{"type":"array","items":{"type":"integer","format":"int64"}},"code":{"type":"string","enum":["a","b"]}}}`
+	want := `{"type":"object","properties":{"kind":{"type":"string","enum":["cat","dog",""]},"email":{"type":"string","maxLength":80},"age":{"type":"integer","format":"int64","maximum":30},"size":{"type":"integer","format":"int64","enum":[1,2,0]},"tags":{"type":"array","items":{"type":"integer","format":"int64"}},"code":{"type":"string","enum":["a","b"]}},"required":["code"]}`
 	if got := schemaJSON(t, g.components[name]); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
