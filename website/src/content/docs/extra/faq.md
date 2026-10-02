@@ -41,7 +41,7 @@ No. Zinc's `go.mod` requires no module, and its middleware packages use only Zin
 
 ## Does Zinc generate an OpenAPI spec?
 
-Yes. Every app serves an OpenAPI 3.1 spec at `/openapi.json` and a reference page at `/docs`, built from your structs, tags, return types and route methods, with no comments or code generation. Validation rules appear in the spec only when they're enforced. It's JSON only for now, with no polymorphic (`oneOf`) types yet. See [OpenAPI](/guide/openapi/), and [Coming from Huma or Fuego](/guide/coming-from-huma-or-fuego/) for how it compares with the frameworks built around it.
+Yes. Every app serves an OpenAPI 3.1 spec at `/openapi.json` and a reference page at `/docs`, built from your structs, tags, return types and route methods, with no comments or code generation. Validation rules appear in the spec only when they're enforced. The spec is JSON only, and polymorphic (`oneOf`) types aren't supported. See [OpenAPI](/guide/openapi/), and [Coming from Huma or Fuego](/guide/coming-from-huma-or-fuego/) for how it compares with the frameworks built around it.
 
 ## Does Zinc validate input?
 

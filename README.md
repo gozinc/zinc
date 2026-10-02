@@ -131,7 +131,7 @@ Zinc writes, among the rest:
 
 with `201`, `400`, `422` and `500` responses and their bodies. The `email` rule in the spec is the rule a request is checked against: `{"email":"nope"}` gets a `422` naming the field. The spec only states rules that something enforces, and mistakes such as two routes OpenAPI can't tell apart fail at startup. `app.Validate()` checks everything before the server takes traffic.
 
-Output types, response headers, `Route.Errors`, checked examples, security schemes, RFC 9457 problem details, and hooks for anything else are in the [OpenAPI guide](https://zinc.carbonsoft.sh/guide/openapi/). For a private API, turn the spec off or put it behind auth. Not yet supported: YAML output and polymorphic (`oneOf`) types. Coming from Huma or Fuego? [Here's how they compare](https://zinc.carbonsoft.sh/guide/coming-from-huma-or-fuego/).
+Output types, response headers, `Route.Errors`, checked examples, security schemes, RFC 9457 problem details, and hooks for anything else are in the [OpenAPI guide](https://zinc.carbonsoft.sh/guide/openapi/). For a private API, turn the spec off or put it behind auth. Not supported: YAML output and polymorphic (`oneOf`) types. Coming from Huma or Fuego? [Here's how they compare](https://zinc.carbonsoft.sh/guide/coming-from-huma-or-fuego/).
 
 ## What you get
 
