@@ -41,6 +41,8 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | `Response(status, v) Route` | Another response the handler writes itself; `nil` means no body |
 | `Produces(status, mediaTypes...) Route` | The media types `status` is sent as, where Zinc can't tell |
 | `Consumes(mediaTypes...) Route` | The request body's media types, in place of the inferred ones |
+| `Example(status, name, value) Route` | A named example of the response for `status`: a value of the output type, the type given to `Response`, or an `*HTTPError` for an error status. The spec fails to build when it doesn't match |
+| `RequestExample(name, value) Route` | A named example of the request body, a value of the input type |
 | `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
 | `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; any one is enough, and none marks it public. `"oauth:pets:read"` adds a scope |
 | `SecurityAll(schemes...) Route` | Like `Security`, but every scheme is needed |

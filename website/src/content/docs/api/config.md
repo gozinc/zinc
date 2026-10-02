@@ -32,7 +32,7 @@ app := zinc.New(zinc.Config{
 | `CookieSameSite` | `http.SameSite` | not set | `SameSite` for cookies from `SetCookie` and `ClearCookie` that don't set one |
 | `ProxyHeader` | `string` | `"X-Forwarded-For"` | Header read by `c.IP()` |
 | `TrustedProxies` | `[]string` | none | IPs and CIDR ranges allowed to set `ProxyHeader` |
-| `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text |
+| `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text, `zinc.ProblemErrors` RFC 9457 problem details |
 | `Validator` | `Validator` | none | Runs after every bind |
 | `Renderer` | `Renderer` | none | Renders templates for `c.Render` |
 | `Decoders` | `map[string]Decoder` | none | Request body decoders by media type; `application/json` replaces `encoding/json` |

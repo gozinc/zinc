@@ -109,8 +109,9 @@ Set `Config.ErrorHandler` to control how every returned error becomes a response
 |---|---|
 | `DefaultErrorHandler` (the default) | `{"error":{"status":404,"message":"...","fields":{...},"details":{...}}}`; `fields` and `details` appear only when present |
 | `TextErrors` | The message as plain text instead of JSON |
+| `ProblemErrors` | RFC 9457 problem details as `application/problem+json`: `{"type":"about:blank","title":"Not Found","status":404,"detail":"..."}`, with `errors` for invalid fields and an `HTTPError`'s details as members |
 
-Both resolve the status the same way, and neither sends the text of an unknown error or of a 5xx `StatusCoder`. A custom handler usually wraps the default:
+All three resolve the status the same way, and neither sends the text of an unknown error or of a 5xx `StatusCoder`. A custom handler usually wraps the default:
 
 ```go
 cfg.ErrorHandler = func(c *zinc.Context, err error) {

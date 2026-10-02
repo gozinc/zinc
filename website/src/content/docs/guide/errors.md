@@ -214,6 +214,34 @@ curl -i http://localhost:8080/users/nope
 
 It picks statuses and hides internal messages the same way as the default handler.
 
+### Problem details (RFC 9457)
+
+`zinc.ProblemErrors` writes the standard [problem details](https://www.rfc-editor.org/rfc/rfc9457) format, `application/problem+json`, which many API clients and gateways understand:
+
+```go
+app := zinc.New(zinc.Config{ErrorHandler: zinc.ProblemErrors})
+```
+
+```bash
+curl -i http://localhost:8080/users/nope
+# HTTP/1.1 404 Not Found
+# Content-Type: application/problem+json
+#
+# {"type":"about:blank","title":"Not Found","status":404,"detail":"user not found"}
+```
+
+`detail` is the message, left out when it's only the status text. Fields that failed binding or validation are listed under `errors`, and an `HTTPError`'s details become members of the object:
+
+```bash
+curl http://localhost:8080/items?page=two
+# {"type":"about:blank","title":"Bad Request","status":400,"detail":"invalid query parameter","errors":{"page":"must be an integer"}}
+
+curl -X POST http://localhost:8080/users
+# {"type":"about:blank","title":"Conflict","status":409,"detail":"email already registered","field":"email"}
+```
+
+A detail named like a standard member, such as `status`, is dropped rather than replacing it. The [OpenAPI](/guide/openapi/) spec describes error responses with a `Problem` schema while `ProblemErrors` is the app's error handler. Like the default, it sends no internal error text.
+
 ## Recover from panics
 
 Without help, Go's HTTP server catches a handler panic, logs it, and drops the connection, so the client gets no response at all. Add [Recover](/middleware/recover/) right after the Request Logger:
@@ -253,7 +281,11 @@ If a handler has already written a response and then returns an error, the error
 
 ### Plain-text errors leave out fields
 
-`zinc.TextErrors` sends only the status text for binding and validation errors, such as `Bad Request`. Use the JSON default if clients need to know which field failed.
+`zinc.TextErrors` sends only the status text for binding and validation errors, such as `Bad Request`. Use the JSON default or `zinc.ProblemErrors` if clients need to know which field failed.
+
+### The spec only knows the built-in handlers
+
+The OpenAPI spec describes error bodies when the error handler is `DefaultErrorHandler` or `ProblemErrors` itself. A handler of your own, even one that calls them, could send anything, so its error responses list the status alone.
 
 ## Next steps
 

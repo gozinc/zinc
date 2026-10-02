@@ -205,6 +205,52 @@ app.Get("/old-docs", zinc.Typed(func(*zinc.Context, struct{}) (zinc.Redirect, er
 
 `Bytes`, `File` and `Stream` choose their media type when the handler runs, so the spec lists them as `application/octet-stream` unless the route says otherwise with `.Produces(status, mediaTypes...)`.
 
+## Send headers and cookies
+
+Tag an output field `header` and it's sent as that response header instead of in the body. Add `json:"-"` too, so it isn't also in the JSON. A `*http.Cookie` tagged `header:"Set-Cookie"` sets a cookie:
+
+```go
+type Created struct {
+	Location string       `header:"Location" json:"-"`
+	Session  *http.Cookie `header:"Set-Cookie" json:"-"`
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+}
+
+app.Post("/pets", zinc.Typed(func(c *zinc.Context, in CreatePet) (Created, error) {
+	pet := pets.Add(in.Name) // pets: your store
+	return Created{
+		Location: "/pets/" + pet.ID,
+		Session:  &http.Cookie{Name: "last_pet", Value: pet.ID, Path: "/"},
+		ID:       pet.ID,
+		Name:     pet.Name,
+	}, nil
+})).Status(http.StatusCreated)
+```
+
+```bash
+curl -i -X POST localhost:8080/pets -H 'Content-Type: application/json' -d '{"name":"Tom"}'
+# HTTP/1.1 201 Created
+# Content-Type: application/json; charset=utf-8
+# Location: /pets/7
+# Set-Cookie: last_pet=7; Path=/
+#
+# {"id":"7","name":"Tom"}
+```
+
+The spec lists each header on the response. What a field sends:
+
+| Field | Sends |
+|---|---|
+| `string` | The value; nothing when it's empty |
+| A number or `bool` | The value, always, `0` and `false` included |
+| `time.Time` | An HTTP date, such as `Fri, 02 Oct 2026 09:30:00 GMT`; nothing when it's zero |
+| A pointer | The value it points to; nothing when it's nil |
+| A slice, such as `[]string` | One header line per element |
+| `*http.Cookie` or `[]*http.Cookie` | `Set-Cookie`, through `c.SetCookie` |
+
+A field tagged `header` without `json:"-"` stays in the body and sends no header, so an input type with `header` fields can be returned as it is.
+
 ## Return an error
 
 Return an error and it goes to the [error handler](/guide/errors/), as it would from any handler. Zinc's error constructors and your own errors with a `StatusCode()` method keep their status:
@@ -228,7 +274,7 @@ curl localhost:8080/users/8
 
 ## Use the context
 
-Your function still gets the `*zinc.Context`, so you have everything a plain handler has. Use `c.Context()` to stop work when the client goes away, `zinc.Value` to read what middleware stored, and `c.SetHeader` to add headers:
+Your function still gets the `*zinc.Context`, so you have everything a plain handler has. Use `c.Context()` to stop work when the client goes away, `zinc.Value` to read what middleware stored, and `c.SetHeader` to add headers that depend on the request:
 
 ```go
 func createUser(c *zinc.Context, in CreateUser) (User, error) {
@@ -253,7 +299,7 @@ curl -i -X POST localhost:8080/orgs/acme/users \
 
 ## When to use a plain handler
 
-A typed handler answers with JSON, nothing, or one of the [output types](#send-text-files-and-redirects). Write a plain `func(c *zinc.Context) error` for routes that send events one at a time with `c.SSE`, render templates, or choose the format from the `Accept` header. Both kinds of handler work side by side in the same app.
+A typed handler answers with JSON and [headers](#send-headers-and-cookies), nothing, or one of the [output types](#send-text-files-and-redirects). Write a plain `func(c *zinc.Context) error` for routes that send events one at a time with `c.SSE`, render templates, or choose the format from the `Accept` header. Both kinds of handler work side by side in the same app.
 
 ## Good to know
 

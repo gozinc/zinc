@@ -85,6 +85,16 @@ These change behavior on purpose. Check each against your app.
 - **Request bodies list every format binding accepts**: XML when the input has `xml` tags, and each configured decoder's media type. A `string` input is a `text/plain` body.
 - **A `media` tag on a file field** documents and enforces the upload's content type.
 
+## Changes in 0.6.4
+
+0.6.4 adds API; nothing you have stops working.
+
+- **Output fields can be response headers.** A field tagged `header` with `json:"-"` is sent as that header, and documented on the response; a `*http.Cookie` tagged `header:"Set-Cookie"` sets a cookie. A `header` field without `json:"-"` stays in the body, as before. See [Send headers and cookies](/guide/typed-handlers/#send-headers-and-cookies).
+- **`zinc.ProblemErrors`** writes RFC 9457 problem details as `application/problem+json`, and the spec describes them. See [Problem details](/guide/errors/#problem-details-rfc-9457).
+- **Named examples.** `.Example(status, name, value)` and `.RequestExample(name, value)` add examples written as Go values, checked against the response or input type when the spec is built.
+- **Field roles.** `openapi:"readonly"`, `"writeonly"` and `"deprecated"` mark a field in the schema.
+- **Component names.** A type with an `OpenAPIName() string` method chooses its component's name.
+
 ## Benchmarks are scored with ties
 
 The [benchmark](/extra/benchmarks/) scores count a scenario as a tie when Zinc and the fastest rival are within 3% of each other, either way. Before, the lower median won however small the gap, so a 0.2% difference counted as much as a 50% one. The headline is lower than 0.5's as a result, and every tie is listed.

@@ -126,6 +126,8 @@ Every route has these methods. Each returns the route, so they chain:
 | `.Deprecated()` | Marks the route deprecated; it still serves requests |
 | `.Hidden()` | Leaves the route out of the spec |
 | `.Errors(404, 409)` | Adds error statuses the handler answers by returning an error, such as `zinc.NotFound(...)` |
+| `.Example(201, "a cat", Pet{...})` | Adds a named example of a response; see [Add examples](#add-examples) |
+| `.RequestExample("a cat", CreatePet{...})` | Adds a named example of the request body |
 | `.Response(409, Conflict{})` | Adds a response the handler writes itself; pass `nil` for one with no body |
 | `.Produces(200, "text/csv")` | The media types a status is sent as, when Zinc can't tell: a plain handler, or a `Bytes`, `File` or `Stream` output |
 | `.Consumes("text/csv")` | The media types the request body is accepted as, in place of the ones Zinc infers |
@@ -143,6 +145,43 @@ app.Get("/pets/{id}", zinc.Typed(func(c *zinc.Context, in PetID) (Pet, error) {
 	}
 	return pet, nil
 })).Errors(http.StatusNotFound)
+```
+
+## Add examples
+
+Give a response or the request body named examples, written as Go values. Zinc encodes each as clients would receive it and puts it beside the schema:
+
+```go
+app.Post("/pets", zinc.Typed(createPet)).
+	Status(http.StatusCreated).
+	RequestExample("a cat", CreatePet{Name: "Tom"}).
+	Example(http.StatusCreated, "a cat", Pet{ID: "7", Name: "Tom"}).
+	Errors(http.StatusConflict).
+	Example(http.StatusConflict, "name taken", zinc.NewError(http.StatusConflict, "a pet named Tom exists"))
+```
+
+```json
+"409": {
+  "description": "Conflict",
+  "content": {
+    "application/json": {
+      "schema": { "$ref": "#/components/schemas/Error" },
+      "examples": {
+        "name taken": {
+          "value": { "error": { "status": 409, "message": "a pet named Tom exists" } }
+        }
+      }
+    }
+  }
+}
+```
+
+An error example is an `*HTTPError`, shown as your error handler writes it. A request example leaves out fields bound from the path, query, headers or cookies, and nil fields.
+
+Each example is checked when the spec is built. A value of the wrong type is an error that names the route:
+
+```text
+zinc: GET /: example "x" for 200: value is a main.petRecord; the response is a main.Pet
 ```
 
 ## Tag and protect a group
@@ -333,6 +372,39 @@ func (Date) OpenAPISchema() map[string]any {
 }
 ```
 
+### Mark fields read-only, write-only or deprecated
+
+The `openapi` tag adds a field's role to the schema: `readonly` for a field the server sets, such as an ID, `writeonly` for one clients send but never get back, such as a password, and `deprecated`. Separate several with commas:
+
+```go
+type Pet struct {
+	ID       string `json:"id" openapi:"readonly"`
+	Name     string `json:"name"`
+	Password string `json:"password,omitempty" openapi:"writeonly"`
+	Nick     string `json:"nick,omitempty" openapi:"deprecated"`
+}
+```
+
+```json
+"id": { "type": "string", "readOnly": true },
+"password": { "type": "string", "writeOnly": true },
+"nick": { "type": "string", "deprecated": true }
+```
+
+The tag describes the field; it doesn't filter it. Binding still fills a `readonly` field from the body, and a response still sends a `writeonly` one. Use separate input and output types for a field that must never cross.
+
+### Name a component
+
+A struct's component is named after its Go type. To choose another name, such as for an unexported type or a generic one, add an `OpenAPIName` method (`zinc.SchemaNamer`):
+
+```go
+type petRecord struct{ ID string `json:"id"` }
+
+func (petRecord) OpenAPIName() string { return "PetSummary" }
+```
+
+Its input variant is then `PetSummaryInput`. If two types claim one name, the later one is listed under its package.
+
 ### Types from other packages
 
 A type from another module can't gain a method. Give it a schema in `OpenAPIConfig.Schemas` instead:
@@ -355,7 +427,7 @@ Zinc doesn't check `validate` tags itself: a [validator](/guide/binding/#validat
 
 ### Error bodies follow your error handler
 
-With Zinc's default error handler, the `400`, `422` and `500` responses describe its error body, the `Error` schema. With your own `ErrorHandler`, Zinc can't know what you send, so those responses list the status alone.
+With Zinc's default error handler, the `400`, `422` and `500` responses describe its error body, the `Error` schema. With `zinc.ProblemErrors`, they describe RFC 9457 problem details, the `Problem` schema, as `application/problem+json`. With your own `ErrorHandler`, Zinc can't know what you send, so those responses list the status alone.
 
 ### Slices and maps in responses can be null
 
