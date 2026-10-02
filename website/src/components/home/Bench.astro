@@ -11,13 +11,13 @@ const md = source ? fs.readFileSync(source, "utf8") : "";
 // The report has two tables; the homepage shows the frameworks table, the
 // headline, and quotes the routers score.
 const section = (title: string) => md.split(/^## /m).find((s) => s.startsWith(title)) ?? "";
-const results = [...section("Frameworks: every scenario").matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| (\w+) \|$/gm)].map((m) => ({
+const results = [...section("Frameworks: every scenario").matchAll(/^\| `([^`]+)` \| ([\d.,]+) \| ([\d.,]+) \| ([\d.,]+) \| (\w+|Tie: [^|]+?) \|$/gm)].map((m) => ({
   bench: m[1],
   ns: [m[2], m[3], m[4]].map((v) => parseFloat(v.replace(/,/g, ""))),
   winner: m[5],
 }));
 const score = (tier: string) => {
-  const m = md.match(new RegExp(`### ${tier} \\(\\d+ scenarios\\)[\\s\\S]*?\\| \\*\\*Zinc\\*\\* \\| (\\d+) / (\\d+) \\| \\+([\\d.]+)% \\|`));
+  const m = md.match(new RegExp(`### ${tier} \\(\\d+ scenarios\\)[\\s\\S]*?\\| \\*\\*Zinc\\*\\* \\| (\\d+) / (\\d+) \\|(?: \\d+ \\|)? \\+([\\d.]+)% \\|`));
   return m ? { wins: +m[1], of: +m[2], geo: m[3] } : null;
 };
 const fwScore = score("Frameworks");
@@ -72,10 +72,10 @@ const first = workloads[0];
     </p>
     <ol class="winmap" aria-label={`${wins.Zinc} of ${results.length} scenarios won by Zinc`}>
       {results.map((r) => (
-        <li data-zinc={r.winner === "Zinc" ? "" : undefined} title={`${r.bench}: ${r.winner} fastest · Zinc ${fmt(r.ns[0])} ns`}></li>
+        <li data-zinc={r.winner === "Zinc" ? "" : undefined} data-tie={r.winner.startsWith("Tie") ? "" : undefined} title={`${r.bench}: ${r.winner.startsWith("Tie") ? r.winner.replace("Tie: ", "tie between ") : r.winner + " fastest"} · Zinc ${fmt(r.ns[0])} ns`}></li>
       ))}
     </ol>
-    <p class="legend"><span><i class="z"></i>Zinc fastest</span><span><i></i>A rival fastest</span></p>
+    <p class="legend"><span><i class="z"></i>Zinc fastest</span><span><i class="t"></i>A tie within 3%</span><span><i></i>A rival fastest</span></p>
     <p class="env">
       <span class="when">{mixedDate && <span class="hist">Mixed-date comparison</span>}{runDate}</span>
       <span>{run.machine} · {run.go} · commit {run.commit}</span>
@@ -211,6 +211,11 @@ const first = workloads[0];
     box-shadow: none;
   }
 
+  .winmap li[data-tie] {
+    background: color-mix(in srgb, var(--z-zn) 35%, transparent);
+    box-shadow: none;
+  }
+
   .legend {
     color: var(--z-soft);
     display: flex;
@@ -235,6 +240,11 @@ const first = workloads[0];
 
   .legend i.z {
     background: var(--z-zn);
+    box-shadow: none;
+  }
+
+  .legend i.t {
+    background: color-mix(in srgb, var(--z-zn) 35%, transparent);
     box-shadow: none;
   }
 
