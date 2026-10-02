@@ -4,10 +4,12 @@
 package zinc
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"unicode/utf8"
 )
@@ -362,6 +364,87 @@ func TextErrors(c *Context, err error) {
 	}
 	_ = c.Status(status).String(message)
 }
+
+// ProblemErrors is an ErrorHandler that writes RFC 9457 problem details,
+// as application/problem+json:
+//
+//	{"type":"about:blank","title":"Not Found","status":404,"detail":"pet not found"}
+//
+// Invalid fields from binding or validation are listed under "errors", and
+// an HTTPError's Details become members of the object. Status resolution and
+// message safety match DefaultErrorHandler, and the OpenAPI spec describes
+// error responses as problem details when it's the app's ErrorHandler.
+func ProblemErrors(c *Context, err error) {
+	if c == nil || err == nil || c.written {
+		return
+	}
+	resetErrorRepresentation(c)
+	status, public := resolveError(err)
+	problem := problemDetails{Type: "about:blank", Title: http.StatusText(status), Status: status}
+	var extra Map
+	switch e := public.(type) {
+	case *HTTPError:
+		for key, values := range e.Headers {
+			for _, value := range values {
+				c.AppendHeader(key, value)
+			}
+		}
+		if message := e.Error(); message != problem.Title {
+			problem.Detail = message
+		}
+		extra = e.Details
+	case *BindError:
+		problem.Detail, problem.Errors = e.clientMessage()
+	case *ValidationError:
+		problem.Detail, problem.Errors = "validation failed", e.Fields()
+	case nil:
+	default:
+		if status < 500 {
+			problem.Detail = e.Error()
+		}
+	}
+	body, encodeErr := problem.marshal(extra)
+	if encodeErr != nil {
+		status = StatusInternalServerError
+		body = []byte(`{"type":"about:blank","title":"Internal Server Error","status":500}`)
+	}
+	_ = c.Status(status).Data(problemJSONType, append(body, '\n'))
+}
+
+// problemDetails holds the members RFC 9457 defines, in its order.
+type problemDetails struct {
+	Type   string            `json:"type"`
+	Title  string            `json:"title"`
+	Status int               `json:"status"`
+	Detail string            `json:"detail,omitempty"`
+	Errors map[string]string `json:"errors,omitempty"`
+}
+
+// marshal encodes p followed by extra's members, sorted by name. A member
+// of extra can't replace one of p's.
+func (p problemDetails) marshal(extra Map) ([]byte, error) {
+	body, err := json.Marshal(p)
+	if err != nil || len(extra) == 0 {
+		return body, err
+	}
+	body = body[:len(body)-1]
+	for _, key := range slices.Sorted(maps.Keys(extra)) {
+		switch key {
+		case "type", "title", "status", "detail", "errors", "instance":
+			continue
+		}
+		name, _ := json.Marshal(key)
+		value, err := json.Marshal(extra[key])
+		if err != nil {
+			return nil, err
+		}
+		body = append(append(append(append(body, ','), name...), ':'), value...)
+	}
+	return append(body, '}'), nil
+}
+
+// problemJSONType is the media type of an RFC 9457 problem details object.
+const problemJSONType = "application/problem+json"
 
 // resetErrorRepresentation discards representation headers prepared by a
 // helper that failed before the response was committed.

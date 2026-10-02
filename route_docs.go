@@ -34,6 +34,17 @@ type routeDoc struct {
 	// lists the request body's, from Route.Consumes.
 	produces map[int][]string
 	consumes []string
+	// examples are named examples, from Route.Example and
+	// Route.RequestExample, in the order given.
+	examples []docExample
+}
+
+// docExample is a named example of a response, or of the request body when
+// status is 0.
+type docExample struct {
+	status int
+	name   string
+	value  any
 }
 
 // docResponse is an extra response declared with Route.Response. A nil typ
@@ -154,6 +165,52 @@ func (r Route) Produces(status int, mediaTypes ...string) Route {
 	}
 	doc.produces[status] = slices.Clone(mediaTypes)
 	return r
+}
+
+// Example adds a named example of the response sent with status, shown in
+// the spec beside its schema:
+//
+//	app.Get("/pets/{id}", zinc.Typed(getPet)).
+//		Example(200, "a cat", Pet{ID: "7", Name: "Tom"}).
+//		Errors(404).
+//		Example(404, "unknown id", zinc.NewError(404, "pet not found"))
+//
+// value is what the route sends for it, as a Go value: the output type for
+// the success status, the type given to Response for a declared status, or
+// an *HTTPError for an error status, shown as the app's ErrorHandler writes
+// it. The spec fails to build when value doesn't match the response it's
+// for. An example with the same status and name replaces the earlier one.
+func (r Route) Example(status int, name string, value any) Route {
+	if status < 100 || status > 599 {
+		panic(fmt.Sprintf("zinc: Example status %d is not an HTTP status", status))
+	}
+	r.doc("Example").addExample(docExample{status: status, name: mustExampleName("Example", name), value: value})
+	return r
+}
+
+// RequestExample adds a named example of the request body, a value of the
+// route's input type. Fields bound from the path, query, headers or cookies
+// are left out, as the body doesn't carry them, and so are nil fields.
+func (r Route) RequestExample(name string, value any) Route {
+	r.doc("RequestExample").addExample(docExample{name: mustExampleName("RequestExample", name), value: value})
+	return r
+}
+
+func (d *routeDoc) addExample(ex docExample) {
+	for i := range d.examples {
+		if d.examples[i].status == ex.status && d.examples[i].name == ex.name {
+			d.examples[i] = ex
+			return
+		}
+	}
+	d.examples = append(d.examples, ex)
+}
+
+func mustExampleName(method, name string) string {
+	if strings.TrimSpace(name) == "" {
+		panic("zinc: " + method + " needs a name, such as \"a cat\"")
+	}
+	return name
 }
 
 // Consumes declares the media types the route accepts as a request body,

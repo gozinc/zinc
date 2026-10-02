@@ -231,6 +231,9 @@ type App struct {
 	serverHeader     []string
 	staticRoots      []*confinedDirFS
 	defaultErrors    bool
+	// problemErrors is set when the ErrorHandler is ProblemErrors, so the
+	// spec describes problem details.
+	problemErrors bool
 	// Custom body formats from Config, keyed by base media type; nil when none.
 	decoders map[string]Decoder
 	encoders map[string]Encoder
@@ -272,6 +275,7 @@ func New(config ...Config) *App {
 		},
 		middleware:       make([]HandlerFunc, 0),
 		defaultErrors:    defaultErrors,
+		problemErrors:    cfg.ErrorHandler != nil && reflect.ValueOf(cfg.ErrorHandler).Pointer() == reflect.ValueOf(ProblemErrors).Pointer(),
 		autoHead:         !cfg.DisableAutoHead,
 		autoOptions:      !cfg.DisableAutoOptions,
 		methodNotAllowed: !cfg.DisableMethodNotAllowed,

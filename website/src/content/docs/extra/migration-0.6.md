@@ -7,7 +7,7 @@ slug: extra/migration-0.6
 Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.6.3
+go get github.com/0mjs/zinc@v0.6.4
 go test ./...
 ```
 
@@ -84,6 +84,16 @@ These change behavior on purpose. Check each against your app.
 - **`.Status` accepts redirect codes**, `301`, `302`, `303`, `307` and `308`, as well as `2xx`.
 - **Request bodies list every format binding accepts**: XML when the input has `xml` tags, and each configured decoder's media type. A `string` input is a `text/plain` body.
 - **A `media` tag on a file field** documents and enforces the upload's content type.
+
+## Changes in 0.6.4
+
+0.6.4 adds API; nothing you have stops working.
+
+- **Output fields can be response headers.** A field tagged `header` with `json:"-"` is sent as that header, and documented on the response; a `*http.Cookie` tagged `header:"Set-Cookie"` sets a cookie. A `header` field without `json:"-"` stays in the body, as before. See [Send headers and cookies](/guide/typed-handlers/#send-headers-and-cookies).
+- **`zinc.ProblemErrors`** writes RFC 9457 problem details as `application/problem+json`, and the spec describes them. See [Problem details](/guide/errors/#problem-details-rfc-9457).
+- **Named examples.** `.Example(status, name, value)` and `.RequestExample(name, value)` add examples written as Go values, checked against the response or input type when the spec is built.
+- **Field roles.** `openapi:"readonly"`, `"writeonly"` and `"deprecated"` mark a field in the schema.
+- **Component names.** A type with an `OpenAPIName() string` method chooses its component's name.
 
 ## Benchmarks are scored with ties
 

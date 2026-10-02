@@ -37,9 +37,21 @@ type NoContent struct{}
 // The response status is the one fn sets with c.Status, or else the one
 // declared with Route.Status, or else 200. Out is written as JSON, except
 // for Zinc's output types: NoContent, Text, HTML, Bytes, File, Stream and
-// Redirect, each written and documented as what it is. Use NoContent as Out for a response without
-// a body; it answers 204 unless another status is declared. If fn writes the
-// response itself, its output is ignored.
+// Redirect, each written and documented as what it is. Use NoContent as Out
+// for a response without a body; it answers 204 unless another status is
+// declared. If fn writes the response itself, its output is ignored.
+//
+// A field of Out tagged header is sent as that response header, and needs
+// json:"-" so it isn't also in the body:
+//
+//	type Created struct {
+//		Location string `header:"Location" json:"-"`
+//		ID       string `json:"id"`
+//	}
+//
+// An empty string, nil pointer or slice, or zero time.Time sends nothing; a
+// slice sends a value per element. A *http.Cookie or []*http.Cookie field
+// tagged header:"Set-Cookie" sets cookies.
 func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	if fn == nil {
 		panic("zinc: Typed handler is nil")
@@ -58,6 +70,12 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	_, noContent := any(*new(Out)).(NoContent)
 	// write is nil for JSON, the common case, so it costs nothing there.
 	write := outputWriter[Out]()
+	// Fields tagged header are sent as response headers; nil when Out has
+	// none, which is the common case.
+	var headers []outputHeader
+	if write == nil && !noContent {
+		headers = outputHeadersFor(types.out)
+	}
 
 	h := func(c *Context) error {
 		if c.index == describeIndex {
@@ -84,6 +102,9 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 		}
 		if write != nil {
 			return write(c, out)
+		}
+		if headers != nil {
+			c.writeOutputHeaders(headers, reflect.ValueOf(any(out)))
 		}
 		return c.JSON(out)
 	}
