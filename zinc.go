@@ -74,8 +74,8 @@ func (a *App) dispatch(ctx *Context) error {
 		if a.spec != nil && path == a.specPath {
 			return a.spec.serve(ctx)
 		}
-		if a.docsPage != nil && path == a.docsPath {
-			return ctx.Data("text/html; charset=utf-8", a.docsPage)
+		if a.docs != nil && path == a.docsPath {
+			return a.docs.serve(ctx)
 		}
 	}
 

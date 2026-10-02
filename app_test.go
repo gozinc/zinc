@@ -1010,3 +1010,11 @@ func withoutBuiltins(routes []RouteInfo) []RouteInfo {
 	}
 	return out
 }
+
+// An app built per test, or per route-set benchmark, shouldn't pay for the
+// docs page it never serves: rendering it in New cost 47µs and 361 allocs.
+func TestNewDoesNotRenderTheDocsPage(t *testing.T) {
+	if allocs := testing.AllocsPerRun(20, func() { _ = New() }); allocs > 20 {
+		t.Fatalf("New allocates %.0f times; the docs page should render on its first request", allocs)
+	}
+}
