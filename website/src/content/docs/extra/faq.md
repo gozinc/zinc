@@ -5,7 +5,7 @@ description: Answers to common questions about Zinc, including how it compares, 
 
 ## What is Zinc?
 
-A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding, central error handling, response helpers, and 27 built-in middleware packages. It does not replace the standard HTTP server, request, or response writer.
+A web framework for Go that sits on top of `net/http`. It adds fast routing, request binding and validation, central error handling, response helpers, an OpenAPI 3.1 spec built from your types, and 27 built-in middleware packages. It does not replace the standard HTTP server, request, or response writer.
 
 ## How does it compare with Gin, Echo, and Chi?
 
@@ -38,6 +38,10 @@ For 0.7.0, Zinc was fastest, by 3% or more, in 63 of 93 scenarios against Gin an
 ## Does Zinc have dependencies?
 
 No. Zinc's `go.mod` requires no module, and its middleware packages use only Zinc and the standard library. Middleware that wraps a third-party library, such as JWT, lives in [`github.com/0mjs/contrib`](/middleware/overview/#contrib), one module per package, so you download only what you import. Body formats beyond JSON and XML, such as YAML or TOML, plug in with the library you choose through [decoders and encoders](/guide/customization/#body-formats).
+
+## Does Zinc generate an OpenAPI spec?
+
+Yes. Every app serves an OpenAPI 3.1 spec at `/openapi.json` and a reference page at `/docs`, built from your structs, tags, return types and route methods, with no comments or code generation. Validation rules appear in the spec only when they're enforced. The spec is JSON only, and polymorphic (`oneOf`) types aren't supported. See [OpenAPI](/guide/openapi/), and [Coming from Huma or Fuego](/guide/coming-from-huma-or-fuego/) for how it compares with the frameworks built around it.
 
 ## Does Zinc validate input?
 

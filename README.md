@@ -7,7 +7,7 @@
 
 **Galvanize `net/http`.**
 
-Zinc is a fast, thin application layer for Go's standard HTTP stack. It adds routing, binding, central error handling, response helpers, and production middleware. A Zinc app is still an `http.Handler`, so everything you already use with `net/http` keeps working.
+Zinc is a fast, thin application layer for Go's standard HTTP stack. It adds routing, binding, validation, central error handling, response helpers, and production middleware, and it describes your API as an OpenAPI 3.1 spec built from the types you already write. A Zinc app is still an `http.Handler`, so everything you already use with `net/http` keeps working.
 
 [Documentation](https://zinc.carbonsoft.sh) · [Quick start](https://zinc.carbonsoft.sh/guide/quickstart/) · [Middleware](https://zinc.carbonsoft.sh/middleware/overview/) · [API reference](https://pkg.go.dev/github.com/0mjs/zinc)
 
@@ -103,10 +103,41 @@ api.Post("/orgs/{org}/users", zinc.Typed(func(c *zinc.Context, in CreateUser) (U
 
 A value that doesn't parse is a `400` naming the field, a validation failure is a `422`, and a typed handler allocates no more than the same code written by hand.
 
+### OpenAPI from your types
+
+Every app serves an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) spec at `/openapi.json` and a browsable reference page at `/docs`. The spec comes from the code above: no comments, annotations or generator. For this struct:
+
+```go
+type CreateUser struct {
+	OrgID  string `path:"org"`
+	DryRun bool   `query:"dry_run"`
+	Email  string `json:"email" validate:"required,email"`
+}
+```
+
+Zinc writes, among the rest:
+
+```json
+"parameters": [
+  { "name": "org", "in": "path", "required": true, "schema": { "type": "string" } },
+  { "name": "dry_run", "in": "query", "schema": { "type": "boolean" } }
+],
+"CreateUserBody": {
+  "type": "object",
+  "properties": { "email": { "type": "string", "format": "email" } },
+  "required": ["email"]
+}
+```
+
+with `201`, `400`, `422` and `500` responses and their bodies. The `email` rule in the spec is the rule a request is checked against: `{"email":"nope"}` gets a `422` naming the field. The spec only states rules that something enforces, and mistakes such as two routes OpenAPI can't tell apart fail at startup. `app.Validate()` checks everything before the server takes traffic.
+
+Output types, response headers, `Route.Errors`, checked examples, security schemes, RFC 9457 problem details, and hooks for anything else are in the [OpenAPI guide](https://zinc.carbonsoft.sh/guide/openapi/). For a private API, turn the spec off or put it behind auth. Not supported: YAML output and polymorphic (`oneOf`) types. Coming from Huma or Fuego? [Here's how they compare](https://zinc.carbonsoft.sh/guide/coming-from-huma-or-fuego/).
+
 ## What you get
 
 - **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.
 - **Binding:** path, query, header, form, multipart, JSON, and XML input, validated by `validate` tags with built-in rules, or a validator you plug in. YAML, TOML, or a faster JSON library plug in per app with one map entry, and Zinc itself requires no other module.
+- **OpenAPI:** a 3.1 spec and a `/docs` page from your types, with validation rules that match what's enforced, checked in CI against 147 scenarios and a generated client.
 - **Responses:** JSON, text, files, streams, templates, and redirects.
 - **Errors:** JSON error responses by default, short constructors like `zinc.NotFound("…")`, and domain errors that choose their own status. Internal error text never reaches clients.
 - **Middleware:** security, observability, limits, and transport, listed below.

@@ -1,9 +1,9 @@
 ---
 title: OpenAPI
-description: Zinc describes your API as an OpenAPI 3.1 spec from the types you already write, serves it, and can show a docs page. No comments to maintain.
+description: Zinc describes your API as an OpenAPI 3.1 spec from the types you already write, and serves it with a docs page. No comments to maintain, and the rules it states are the rules it enforces.
 ---
 
-Zinc describes your API as an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) spec: every route, its parameters, request body and responses. Every app serves it at `/openapi.json`. Use it to show a browsable docs page, generate client code, or check a change doesn't break your API's shape.
+Zinc describes your API as an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) spec: every route, its parameters, request body and responses. Every app serves it at `/openapi.json`, with a browsable reference page at `/docs`. Use it to generate client code, test against it, or check a change doesn't break your API's shape. Coming from Huma or Fuego? See [how they compare](/guide/coming-from-huma-or-fuego/).
 
 The spec comes from your code, not from comments. A typed handler already says what it takes and returns, so it needs nothing extra:
 
