@@ -12,13 +12,7 @@ import (
 	"log"
 
 	"github.com/0mjs/zinc"
-	"github.com/go-playground/validator/v10"
 )
-
-// structValidator lets go-playground/validator check the `validate` tags.
-type structValidator struct{ v *validator.Validate }
-
-func (s structValidator) Validate(target any) error { return s.v.Struct(target) }
 
 type CreateUser struct {
 	OrgID  string `path:"org"`
@@ -42,7 +36,7 @@ func createUser(c *zinc.Context, in CreateUser) (User, error) {
 }
 
 func main() {
-	app := zinc.New(zinc.Config{Validator: structValidator{v: validator.New()}})
+	app := zinc.New()
 
 	app.Post("/orgs/{org}/users", zinc.Typed(createUser)).Status(zinc.StatusCreated)
 
@@ -64,7 +58,7 @@ curl -X POST 'localhost:8080/orgs/acme/users?dry_run=yes' \
 
 curl -X POST localhost:8080/orgs/acme/users \
   -H 'Content-Type: application/json' -d '{"email":"not-an-email"}'
-# {"error":{"status":422,"message":"validation failed"}}
+# {"error":{"status":422,"message":"validation failed","fields":{"email":"must be an email address"}}}
 ```
 
 `zinc.Typed(createUser)` turns the function into an ordinary handler, so you can use it anywhere a handler goes, including after route middleware. `.Status(zinc.StatusCreated)` sets the status for a successful call; a status the function sets itself with `c.Status`, `200` included, wins over it. `createUser` only runs when the input is valid.
@@ -128,16 +122,10 @@ Your function isn't called when the input is wrong. The client gets one of these
 |---|---|
 | A value doesn't parse, such as `?dry_run=yes` | `400`, naming the field: `"fields":{"dry_run":"must be a boolean"}` |
 | The body isn't valid JSON | `400`: `{"error":{"status":400,"message":"invalid request body"}}` |
-| The configured `Validator` rejects the input | `422`: `{"error":{"status":422,"message":"validation failed"}}` |
+| A [`validate` rule](/guide/binding/#validation) fails | `422`, naming the field: `"fields":{"email":"must be an email address"}` |
 
-To list the failing fields in the `422` response, have your validator return an error with a `Fields()` method. [Binding](/guide/binding/) shows the adapter for go-playground/validator, which gives:
-
-```json
-{"error":{"status":422,"message":"validation failed","fields":{"Email":"failed email"}}}
-```
-
-:::note[No validator, no 422]
-Zinc doesn't ship a validator. Without `Validator` in `zinc.Config`, `validate` tags are ignored and only parse errors are rejected.
+:::note[Rules Zinc doesn't have]
+Zinc checks `required`, `min`, `max`, `oneof`, `email` and the other [common rules](/guide/binding/#validation) itself. A tag using one it doesn't have, such as `alphanum`, makes registration panic rather than skip it; plug in go-playground/validator for those.
 :::
 
 ## Choose the success status

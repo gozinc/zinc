@@ -180,6 +180,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             page("All Recipes", "/cookbook/"),
+            page("A Production Service", "/cookbook/production/"),
             page("CRUD API", "/cookbook/crud/"),
             page("Typed CRUD API", "/cookbook/typed-crud/"),
             page("SQLite CRUD API", "/cookbook/sqlite-crud-api/"),
@@ -234,6 +235,7 @@ export default defineConfig({
             {
               label: "Upgrading",
               items: [
+                page("To 0.7", "/extra/migration-0.7/"),
                 page("To 0.6", "/extra/migration-0.6/"),
                 page("To 0.5", "/extra/migration-0.5/"),
                 page("To 0.4", "/extra/migration-0.4/"),

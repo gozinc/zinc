@@ -33,7 +33,8 @@ app := zinc.New(zinc.Config{
 | `ProxyHeader` | `string` | `"X-Forwarded-For"` | Header read by `c.IP()` |
 | `TrustedProxies` | `[]string` | none | IPs and CIDR ranges allowed to set `ProxyHeader` |
 | `ErrorHandler` | `ErrorHandler` | `DefaultErrorHandler` (JSON) | Turns returned errors into responses; `zinc.TextErrors` sends plain text, `zinc.ProblemErrors` RFC 9457 problem details |
-| `Validator` | `Validator` | none | Runs after every bind |
+| `Validator` | `Validator` | Zinc's built-in rules | Runs after every bind; a `RuleSetValidator` declares the rules the spec claims |
+| `ValidateResponses` | `bool` | `false` | Checks typed handlers' outputs with the same rules, answering `500` when one fails |
 | `Renderer` | `Renderer` | none | Renders templates for `c.Render` |
 | `Decoders` | `map[string]Decoder` | none | Request body decoders by media type; `application/json` replaces `encoding/json` |
 | `Encoders` | `map[string]Encoder` | none | Response encoders by media type, for `c.Encode` and `c.Negotiate`; `application/json` replaces `encoding/json` |

@@ -57,7 +57,7 @@ Declare a struct for each handler's input rather than binding into your database
 3. query values,
 4. route parameters,
 
-and then runs your [validator](#validation), if you've set one.
+and then checks the struct's [validation](#validation) rules.
 
 ```go
 type CreateOrder struct {
@@ -119,7 +119,7 @@ The methods are `All`, `Path`, `Query`, `Header`, `Cookie`, `Form`, `Body` (chos
 
 ```text
 PUT /users/5  {"name":"Ada"}
-→ 422 {"error":{"status":422,"message":"validation failed","fields":{"Name":"failed required"}}}
+→ 422 {"error":{"status":422,"message":"validation failed","fields":{"name":"is required"}}}
 ```
 
 Use `All` for input that spans sources. It validates once, after everything is read.
@@ -242,42 +242,64 @@ If you wrap the error as `zinc.BadRequest("send a JSON order")`, the client gets
 
 ## Validation
 
-Zinc doesn't include a validator. Plug in any library by implementing one method:
-
-```go
-type Validator interface {
-	Validate(any) error
-}
-```
-
-For example, with [go-playground/validator](https://github.com/go-playground/validator):
-
-```go
-type structValidator struct{ v *validator.Validate }
-
-func (s structValidator) Validate(target any) error {
-	return s.v.Struct(target)
-}
-
-app := zinc.New(zinc.Config{Validator: structValidator{v: validator.New()}})
-```
+Write the rules on the struct with `validate` tags, and Zinc checks them after every bind. There's nothing to install or configure:
 
 ```go
 type SignUp struct {
 	Email    string `json:"email" validate:"required,email"`
 	Password string `json:"password" validate:"required,min=12"`
+	Plan     string `json:"plan" validate:"omitempty,oneof=free pro"`
 }
 ```
 
-Every bind method runs the validator after reading, so handlers stay short. A failure comes back from the bind call as a `*zinc.ValidationError`. Return it and the client gets a `422`:
+A failure comes back from the bind call as a `*zinc.ValidationError`. Return it and the client gets a `422` naming each field by the name it sent:
 
-```json
-{"error":{"status":422,"message":"validation failed"}}
+```bash
+curl -X POST localhost:8080/signup -H 'Content-Type: application/json' \
+  -d '{"password":"short","plan":"gold"}'
+# {"error":{"status":422,"message":"validation failed","fields":{"email":"is required","password":"must be at least 12 characters","plan":"must be one of: free, pro"}}}
 ```
+
+The rules mean what they mean to [go-playground/validator](https://github.com/go-playground/validator), so the same tags work if you switch:
+
+| Rule | Checks |
+|---|---|
+| `required` | The field isn't its zero value; a pointer isn't nil |
+| `omitempty` | Skips the other rules when the field is its zero value |
+| `min`, `max`, `len` | A string's length in characters, a slice's or map's number of items, or a number's value |
+| `gt`, `gte`, `lt`, `lte` | The same, compared strictly or not |
+| `oneof=a b` | One of the listed values, for strings and numbers |
+| `email`, `uuid`, `uuid4`, `url`, `uri`, `http_url` | The string's format |
+
+Structs inside the input are checked too, including those in slices and maps: a failure in the second owner is named `owners[1].email`. Values listed with an `enum` tag or an `EnumProvider` type are checked as well.
+
+A rule Zinc doesn't have, such as `alphanum` or `dive`, stops a typed handler from registering, so it can't go unchecked:
+
+```text
+panic: zinc: Zinc's built-in validator doesn't enforce these validate rules: main.Code.Value: alphanum; use rules it declares, or a Validator that declares them with RuleSet
+```
+
+### Use go-playground/validator
+
+For more rules, set `Config.Validator` to an adapter. It replaces Zinc's rules; values from `enum` tags and `EnumProvider` types are still checked. Add a `RuleSet` method listing the rules it enforces: the [OpenAPI](/guide/openapi/) spec claims those, and a typed handler using any other rule fails to register:
+
+```go
+type playground struct{ v *validator.Validate }
+
+func (p playground) Validate(target any) error { return p.v.Struct(target) }
+
+func (playground) RuleSet() []string {
+	return []string{"required", "omitempty", "min", "max", "len", "oneof", "email", "uuid", "url", "dive", "alphanum"}
+}
+
+app := zinc.New(zinc.Config{Validator: playground{validator.New()}})
+```
+
+A validator without `RuleSet` still runs, but Zinc can't know what it checks, so the spec claims no rules and nothing is checked at registration.
 
 ### List the failing fields
 
-To name the fields in the response, return an error with a `Fields() map[string]string` method. For go-playground/validator:
+Zinc's rules always name the fields. With your own validator, return an error with a `Fields() map[string]string` method to name them:
 
 ```go
 type fieldErrors map[string]string
@@ -285,8 +307,8 @@ type fieldErrors map[string]string
 func (f fieldErrors) Error() string             { return "validation failed" }
 func (f fieldErrors) Fields() map[string]string { return f }
 
-func (s structValidator) Validate(target any) error {
-	err := s.v.Struct(target)
+func (p playground) Validate(target any) error {
+	err := p.v.Struct(target)
 	var invalid validator.ValidationErrors
 	if !errors.As(err, &invalid) {
 		return err
@@ -300,16 +322,26 @@ func (s structValidator) Validate(target any) error {
 ```
 
 ```bash
-curl -X POST http://localhost:8080/signup \
-  -H "Content-Type: application/json" -d '{"password":"correct-horse-battery"}'
+curl -X POST localhost:8080/signup -H 'Content-Type: application/json' \
+  -d '{"password":"correct-horse-battery"}'
 # {"error":{"status":422,"message":"validation failed","fields":{"Email":"failed required"}}}
 ```
 
-The keys are whatever your adapter returns. `fe.Field()` gives the Go field name (`Email`); register a tag-name function with the validator if you want the JSON name instead.
+`fe.Field()` gives the Go field name (`Email`); register a tag-name function with the validator for the JSON name instead. [Validate Input](/cookbook/validation/) has the full setup.
 
 :::note[Choose a different status]
 If your validator returns a Zinc HTTP error, such as `zinc.NewError(409, "email already registered")`, or any error with a `StatusCode() int` method, the client gets that status instead of `422`.
 :::
+
+### Check responses in development
+
+`Config.ValidateResponses` checks each typed handler's output with the same rules before it's sent. A response that breaks them becomes a `500`, and the error says why:
+
+```text
+zinc: GET /me: the response breaks its contract: response.email is required
+```
+
+It costs a check per response, so turn it on in development and tests.
 
 ## Limit the body size
 

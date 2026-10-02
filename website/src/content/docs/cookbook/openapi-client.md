@@ -12,7 +12,7 @@ The server:
 ```bash
 mkdir pets-server && cd pets-server
 go mod init example.com/pets-server
-go get github.com/0mjs/zinc github.com/go-playground/validator/v10
+go get github.com/0mjs/zinc
 ```
 
 Save the program below as `main.go` and run `go run .`. It listens on port 8080.
@@ -28,7 +28,6 @@ import (
 	"sync"
 
 	"github.com/0mjs/zinc"
-	"github.com/go-playground/validator/v10"
 )
 
 type Pet struct {
@@ -42,11 +41,6 @@ type CreatePet struct {
 	Kind string `json:"kind" validate:"required,oneof=cat dog"`
 }
 
-// playground runs go-playground/validator on every bound input.
-type playground struct{ v *validator.Validate }
-
-func (p playground) Validate(v any) error { return p.v.Struct(v) }
-
 type PetID struct {
 	ID int64 `path:"id"`
 }
@@ -57,7 +51,7 @@ var (
 )
 
 func main() {
-	app := zinc.New(zinc.Config{Validator: playground{validator.New()}})
+	app := zinc.New()
 
 	app.Post("/pets", zinc.Typed(func(c *zinc.Context, in CreatePet) (Pet, error) {
 		mu.Lock()
@@ -175,7 +169,7 @@ go run .
 
 - `zinc.Typed` handlers describe their input and output types, and `app.OpenAPI` serves the spec built from them at `/openapi.json`.
 - `.Name("createPet")` sets the operation ID, which oapi-codegen turns into the method `CreatePetWithResponse`. Unnamed routes get a name from their method and path instead.
-- `validate:"required"` with a validator makes a request field required in the spec, so the client's field is a `string`, not a `*string`. Response fields are always required unless they're `omitempty`: `encoding/json` always sends them.
+- Zinc checks the `validate` rules itself, and the spec claims them: `validate:"required"` makes a request field required, so the client's field is a `string`, not a `*string`. Response fields are always required unless they're `omitempty`: `encoding/json` always sends them.
 - `oneof=cat dog` becomes an enum, and oapi-codegen generates constants for it, such as `petclient.Dog`.
 - `.Errors(http.StatusNotFound)` documents the 404 with Zinc's error body, so `JSON404.Error.Message` is typed.
 

@@ -41,7 +41,7 @@ No. Zinc's `go.mod` requires no module, and its middleware packages use only Zin
 
 ## Does Zinc validate input?
 
-Zinc calls any validator you configure after every bind, but does not ship one. A short adapter plugs in [go-playground/validator](/guide/binding/#validation) or any other library.
+Yes. Zinc checks `validate` tags after every bind with its own rules, the common go-playground ones such as `required`, `min`, `oneof` and `email`, and answers `422` naming each field. For other rules, a short adapter plugs in [go-playground/validator](/guide/binding/#use-go-playgroundvalidator) or any other library.
 
 ## Does it support WebSockets, SSE, and HTTP/2?
 

@@ -165,7 +165,7 @@ curl -X POST localhost:8080/widgets -H 'Content-Type: application/json' -d '{}'
 ## Before production
 
 - The store is in memory, so widgets are gone when the process stops. See the [SQLite CRUD API](/cookbook/sqlite-crud-api/) for a database-backed version.
-- To check `name` with rules instead of by hand, set a [`Validator`](/guide/binding/#validation). Failures answer `422` before your function runs. [Validate Input](/cookbook/validation/) shows the full setup.
+- To check `name` with rules instead of by hand, add a [`validate` tag](/guide/binding/#validation), such as `validate:"required,max=40"`. Failures answer `422` before your function runs. [Validate Input](/cookbook/validation/) shows more.
 
 ## See also
 

@@ -89,7 +89,7 @@ slog's JSON handler writes `latency` in nanoseconds.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `Logger` | `slog.Default()` | The `*slog.Logger` that receives the default line. Ignored when `Log` is set. |
+| `Logger` | `slog.Default()` | The `*slog.Logger` that receives the default line, logged with the request's context so a handler can read trace IDs from it. Ignored when `Log` is set. |
 | `Log` | the line shown above | `func(*zinc.Context, logger.Values) error`. Replaces the default line and receives every request's values. |
 | `Headers` | none | Request headers to copy into `Values.Headers` and the `headers` key. Names are matched in canonical form, so `x-forwarded-for` works too. |
 | `QueryParams` | none | Query parameters to copy into `Values.QueryParams` and the `query` key. Names must match exactly. |

@@ -43,6 +43,7 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | `Consumes(mediaTypes...) Route` | The request body's media types, in place of the inferred ones |
 | `Example(status, name, value) Route` | A named example of the response for `status`: a value of the output type, the type given to `Response`, or an `*HTTPError` for an error status. The spec fails to build when it doesn't match |
 | `RequestExample(name, value) Route` | A named example of the request body, a value of the input type |
+| `Operation(func(op map[string]any)) Route` | Edits the route's operation in the spec, as JSON, before `OpenAPIConfig.Mutate` |
 | `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
 | `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; any one is enough, and none marks it public. `"oauth:pets:read"` adds a scope |
 | `SecurityAll(schemes...) Route` | Like `Security`, but every scheme is needed |
@@ -85,6 +86,7 @@ type RouteSpec struct {
 |---|---|
 | `OpenAPI(path, OpenAPIConfig, middleware...) Route` | Serves the spec as JSON at `path`, with `GET`, in place of the one at `Config.OpenAPIPath`. Built on the first request and kept; rebuilt when routes are added. Panics on a config the spec can't be valid with |
 | `OpenAPISpec(OpenAPIConfig) ([]byte, error)` | The spec as JSON, without serving it |
+| `Validate() error` | Builds every spec the app serves and checks the routes, without a request: route collisions, unknown security schemes, mismatched examples, header fields still in the body, unknown `openapi` tag words, and validate rules the validator doesn't enforce. Lists every problem; nil means none |
 
 Every app also serves its spec at `Config.OpenAPIPath`, `/openapi.json` unless set, described by `Config.OpenAPI`, and a reference page at `Config.DocsPath`, `/docs` unless set; `"-"` turns either off. `Routes()` and `FindRoute()` list them as `RouteInfo` with `Builtin` set.
 
@@ -103,6 +105,8 @@ type OpenAPIConfig struct {
 	Security        []string                         // for routes that set none
 	NoAuthResponses bool                             // no automatic 401 and 403
 	Schemas         map[reflect.Type]map[string]any  // for types from other packages
+	Extensions      map[string]any                   // x- members of the root
+	Mutate          func(spec map[string]any) error  // edits the finished spec, checked again after
 }
 
 type OpenAPISecurityScheme struct {
@@ -121,7 +125,7 @@ type OpenAPIOAuthFlow struct {
 }
 ```
 
-A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. A named type that implements `zinc.EnumProvider`, with an `Enum() []any` method, becomes an enum. See [OpenAPI](/guide/openapi/).
+A type with an `OpenAPIName() string` method (`zinc.SchemaNamer`) chooses its component's name. A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. A named type that implements `zinc.EnumProvider`, with an `Enum() []any` method, becomes an enum. See [OpenAPI](/guide/openapi/).
 
 ## Groups and middleware
 
