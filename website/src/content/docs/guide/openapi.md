@@ -194,7 +194,7 @@ A scheme missing something its type needs, such as an `oauth2` scheme without fl
 
 ## Serve the spec
 
-Every app serves its spec at `/openapi.json`, for `GET` and `HEAD`. Describe the API with `Config.OpenAPI`:
+Every app serves its spec at `/openapi.json`, and a browsable reference page for it at `/docs`, for `GET` and `HEAD`. Describe the API with `Config.OpenAPI`:
 
 ```go
 app := zinc.New(zinc.Config{
@@ -202,16 +202,20 @@ app := zinc.New(zinc.Config{
 })
 ```
 
-The spec is built on the first request and kept; routes you register later are picked up on the next one. The spec isn't a route: a route of your own at the same path wins, and it isn't listed in the spec. Middleware added with `app.Use` runs for it like any request.
+The spec is built on the first request and kept; routes you register later are picked up on the next one. Neither endpoint is a route: a route of your own at the same path wins, and neither is listed in the spec. `Routes()` lists both, with `Builtin` set. Middleware added with `app.Use` runs for them like any request.
 
-:::caution[The spec is public by default]
-The spec lists every route that isn't hidden, including admin and internal ones. For a private API, protect it or turn it off.
+The page at `/docs` loads [Scalar](https://github.com/scalar/scalar) from a CDN, pinned to one version with an integrity hash. To use another renderer or your own copy of the files, turn the page off and add [API Docs](/middleware/apidocs/).
+
+:::caution[The spec and docs are public by default]
+The spec lists every route that isn't hidden, including admin and internal ones. For a private API, protect them or turn them off.
 :::
 
 | To | Do |
 |---|---|
-| Serve it at another path | `zinc.Config{OpenAPIPath: "/api/openapi.json"}` |
-| Serve no spec | `zinc.Config{OpenAPIPath: "-"}` |
+| Serve the spec at another path | `zinc.Config{OpenAPIPath: "/api/openapi.json"}`; the page follows it |
+| Serve the page at another path | `zinc.Config{DocsPath: "/reference"}` |
+| Serve no page | `zinc.Config{DocsPath: "-"}` |
+| Serve no spec, and so no page | `zinc.Config{OpenAPIPath: "-"}` |
 | Protect it with middleware | `app.OpenAPI("/openapi.json", cfg, requireAPIKey)` (`requireAPIKey`: your middleware). It replaces the default spec. |
 | Serve several specs | Call `app.OpenAPI` once for each path and config |
 
@@ -358,10 +362,6 @@ With Zinc's default error handler, the `400`, `422` and `500` responses describe
 ### Wrapping a typed handler hides its types
 
 Register `zinc.Typed(...)` directly. A typed handler called from inside a plain one isn't recognized; add `.Input` and `.Output` to that route instead.
-
-### A body can still fill a query or header field
-
-Binding reads the body before the URL, so a query parameter or header the request leaves out can be set by a matching body key. The spec leaves those fields out of the body, which describes how the route should be called.
 
 ### Routes OpenAPI can't tell apart
 

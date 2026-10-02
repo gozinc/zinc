@@ -232,9 +232,9 @@ A typed handler always answers with JSON, or nothing. Write a plain `func(c *zin
 
 A status you set inside the function with `c.Status(...)` wins over the one declared with `.Status(...)` on the route. If the function writes the response itself, for example with `c.Redirect`, Zinc ignores the returned value and sends what you wrote.
 
-### Headers bind only in typed handlers
+### Typed and plain handlers bind the same way
 
-`c.Bind().All` fills path, query and body fields. A typed handler fills `header` and `cookie` fields as well. To read them into a struct in a plain handler, call `c.Bind().Header` or `c.Bind().Cookie`.
+A typed handler binds exactly as `c.Bind().All` does: body, headers, cookies, query and path. A working plain handler converts to a typed one without changing what it reads.
 
 ### Mistakes show up at startup
 

@@ -5,29 +5,33 @@ description: Serve a browsable reference page for your API's OpenAPI spec, with 
 
 API Docs serves a reference page for your API that people can read and try requests from. It renders the [OpenAPI](/guide/openapi/) spec every Zinc app serves at `/openapi.json`, so the page is always in step with your routes.
 
+Every app already serves this page at `/docs`, with Scalar. Use API Docs to serve it with another renderer, from your own copy of its files, or behind middleware. Both use the same page code.
+
 ## Usage
 
 ```go
 import "github.com/0mjs/zinc/middleware/apidocs"
 
 app := zinc.New(zinc.Config{
-	OpenAPI: zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"},
+	OpenAPI:  zinc.OpenAPIConfig{Title: "Pet Store", Version: "1.0.0"},
+	DocsPath: "-", // turn off the built-in page
 })
-app.Get("/docs", apidocs.New()).Hidden()
+app.Get("/docs", apidocs.New(apidocs.Config{UI: apidocs.SwaggerUI})).Hidden()
 ```
 
-Open `http://localhost:8080/docs` in a browser. The page loads [Scalar](https://github.com/scalar/scalar) from a CDN, which fetches `/openapi.json` and renders every route, its parameters, bodies and responses.
+Open `http://localhost:8080/docs` in a browser. The page loads [Swagger UI](https://github.com/swagger-api/swagger-ui) from a CDN, which fetches `/openapi.json` and renders every route, its parameters, bodies and responses.
 
 ```bash
 curl http://localhost:8080/docs
 # <!doctype html>
 # ...
 # <title>API reference</title>
+# <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui.css" integrity="sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW" crossorigin="anonymous">
 # </head>
 # <body>
-# <div id="app" data-spec="/openapi.json"></div>
-# <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.1/dist/browser/standalone.js" integrity="sha384-U11tb2XnKvmwt8RlTvnwUnYgrN&#43;ur4Xyh9htLhjajWNR/Oyl5AX5DEz00qRmlrmK" crossorigin="anonymous"></script>
-# <script>Scalar.createApiReference('#app', { url: document.getElementById('app').dataset.spec })</script>
+# <div id="swagger-ui" data-spec="/openapi.json"></div>
+# <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui-bundle.js" integrity="sha384-YDALVcy8kj8yltLBVi1vBiBAUqdxvus673gM8XKwiy6aDUJFXivF/KCufekjYbVf" crossorigin="anonymous"></script>
+# <script>SwaggerUIBundle({ url: document.getElementById('swagger-ui').dataset.spec, dom_id: '#swagger-ui' })</script>
 ```
 
 `.Hidden()` keeps the docs route out of the spec it displays. The page is rendered once, when you call `New`, and every request sends the same bytes.

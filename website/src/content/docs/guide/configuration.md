@@ -129,10 +129,11 @@ Every app serves an [OpenAPI](/guide/openapi/) spec of its routes.
 
 | Field | Default | Effect |
 |---|---|---|
-| `OpenAPIPath` | `"/openapi.json"` | Where the spec is served, for `GET` and `HEAD`. `"-"` serves none. |
+| `OpenAPIPath` | `"/openapi.json"` | Where the spec is served, for `GET` and `HEAD`. `"-"` serves none, and no docs page either. |
+| `DocsPath` | `"/docs"` | Where a browsable reference page for the spec is served. `"-"` serves none. |
 | `OpenAPI` | Your module's name and version | The spec's title, version, security schemes and more: an `OpenAPIConfig`. |
 
-The spec lists every route that isn't hidden. For a private API, protect it with middleware or set `OpenAPIPath: "-"`.
+The spec lists every route that isn't hidden. For a private API, protect it with middleware or set `OpenAPIPath: "-"`, which turns off the docs page too.
 
 ## Replace a built-in default
 

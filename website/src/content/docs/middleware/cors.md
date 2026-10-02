@@ -47,6 +47,32 @@ curl -i -X OPTIONS http://localhost:8080/users/42 \
 
 Register it with `app.Use`, so preflight requests are answered even for paths that only have a `PATCH` or `DELETE` route.
 
+## On a group
+
+CORS can guard just a group of routes. It answers the browser's preflight requests for them too, though no route matches `OPTIONS`:
+
+```go
+api := app.Group("/api", cors.New(cors.Config{
+	AllowOrigins: []string{"https://app.example.com"},
+}))
+api.Post("/pets", createPet)
+```
+
+```bash
+curl -i -X OPTIONS http://localhost:8080/api/pets \
+  -H "Origin: https://app.example.com" -H "Access-Control-Request-Method: POST"
+# HTTP/1.1 204 No Content
+# Access-Control-Allow-Methods: GET,POST,HEAD,PUT,DELETE,PATCH
+# Access-Control-Allow-Origin: https://app.example.com
+# Allow: POST, OPTIONS
+# Content-Type: text/plain; charset=utf-8
+# Vary: Origin
+# Vary: Access-Control-Request-Method
+# Vary: Access-Control-Request-Headers
+```
+
+Zinc finds the route the preflight asks about, from `Access-Control-Request-Method`, and runs only its CORS middleware, outer groups first. Other group middleware, such as authentication, still runs only for the real request, as browsers send preflights without credentials.
+
 ## Defaults
 
 With no config, `cors.New()` allows any origin without credentials.

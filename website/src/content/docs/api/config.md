@@ -38,6 +38,7 @@ app := zinc.New(zinc.Config{
 | `Decoders` | `map[string]Decoder` | none | Request body decoders by media type; `application/json` replaces `encoding/json` |
 | `Encoders` | `map[string]Encoder` | none | Response encoders by media type, for `c.Encode` and `c.Negotiate`; `application/json` replaces `encoding/json` |
 | `OpenAPIPath` | `string` | `"/openapi.json"` | Where the app serves its [OpenAPI](/guide/openapi/) spec; `"-"` serves none |
+| `DocsPath` | `string` | `"/docs"` | Where the app serves a reference page for its spec; `"-"` serves none |
 | `OpenAPI` | `OpenAPIConfig` | module name and version | Describes the API in the served spec |
 
 `Renderer` is usually one of Zinc's template renderers, which wrap an already parsed template set and return a `*TemplateRenderer`: `zinc.NewHTMLTemplateRenderer(tmpl)` for an `html/template` set, `zinc.NewTextTemplateRenderer(tmpl)` for `text/template`, or `zinc.NewTemplateRenderer(engine)` for anything with an `ExecuteTemplate` method (a `TemplateExecutor`). Each takes `TemplateRendererOption` values; `zinc.WithTemplateSuffixes(".html")` lets `c.Render("home", data)` find `home.html` when no template is named exactly `home`. See [Templates](/guide/templates/).
@@ -56,6 +57,7 @@ For limits and timeouts, `0` selects the default and a negative value turns the 
 | `DefaultRouteCacheSize` | `0` (deprecated: Zinc has no route cache since 0.5) |
 | `DefaultProxyHeader` | `"X-Forwarded-For"` |
 | `DefaultOpenAPIPath` | `"/openapi.json"` |
+| `DefaultDocsPath` | `"/docs"` |
 
 ## Related
 

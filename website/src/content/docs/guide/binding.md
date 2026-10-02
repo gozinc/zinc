@@ -50,11 +50,12 @@ Declare a struct for each handler's input rather than binding into your database
 
 ## Bind everything at once
 
-`c.Bind().All(&in)` is the usual choice for API handlers. It reads, in order:
+`c.Bind().All(&in)` is the usual choice for API handlers, and binds exactly what a [typed handler](/guide/typed-handlers/) binds. It reads, in order:
 
-1. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`,
-2. query values,
-3. route parameters,
+1. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`; not on GET or HEAD, where a body has no meaning,
+2. headers and cookies,
+3. query values,
+4. route parameters,
 
 and then runs your [validator](#validation), if you've set one.
 
@@ -305,9 +306,33 @@ Change the limit for the whole app in [configuration](/guide/configuration/), or
 
 ## Good to know
 
+### The body only fills body fields
+
+A field tagged only for the path, query, headers or cookies never takes a value from the body, even when a body key matches its name:
+
+```go
+type Input struct {
+	Role string `header:"X-Role"`
+	Name string `json:"name"`
+}
+// POST {"Role":"admin","name":"Ada"} with no X-Role header binds Role "" and Name "Ada".
+```
+
+To let a field come from either, tag it for both, as with `header:"X-Role" json:"role"`. A body tag is `json`, `xml` or `form`, or `yaml`, `toml`, `msgpack`, `cbor` or `bson` for a [configured decoder](/guide/customization/#body-formats).
+
 ### Later sources overwrite earlier ones
 
-`All` always reads the body, then query, then path, whatever the body format. If a field is tagged for more than one source, the value read last wins: with `path:"id" query:"id"` on a `/orders/{id}` route, a request to `/orders/7?id=9` gets `7`.
+If a field is tagged for more than one source, the value read last wins: with `path:"id" query:"id"` on a `/orders/{id}` route, a request to `/orders/7?id=9` gets `7`.
+
+### Missing, empty and zero values
+
+| The request | A `string` field | A `*string` field | With `default:"x"` |
+|---|---|---|---|
+| Leaves the value out | `""` | `nil` | `"x"` |
+| Sends it empty, `?name=` | `""` | pointer to `""` | `""` |
+| Sends a value | the value | pointer to it | the value |
+
+A JSON body follows `encoding/json`: a key left out keeps the field's current value (its default, or zero), and `null` leaves a non-pointer field unchanged and sets a pointer to `nil`. For a PATCH that updates only the fields sent, use pointer fields, and treat `nil` as "not sent".
 
 ### Maps, strings and plain text
 

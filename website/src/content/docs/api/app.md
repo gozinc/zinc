@@ -77,7 +77,7 @@ type RouteSpec struct {
 | `OpenAPI(path, OpenAPIConfig, middleware...) Route` | Serves the spec as JSON at `path`, with `GET`, in place of the one at `Config.OpenAPIPath`. Built on the first request and kept; rebuilt when routes are added. Panics on a config the spec can't be valid with |
 | `OpenAPISpec(OpenAPIConfig) ([]byte, error)` | The spec as JSON, without serving it |
 
-Every app also serves its spec at `Config.OpenAPIPath`, `/openapi.json` unless set, described by `Config.OpenAPI`; `"-"` turns it off.
+Every app also serves its spec at `Config.OpenAPIPath`, `/openapi.json` unless set, described by `Config.OpenAPI`, and a reference page at `Config.DocsPath`, `/docs` unless set; `"-"` turns either off. `Routes()` and `FindRoute()` list them as `RouteInfo` with `Builtin` set.
 
 ```go
 type OpenAPIConfig struct {
