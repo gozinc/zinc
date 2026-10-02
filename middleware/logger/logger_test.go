@@ -5,6 +5,7 @@ package logger
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -309,5 +310,35 @@ func TestDefaultLogLevelFollowsStatus(t *testing.T) {
 				t.Fatalf("custom=%v: 404 line has no error attr: %q", custom, buf.String())
 			}
 		}
+	}
+}
+
+type ctxKey struct{}
+
+// ctxHandler records the context each record is logged with.
+type ctxHandler struct {
+	slog.Handler
+	seen *[]context.Context
+}
+
+func (h ctxHandler) Handle(ctx context.Context, r slog.Record) error {
+	*h.seen = append(*h.seen, ctx)
+	return nil
+}
+
+func TestDefaultLogPassesTheRequestContext(t *testing.T) {
+	var seen []context.Context
+	app := zinc.New()
+	app.Use(func(c *zinc.Context) error {
+		c.SetRequest(c.Request().WithContext(context.WithValue(c.Context(), ctxKey{}, "trace-1")))
+		return c.Next()
+	})
+	app.Use(New(Config{Logger: slog.New(ctxHandler{Handler: slog.NewTextHandler(io.Discard, nil), seen: &seen})}))
+	app.Get("/", func(c *zinc.Context) error { return c.String("ok") })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the client went away
+	app.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil).WithContext(ctx))
+	if len(seen) != 1 || seen[0].Value(ctxKey{}) != "trace-1" || seen[0].Err() != nil {
+		t.Fatalf("contexts: %v", seen)
 	}
 }
