@@ -223,6 +223,9 @@ func bindBody(c *Context, v any) error {
 	if decode := c.decoderFor(mediaType); decode != nil {
 		return decodeBody(c, decode, v, true)
 	}
+	if snap, hasParams := snapshotParams(v); hasParams {
+		defer snap.restore()
+	}
 	switch mediaType {
 	case "", "application/json":
 		bodyLen, readErr, decodeErr := c.readAndCacheJSONBody(v)
@@ -255,7 +258,6 @@ func bindBody(c *Context, v any) error {
 	default:
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 	}
-	keepParamsOutOfBody(v)
 	return c.Validate(v)
 }
 
@@ -371,7 +373,11 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
+	snap, hasParams := snapshotParams(v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
+	if hasParams {
+		snap.restore()
+	}
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}
@@ -381,7 +387,6 @@ func (b *Bind) JSON(v any) error {
 	if decodeErr != nil {
 		return classifyJSONDecodeError(decodeErr)
 	}
-	keepParamsOutOfBody(v)
 	return b.c.Validate(v)
 }
 
@@ -398,9 +403,13 @@ func (b *Bind) XML(v any) error {
 	if decode := b.c.decoderFor("application/xml"); decode != nil {
 		return decodeBody(b.c, decode, v, true)
 	}
+	snap, hasParams := snapshotParams(v)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
+	if hasParams {
+		snap.restore()
+	}
 	if readErr != nil {
 		return wrapBindError("body", readErr)
 	}
@@ -410,7 +419,6 @@ func (b *Bind) XML(v any) error {
 	if decodeErr != nil {
 		return wrapBindError("body", decodeErr)
 	}
-	keepParamsOutOfBody(v)
 	return b.c.Validate(v)
 }
 

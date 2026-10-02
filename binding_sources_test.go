@@ -91,3 +91,36 @@ func TestRouteStatusForPlainHandlers(t *testing.T) {
 		}
 	}
 }
+
+// Single-source binders compose: values bound from the path, query and
+// headers survive a later Bind().JSON whose body names the same fields.
+func TestSingleSourceBindersCompose(t *testing.T) {
+	type input struct {
+		Team   int      `path:"team"`
+		Trace  string   `header:"X-Trace"`
+		Tags   []string `query:"tag"`
+		Ratio  float64  `query:"ratio"`
+		Active bool     `query:"active"`
+		Limit  *int     `query:"limit"`
+		Name   string   `json:"name"`
+	}
+	app := New()
+	var got input
+	app.Post("/teams/{team}", func(c *Context) error {
+		got = input{}
+		for _, bind := range []func(any) error{c.Bind().Path, c.Bind().Query, c.Bind().Header, c.Bind().JSON} {
+			if err := bind(&got); err != nil {
+				return err
+			}
+		}
+		return c.NoContent()
+	})
+	r := httptest.NewRequest("POST", "/teams/42?tag=a&tag=b&ratio=0.5&active=true&limit=5", strings.NewReader(`{"Team":7,"Trace":"body","Tags":["x"],"Ratio":9,"Active":false,"Limit":99,"name":"Ada"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Trace", "abc")
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent || got.Team != 42 || got.Trace != "abc" || strings.Join(got.Tags, ",") != "a,b" || got.Ratio != 0.5 || !got.Active || got.Limit == nil || *got.Limit != 5 || got.Name != "Ada" {
+		t.Fatalf("%d %+v", w.Code, got)
+	}
+}

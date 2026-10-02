@@ -76,16 +76,138 @@ func (plan *bindingPlan) keepParamsOutOfBody(val reflect.Value) {
 	}
 }
 
-// keepParamsOutOfBody is keepParamsOutOfBody for a binder's target, when it's
-// a pointer to a struct.
-func keepParamsOutOfBody(v any) {
+// paramSnapshot holds a binder target's parameter-only fields across a body
+// decode, so a single-source body binder, such as Bind().JSON, puts back the
+// values earlier binders set instead of letting the body replace them.
+// Scalars are held without allocating; other types are copied.
+type paramSnapshot struct {
+	plan  *bindingPlan
+	val   reflect.Value
+	saved [8]savedParam
+	extra []savedParam
+}
+
+type savedParam struct {
+	s    string
+	i    int64
+	u    uint64
+	f    float64
+	b    bool
+	copy reflect.Value // for a type that isn't a plain scalar
+}
+
+// snapshotParams records v's parameter-only fields before a body decode. It
+// returns false when v has none, so there's nothing to restore.
+func snapshotParams(v any) (paramSnapshot, bool) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
-		return
+		return paramSnapshot{}, false
 	}
-	if plan := bindingPlanFor(rv.Elem().Type()); len(plan.paramOnly) > 0 {
-		plan.keepParamsOutOfBody(rv.Elem())
+	plan := bindingPlanFor(rv.Elem().Type())
+	if len(plan.paramOnly) == 0 {
+		return paramSnapshot{}, false
 	}
+	snap := paramSnapshot{plan: plan, val: rv.Elem()}
+	for i, f := range plan.paramOnly {
+		fv := promotedOrField(rv.Elem(), f)
+		var sp savedParam
+		if fv.IsValid() {
+			switch fv.Kind() {
+			case reflect.String:
+				sp.s = fv.String()
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				sp.i = fv.Int()
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				sp.u = fv.Uint()
+			case reflect.Float32, reflect.Float64:
+				sp.f = fv.Float()
+			case reflect.Bool:
+				sp.b = fv.Bool()
+			default:
+				if !fv.IsZero() {
+					sp.copy = detachedCopy(fv)
+				}
+			}
+		}
+		if i < len(snap.saved) {
+			snap.saved[i] = sp
+		} else {
+			snap.extra = append(snap.extra, sp)
+		}
+	}
+	return snap, true
+}
+
+// detachedCopy copies v so a decode into v can't change the copy: a slice
+// gets its own backing array and a pointer its own value, since
+// encoding/json writes into both in place.
+func detachedCopy(v reflect.Value) reflect.Value {
+	c := reflect.New(v.Type()).Elem()
+	switch v.Kind() {
+	case reflect.Slice:
+		c.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
+		reflect.Copy(c, v)
+	case reflect.Pointer:
+		p := reflect.New(v.Type().Elem())
+		p.Elem().Set(detachedCopy(v.Elem()))
+		c.Set(p)
+	default:
+		c.Set(v)
+	}
+	return c
+}
+
+// restore puts back the recorded values, undoing what the body decode wrote.
+func (s *paramSnapshot) restore() {
+	for i, f := range s.plan.paramOnly {
+		sp := &s.extra
+		var saved savedParam
+		if i < len(s.saved) {
+			saved = s.saved[i]
+		} else {
+			saved = (*sp)[i-len(s.saved)]
+		}
+		fv := promotedOrField(s.val, f)
+		if !fv.IsValid() {
+			continue
+		}
+		switch fv.Kind() {
+		case reflect.String:
+			fv.SetString(saved.s)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			fv.SetInt(saved.i)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			fv.SetUint(saved.u)
+		case reflect.Float32, reflect.Float64:
+			fv.SetFloat(saved.f)
+		case reflect.Bool:
+			fv.SetBool(saved.b)
+		default:
+			if saved.copy.IsValid() {
+				fv.Set(saved.copy)
+			} else {
+				fv.SetZero()
+			}
+		}
+	}
+}
+
+// promotedOrField returns the field without allocating a nil embedded
+// pointer on the way: an invalid Value when one is nil.
+func promotedOrField(v reflect.Value, f bindingField) reflect.Value {
+	if f.path == nil {
+		return v.Field(f.index)
+	}
+	for _, i := range f.path[:len(f.path)-1] {
+		v = v.Field(i)
+		if v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				return reflect.Value{}
+			}
+			v = v.Elem()
+		}
+	}
+	return v.Field(f.path[len(f.path)-1])
 }
 
 // bindingField keeps both the wire name and Go field label: the former locates
