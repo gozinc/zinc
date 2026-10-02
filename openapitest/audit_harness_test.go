@@ -245,6 +245,8 @@ func runScenario(t *testing.T, sc scenario, out string) auditResult {
 		}
 	}
 
+	res.Valid = append(res.Valid, checkExamples(c, m0(raw))...)
+
 	// 2. Expectations.
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
@@ -331,6 +333,13 @@ func runProbe(app *zinc.App, s spec, c *jsonschema.Compiler, p probe) []string {
 	if resp == nil {
 		return append(out, fmt.Sprintf("%s: status %d isn't documented", name, w.Code))
 	}
+	if headers, ok := resp["headers"].(map[string]any); ok && p.method != http.MethodHead {
+		for header, h := range headers {
+			if h, _ := h.(map[string]any); h["required"] == true && w.Header().Get(header) == "" {
+				out = append(out, fmt.Sprintf("%s: documented a %s header for %d, sent none", name, header, w.Code))
+			}
+		}
+	}
 	content, hasContent := resp["content"].(map[string]any)
 	if _, anything := content["*/*"]; anything && len(content) == 1 {
 		return out // any body, or none, of any media type
@@ -352,10 +361,10 @@ func runProbe(app *zinc.App, s spec, c *jsonschema.Compiler, p probe) []string {
 		}
 		return append(out, fmt.Sprintf("%s: sent %s, documented %v", name, mt, docd))
 	}
-	if mt != "application/json" {
+	if mt != "application/json" && !strings.HasSuffix(mt, "+json") {
 		return out
 	}
-	sch, err := c.Compile(auditURL + opPtr + "/responses/" + strconv.Itoa(w.Code) + "/content/application~1json/schema")
+	sch, err := c.Compile(auditURL + opPtr + "/responses/" + strconv.Itoa(w.Code) + "/content/" + escape(mt) + "/schema")
 	if err != nil {
 		return append(out, name+": response schema: "+firstLine(err))
 	}
@@ -562,4 +571,56 @@ func TestAudit(t *testing.T) {
 	}
 	t.Logf("%d scenarios", len(all))
 	checkBaseline(t, auditResults)
+}
+
+func m0(raw []byte) map[string]any {
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	return m
+}
+
+// checkExamples validates every named example in the spec against the
+// schema beside it.
+func checkExamples(c *jsonschema.Compiler, doc map[string]any) []string {
+	var out []string
+	check := func(ptr string, content map[string]any) {
+		for mt, media := range content {
+			examples, _ := media.(map[string]any)["examples"].(map[string]any)
+			if len(examples) == 0 {
+				continue
+			}
+			at := ptr + "/content/" + escape(mt)
+			sch, err := c.Compile(auditURL + "#" + at + "/schema")
+			if err != nil {
+				out = append(out, fmt.Sprintf("schema at %s: %v", at, firstLine(err)))
+				continue
+			}
+			for name, ex := range examples {
+				value := ex.(map[string]any)["value"]
+				if err := sch.Validate(value); err != nil {
+					out = append(out, fmt.Sprintf("example %q at %s doesn't match its schema: %s", name, at, firstLine(err)))
+				}
+			}
+		}
+	}
+	paths, _ := doc["paths"].(map[string]any)
+	for path, item := range paths {
+		for method, op := range item.(map[string]any) {
+			op, ok := op.(map[string]any)
+			if !ok {
+				continue
+			}
+			ptr := "/paths/" + escape(path) + "/" + method
+			if body, ok := op["requestBody"].(map[string]any); ok {
+				content, _ := body["content"].(map[string]any)
+				check(ptr+"/requestBody", content)
+			}
+			responses, _ := op["responses"].(map[string]any)
+			for status, resp := range responses {
+				content, _ := resp.(map[string]any)["content"].(map[string]any)
+				check(ptr+"/responses/"+status, content)
+			}
+		}
+	}
+	return out
 }

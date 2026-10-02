@@ -377,7 +377,13 @@ type oaHeader struct {
 
 type oaMediaType struct {
 	Schema   *schema                `json:"schema,omitempty"`
+	Examples orderedMap[oaExample]  `json:"examples,omitempty"`
 	Encoding orderedMap[oaEncoding] `json:"encoding,omitempty"`
+}
+
+// oaExample is a named example, from Route.Example or Route.RequestExample.
+type oaExample struct {
+	Value any `json:"value"`
 }
 
 // oaEncoding describes one part of a multipart body.
@@ -434,8 +440,34 @@ func (m orderedMap[T]) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// errorSchemaName is the component for Zinc's error envelope.
-const errorSchemaName = "Error"
+// errorSchemaName is the component for Zinc's error envelope, and
+// problemSchemaName the one for ProblemErrors' problem details.
+const (
+	errorSchemaName   = "Error"
+	problemSchemaName = "Problem"
+)
+
+// errorBodyKind is the error body a spec describes: none when a custom
+// ErrorHandler may write anything.
+type errorBodyKind uint8
+
+const (
+	noErrorBody errorBodyKind = iota
+	envelopeErrorBody
+	problemErrorBody
+)
+
+// errorBody is the error body the app's ErrorHandler writes, as far as the
+// spec can know it.
+func (a *App) errorBody() errorBodyKind {
+	switch {
+	case a.defaultErrors:
+		return envelopeErrorBody
+	case a.problemErrors:
+		return problemErrorBody
+	}
+	return noErrorBody
+}
 
 func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	title, version := defaultOpenAPIInfo()
@@ -470,11 +502,14 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 
 	g := newSchemaGen()
 	g.types = cfg.Schemas
-	if a.defaultErrors {
-		// The error envelope is Zinc's: reserve its name before any user type
-		// can take it, so a user type named Error gets a qualified name
-		// rather than being replaced.
+	// The error body is Zinc's: reserve its name before any user type can
+	// take it, so a user type named Error or Problem gets a qualified name
+	// rather than being replaced.
+	switch a.errorBody() {
+	case envelopeErrorBody:
 		g.taken[errorSchemaName] = componentKey{t: reflect.TypeFor[errorEnvelopeMarker]()}
+	case problemErrorBody:
+		g.taken[problemSchemaName] = componentKey{t: reflect.TypeFor[errorEnvelopeMarker]()}
 	}
 	// OpenAPI can't hold two operations at one path and method, or two
 	// paths that differ only in parameter names, so either is an error, not
@@ -513,7 +548,10 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 				authErrors = append(authErrors, http.StatusForbidden)
 			}
 		}
-		op, errs := buildOperation(g, a, meta, rd, authErrors)
+		op, errs, err := buildOperation(g, a, meta, rd, authErrors)
+		if err != nil {
+			return nil, err
+		}
 		usesErrors = usesErrors || errs
 		if rd.securitySet {
 			if reqs == nil {
@@ -548,7 +586,11 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 		doc.Paths = orderedMap[orderedMap[*oaOperation]]{}
 	}
 	if usesErrors {
-		g.components[errorSchemaName] = errorEnvelopeSchema()
+		if a.errorBody() == problemErrorBody {
+			g.components[problemSchemaName] = problemSchema()
+		} else {
+			g.components[errorSchemaName] = errorEnvelopeSchema()
+		}
 	}
 	if len(g.components) > 0 {
 		doc.Components.Schemas = g.components
@@ -565,7 +607,7 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 
 // buildOperation describes one route, and reports whether it can answer with
 // Zinc's error envelope.
-func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErrors []int) (*oaOperation, bool) {
+func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErrors []int) (*oaOperation, bool, error) {
 	op := &oaOperation{
 		Tags:        rd.tags,
 		Summary:     rd.summary,
@@ -672,6 +714,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 		}
 		success.Content = g.mediaContent(value, modeOutput, produced)
 	}
+	if out != nil && kind == outputJSON && status != http.StatusNoContent {
+		success.Headers = append(success.Headers, g.outputHeaders(out)...)
+	}
 	responses := map[int]*oaResponse{}
 	// Without an output type or a success status, Zinc can't know what the
 	// handler answers, so it documents a default response rather than guess.
@@ -685,9 +730,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 		responses[status] = success
 	}
 	// Any route can fail, so every one documents a 500. The error body is
-	// described only when Zinc's default error handler writes it; a custom
-	// ErrorHandler may write anything.
-	errorBody := a.defaultErrors
+	// described only when DefaultErrorHandler or ProblemErrors writes it; a
+	// custom ErrorHandler may write anything.
+	errorBody := a.errorBody()
 	responses[http.StatusInternalServerError] = errorResponse(http.StatusInternalServerError, errorBody)
 	if hasInput {
 		responses[http.StatusBadRequest] = errorResponse(http.StatusBadRequest, errorBody)
@@ -695,7 +740,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 			responses[http.StatusUnprocessableEntity] = errorResponse(http.StatusUnprocessableEntity, errorBody)
 		}
 	}
-	usesErrors := errorBody
+	usesErrors := errorBody != noErrorBody
 	for _, status := range authErrors {
 		responses[status] = errorResponse(status, errorBody)
 	}
@@ -711,6 +756,9 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 		}
 		responses[r.status] = resp
 	}
+	if err := addExamples(a, meta, rd, op, responses, status, errorBody); err != nil {
+		return nil, false, err
+	}
 	codes := make([]int, 0, len(responses))
 	for code := range responses {
 		codes = append(codes, code)
@@ -722,7 +770,7 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 	if fallback != nil {
 		op.Responses.set("default", fallback)
 	}
-	return op, usesErrors
+	return op, usesErrors, nil
 }
 
 // declaresSuccess reports whether the route documents a 2xx with
@@ -907,17 +955,37 @@ func defaultValue(t reflect.Type, def []string) any {
 	return one(def[0], t)
 }
 
-// errorResponse describes an error status, with Zinc's error envelope as its
-// body when withBody is set.
-func errorResponse(status int, withBody bool) *oaResponse {
-	if !withBody {
+// errorResponse describes an error status, with the error body the app's
+// ErrorHandler writes.
+func errorResponse(status int, body errorBodyKind) *oaResponse {
+	mediaType, name := "application/json", errorSchemaName
+	switch body {
+	case noErrorBody:
 		return &oaResponse{Description: http.StatusText(status)}
+	case problemErrorBody:
+		mediaType, name = problemJSONType, problemSchemaName
 	}
 	return &oaResponse{
 		Description: http.StatusText(status),
-		Content: orderedMap[oaMediaType]{{"application/json", oaMediaType{
-			Schema: &schema{ref: "#/components/schemas/" + errorSchemaName},
+		Content: orderedMap[oaMediaType]{{mediaType, oaMediaType{
+			Schema: &schema{ref: "#/components/schemas/" + name},
 		}}},
+	}
+}
+
+// problemSchema describes the RFC 9457 problem details ProblemErrors writes.
+func problemSchema() *schema {
+	return &schema{
+		typ:         []string{"object"},
+		description: "RFC 9457 problem details, written by ProblemErrors.",
+		properties: []property{
+			{"type", &schema{typ: []string{"string"}, format: "uri-reference"}},
+			{"title", &schema{typ: []string{"string"}}},
+			{"status", &schema{typ: []string{"integer"}, format: "int32", description: "The HTTP status."}},
+			{"detail", &schema{typ: []string{"string"}}},
+			{"errors", &schema{typ: []string{"object"}, description: "Invalid fields, by name, and what's wrong with each.", additionalProperties: &schema{typ: []string{"string"}}}},
+		},
+		required: []string{"type", "title", "status"},
 	}
 }
 
@@ -1071,4 +1139,225 @@ func hasTag(t reflect.Type, tag string) bool {
 		}
 	}
 	return false
+}
+
+// outputHeaders describes the header fields of output type t. A header
+// sent from a number or bool is always present, so it's required.
+func (g *schemaGen) outputHeaders(t reflect.Type) orderedMap[oaHeader] {
+	var headers orderedMap[oaHeader]
+	for _, h := range outputHeadersFor(t) {
+		if h.cookie {
+			if _, ok := headers.get("Set-Cookie"); !ok {
+				headers.set("Set-Cookie", oaHeader{Schema: &schema{typ: []string{"string"}}})
+			}
+			continue
+		}
+		ft := h.t
+		required := false
+		switch ft.Kind() {
+		case reflect.Pointer:
+			ft = ft.Elem()
+		case reflect.Slice, reflect.String:
+		default:
+			required = ft != timeType
+		}
+		s := g.schemaFor(ft)
+		// A header is sent or not; it's never null.
+		s.typ = slices.DeleteFunc(s.typ, func(t string) bool { return t == "null" })
+		headers.set(h.name, oaHeader{Required: required, Schema: s})
+	}
+	return headers
+}
+
+// addExamples puts the route's named examples beside the schemas they
+// illustrate, after checking each value is what that response carries.
+// success is the route's success status.
+func addExamples(a *App, meta routeMeta, rd *routeDoc, op *oaOperation, responses map[int]*oaResponse, success int, errorBody errorBodyKind) error {
+	for _, ex := range rd.examples {
+		where := fmt.Sprintf("%s %s: example %q", meta.method, meta.path, ex.name)
+		var content orderedMap[oaMediaType]
+		var value any
+		var err error
+		if ex.status == 0 {
+			if op.RequestBody == nil || rd.in == nil {
+				return fmt.Errorf("zinc: %s is for a request body, and the route has none", where)
+			}
+			content = op.RequestBody.Content
+			value, err = requestExample(rd.in, ex.value)
+		} else {
+			where += fmt.Sprintf(" for %d", ex.status)
+			resp := responses[ex.status]
+			if resp == nil {
+				return fmt.Errorf("zinc: %s: the route doesn't document %d; declare it with Errors or Response", where, ex.status)
+			}
+			if len(resp.Content) == 0 {
+				return fmt.Errorf("zinc: %s: the %d response has no body", where, ex.status)
+			}
+			content = resp.Content
+			value, err = responseExample(rd, ex.status, success, errorBody, ex.value)
+		}
+		if err != nil {
+			return fmt.Errorf("zinc: %s: %w", where, err)
+		}
+		for i := range content {
+			content[i].value.Examples.set(ex.name, oaExample{Value: value})
+		}
+	}
+	return nil
+}
+
+// responseExample checks value against the response for status and returns
+// it as the response body's JSON value.
+func responseExample(rd *routeDoc, status, success int, errorBody errorBodyKind, value any) (any, error) {
+	var want reflect.Type
+	declared := false
+	for _, r := range rd.responses {
+		if r.status == status {
+			want, declared = r.typ, true
+		}
+	}
+	switch {
+	case declared:
+	case status == success && rd.out != nil:
+		want = rd.out
+		switch kindOf(want) {
+		case outputText, outputHTML:
+			if text, ok := value.(string); ok {
+				return text, nil
+			}
+		case outputJSON:
+		default:
+			return nil, fmt.Errorf("a %s body has no example value", want)
+		}
+	case status >= 400:
+		httpErr, ok := value.(*HTTPError)
+		if !ok {
+			return nil, fmt.Errorf("an error example is an *HTTPError, such as zinc.NewError(%d, \"...\"), not %T", status, value)
+		}
+		if httpErr.Code != status {
+			return nil, fmt.Errorf("the *HTTPError's status is %d", httpErr.Code)
+		}
+		return errorExample(httpErr, errorBody)
+	}
+	if want != nil && !exampleMatches(reflect.TypeOf(value), want) {
+		return nil, fmt.Errorf("value is a %T; the response is a %s", value, want)
+	}
+	return jsonValue(value)
+}
+
+// exampleMatches reports whether a value of type got describes type want,
+// allowing a pointer on either side.
+func exampleMatches(got, want reflect.Type) bool {
+	if got == nil {
+		return false
+	}
+	return base(got) == base(want)
+}
+
+// errorExample is the body the app's error handler writes for err.
+func errorExample(err *HTTPError, kind errorBodyKind) (any, error) {
+	switch kind {
+	case envelopeErrorBody:
+		return jsonValue(errorBody{Error: errorPayload{Status: err.Code, Message: err.Error(), Details: err.Details}})
+	case problemErrorBody:
+		problem := problemDetails{Type: "about:blank", Title: http.StatusText(err.Code), Status: err.Code}
+		if message := err.Error(); message != problem.Title {
+			problem.Detail = message
+		}
+		body, encodeErr := problem.marshal(err.Details)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		return jsonValue(json.RawMessage(body))
+	}
+	return nil, errors.New("the app's ErrorHandler is custom, so declare its body with Response")
+}
+
+// requestExample checks value against the input type and returns the
+// request body it stands for, without the fields bound from elsewhere.
+func requestExample(in reflect.Type, value any) (any, error) {
+	if !exampleMatches(reflect.TypeOf(value), in) {
+		return nil, fmt.Errorf("value is a %T; the input is a %s", value, in)
+	}
+	v, err := jsonValue(value)
+	if err != nil {
+		return nil, err
+	}
+	if object, ok := v.(orderedMap[any]); ok && base(in).Kind() == reflect.Struct {
+		for _, f := range jsonFields(base(in)) {
+			if f.param {
+				object = slices.DeleteFunc(object, func(e orderedEntry[any]) bool { return e.key == f.name })
+			}
+		}
+		v = object
+	}
+	return withoutNulls(v), nil
+}
+
+// withoutNulls drops null object members, at any depth: a nil field binds
+// the same whether it's sent as null or left out, and left out is what the
+// input schema allows.
+func withoutNulls(v any) any {
+	switch v := v.(type) {
+	case orderedMap[any]:
+		v = slices.DeleteFunc(v, func(e orderedEntry[any]) bool { return e.value == nil })
+		for i := range v {
+			v[i].value = withoutNulls(v[i].value)
+		}
+		return v
+	case []any:
+		for i := range v {
+			v[i] = withoutNulls(v[i])
+		}
+	}
+	return v
+}
+
+// jsonValue is value as encoding/json writes it, decoded with its objects'
+// members in order, so an example shows the names, formats and order
+// clients see.
+func jsonValue(value any) (any, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	return decodeOrdered(dec)
+}
+
+func decodeOrdered(dec *json.Decoder) (any, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	switch tok {
+	case json.Delim('{'):
+		object := orderedMap[any]{}
+		for dec.More() {
+			key, err := dec.Token()
+			if err != nil {
+				return nil, err
+			}
+			member, err := decodeOrdered(dec)
+			if err != nil {
+				return nil, err
+			}
+			object = append(object, orderedEntry[any]{key.(string), member})
+		}
+		_, err := dec.Token()
+		return object, err
+	case json.Delim('['):
+		array := []any{}
+		for dec.More() {
+			element, err := decodeOrdered(dec)
+			if err != nil {
+				return nil, err
+			}
+			array = append(array, element)
+		}
+		_, err := dec.Token()
+		return array, err
+	}
+	return tok, nil
 }

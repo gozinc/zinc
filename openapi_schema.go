@@ -22,6 +22,15 @@ type SchemaProvider interface {
 	OpenAPISchema() map[string]any
 }
 
+// SchemaNamer lets a struct type choose its component name in the OpenAPI
+// spec, in place of its Go name, such as "Pet" for a type named petRecord or
+// a generic Page[Pet]. Its input variant adds Input to the name, and its
+// request-body variant Body. If two types claim one name, the later is
+// qualified by its package, as with Go names.
+type SchemaNamer interface {
+	OpenAPIName() string
+}
+
 // EnumProvider lets a named type list the values it can take. The type
 // becomes a component with an enum, shared by every field of the type:
 //
@@ -52,6 +61,8 @@ type schema struct {
 	enum                 []any
 	def                  any
 	examples             []any
+	readOnly, writeOnly  bool
+	deprecated           bool
 	minimum, maximum     *float64
 	exclusiveMinimum     *float64
 	exclusiveMaximum     *float64
@@ -352,7 +363,13 @@ func (g *schemaGen) uniqueName(t reflect.Type, mode schemaMode) string {
 	case modeBody:
 		suffix = "Body"
 	}
-	name := sanitizeComponentName(t.Name()) + suffix
+	goName := t.Name()
+	if namer, ok := reflect.New(t).Interface().(SchemaNamer); ok {
+		if chosen := sanitizeComponentName(namer.OpenAPIName()); chosen != "" {
+			goName = chosen
+		}
+	}
+	name := sanitizeComponentName(goName) + suffix
 	if _, used := g.taken[name]; !used {
 		return name
 	}
@@ -546,9 +563,10 @@ func (g *schemaGen) structSchema(t reflect.Type, mode schemaMode) *schema {
 				fs.typ = slices.DeleteFunc(fs.typ, func(t string) bool { return t == "null" })
 			}
 		}
-		if fs.ref != "" && (fs.description != "" || len(fs.examples) > 0) {
+		if fs.ref != "" && (fs.description != "" || len(fs.examples) > 0 || fs.readOnly || fs.writeOnly || fs.deprecated) {
 			// Keep the component clean: annotations sit beside the $ref.
-			fs = &schema{ref: fs.ref, description: fs.description, examples: fs.examples}
+			fs = &schema{ref: fs.ref, description: fs.description, examples: fs.examples,
+				readOnly: fs.readOnly, writeOnly: fs.writeOnly, deprecated: fs.deprecated}
 		}
 		s.properties = append(s.properties, property{name: f.name, schema: fs})
 		if required {
@@ -740,6 +758,16 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	target := fs
 	if len(fs.anyOf) == 2 {
 		target = fs.anyOf[0] // constraints apply to the non-null branch
+	}
+	for _, role := range strings.Split(f.tag.Get("openapi"), ",") {
+		switch strings.TrimSpace(role) {
+		case "readonly":
+			fs.readOnly = true
+		case "writeonly":
+			fs.writeOnly = true
+		case "deprecated":
+			fs.deprecated = true
+		}
 	}
 	if ex, ok := f.tag.Lookup("example"); ok {
 		if v, ok := parseExample(ex, f.typ, f.asString); ok {
@@ -1026,6 +1054,15 @@ func (s *schema) MarshalJSON() ([]byte, error) {
 	}
 	if s.def != nil {
 		field("default", s.def)
+	}
+	if s.readOnly {
+		field("readOnly", true)
+	}
+	if s.writeOnly {
+		field("writeOnly", true)
+	}
+	if s.deprecated {
+		field("deprecated", true)
 	}
 	if s.minimum != nil {
 		field("minimum", *s.minimum)

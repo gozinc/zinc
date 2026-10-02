@@ -17,6 +17,28 @@ type problem struct {
 	Code string `json:"code"`
 }
 
+// createdItem sends its location and a cookie as headers, not in the body.
+type createdItem struct {
+	Location string       `header:"Location" json:"-"`
+	Session  *http.Cookie `header:"Set-Cookie" json:"-"`
+	Count    int          `header:"X-Count" json:"-"`
+	ID       int          `json:"id"`
+}
+
+// account has a field for each spec-only role, and names its component.
+type account struct {
+	ID       string `json:"id" openapi:"readonly"`
+	Email    string `json:"email"`
+	Password string `json:"password,omitempty" openapi:"writeonly"`
+	Nick     string `json:"nick,omitempty" openapi:"deprecated"`
+}
+
+func (account) OpenAPIName() string { return "Account" }
+
+type echoed struct {
+	Region string `header:"X-Region" json:"region"`
+}
+
 func responseScenarios() []scenario {
 	dir, _ := os.MkdirTemp("", "zinc-audit-files")
 	_ = os.WriteFile(filepath.Join(dir, "report.csv"), []byte("a,b\n1,2\n"), 0o644)
@@ -267,6 +289,97 @@ func responseScenarios() []scenario {
 			},
 			probes: []probe{get("/csv")},
 			note:   "The handler bypasses its output type; no spec can know. Return zinc.Bytes with Produces instead (R21)."},
+		{id: "R31", area: "Responses", title: "Response headers from output fields (Location, Set-Cookie)",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Post("/items", zinc.Typed(func(*zinc.Context, struct{}) (createdItem, error) {
+					return createdItem{Location: "/items/1", Session: &http.Cookie{Name: "s", Value: "1"}, Count: 1, ID: 1}, nil
+				})).Status(http.StatusCreated)
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{{method: "POST", target: "/items", status: 201}},
+			expect: func(f *findings, s spec) {
+				headers, _ := s.response("POST", "/items", 201)["headers"].(map[string]any)
+				for _, h := range []string{"Location", "Set-Cookie", "X-Count"} {
+					if headers[h] == nil {
+						f.add("the %s header isn't documented: %v", h, headers)
+					}
+				}
+				if prop(s.responseSchema("POST", "/items", 201), "Location") != nil {
+					f.add("a header field is also in the body schema")
+				}
+			}},
+		{id: "R32", area: "Responses", title: "Header-tagged field of an echoed input stays in the body",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/echo", zinc.Typed(func(_ *zinc.Context, in echoed) (echoed, error) { return in, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{{method: "GET", target: "/echo", header: http.Header{"X-Region": {"eu"}}, status: 200}},
+			expect: func(f *findings, s spec) {
+				if prop(s.responseSchema("GET", "/echo", 200), "region") == nil {
+					f.add("the echoed field left the body schema")
+				}
+			}},
+		{id: "R33", area: "Responses", title: "ProblemErrors: RFC 9457 bodies, documented",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New(zinc.Config{ErrorHandler: zinc.ProblemErrors})
+				app.Get("/items/{id}", zinc.Typed(func(_ *zinc.Context, in struct {
+					ID int `path:"id"`
+				}) (item, error) {
+					if in.ID != 1 {
+						return item{}, zinc.NewError(http.StatusNotFound, "no such item").WithDetail("id", in.ID)
+					}
+					return item{ID: 1}, nil
+				})).Errors(http.StatusNotFound).
+					Example(http.StatusNotFound, "unknown id", zinc.NewError(http.StatusNotFound, "no such item"))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/items/1"), {method: "GET", target: "/items/2", status: 404}, {method: "GET", target: "/items/x", status: 400}},
+			expect: func(f *findings, s spec) {
+				if mediaSchema(s.response("GET", "/items/{id}", 404), "application/problem+json") == nil {
+					f.add("the 404 isn't documented as application/problem+json")
+				}
+			}},
+		{id: "R34", area: "Responses", title: "Named examples for success, error and request",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Post("/pets", zinc.Typed(func(_ *zinc.Context, in newPet) (newPet, error) { return in, nil })).
+					Status(http.StatusCreated).
+					RequestExample("a cat", newPet{Name: "Tom", Kind: "cat"}).
+					Example(http.StatusCreated, "a cat", newPet{Name: "Tom", Kind: "cat", Tags: []string{}}).
+					Errors(http.StatusConflict).
+					Example(http.StatusConflict, "taken", zinc.NewError(http.StatusConflict, "name taken"))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{post("/pets", `{"name":"Tom","kind":"cat"}`, 201)},
+			expect: func(f *findings, s spec) {
+				for _, status := range []int{201, 409} {
+					media, _ := s.response("POST", "/pets", status)["content"].(map[string]any)["application/json"].(map[string]any)
+					if media["examples"] == nil {
+						f.add("no examples for %d", status)
+					}
+				}
+			}},
+		{id: "R35", area: "Responses", title: "Spec-only field roles and a chosen component name",
+			build: func() (*zinc.App, zinc.OpenAPIConfig) {
+				app := zinc.New()
+				app.Get("/me", zinc.Typed(func(*zinc.Context, struct{}) (account, error) { return account{ID: "1", Email: "a@b.c"}, nil }))
+				return app, zinc.OpenAPIConfig{}
+			},
+			probes: []probe{get("/me")},
+			expect: func(f *findings, s spec) {
+				c := s.component("Account")
+				if c == nil {
+					f.add("OpenAPIName didn't name the component: %v", s.components())
+					return
+				}
+				for field, keyword := range map[string]string{"id": "readOnly", "password": "writeOnly", "nick": "deprecated"} {
+					if prop(c, field)[keyword] != true {
+						f.add("%s isn't marked %s", field, keyword)
+					}
+				}
+			}},
 		{id: "R22", area: "Responses", title: "Output declared on a plain handler, sent as JSON",
 			build: func() (*zinc.App, zinc.OpenAPIConfig) {
 				app := zinc.New()
