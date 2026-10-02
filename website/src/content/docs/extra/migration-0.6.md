@@ -7,7 +7,7 @@ slug: extra/migration-0.6
 Most apps move from 0.5 to 0.6 with no code changes, but read the first section below: a private API needs one line. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.6.2
+go get github.com/0mjs/zinc@v0.6.3
 go test ./...
 ```
 
