@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/0mjs/zinc/internal/docspage"
 )
 
 // DefaultListenAddr is used when Listen receives no address or an empty one.
@@ -24,6 +26,10 @@ const DefaultListenAddr = ":8080"
 // DefaultOpenAPIPath is where an app serves its OpenAPI spec unless
 // Config.OpenAPIPath says otherwise.
 const DefaultOpenAPIPath = "/openapi.json"
+
+// DefaultDocsPath is where an app serves its API reference page unless
+// Config.DocsPath says otherwise.
+const DefaultDocsPath = "/docs"
 
 // Map is a concise map type for dynamic JSON and template data.
 type Map map[string]any
@@ -55,6 +61,9 @@ type RouteInfo struct {
 	Handler string
 	// Status is the success status declared with Route.Status, or 0.
 	Status int
+	// Builtin marks an endpoint the app serves itself: the OpenAPI spec and
+	// the reference page.
+	Builtin bool
 }
 
 // Route is a registered route. Registration methods return it so the route
@@ -78,9 +87,11 @@ func (r Route) Name(name string) Route {
 	return r
 }
 
-// Status declares the route's success status for a Typed handler, such as
-// http.StatusCreated for a route that creates a resource. Other handlers set
-// their status with Context.Status. It panics unless code is 2xx.
+// Status sets the route's success status, such as http.StatusCreated for a
+// route that creates a resource. It's the status of whatever the route
+// writes, for typed and plain handlers alike, unless a handler or middleware
+// sets another with Context.Status, or returns an error. The spec documents
+// it. It panics unless code is 2xx.
 func (r Route) Status(code int) Route {
 	if r.table == nil {
 		panic("zinc: Status on a route that was not registered")
@@ -89,6 +100,7 @@ func (r Route) Status(code int) Route {
 		panic(fmt.Sprintf("zinc: route status %d is not a success status", code))
 	}
 	r.table.routeInfos[r.index].status = uint16(code)
+	r.table.setDefaultStatus(r.index, code)
 	r.table.docsVersion++
 	return r
 }
@@ -225,6 +237,10 @@ type App struct {
 	// Config.OpenAPIPath is "-" or App.OpenAPI took over.
 	spec     *servedSpec
 	specPath string
+	// docsPage is the reference page served at docsPath when no route
+	// matches it; nil when Config.DocsPath is "-" or there's no spec.
+	docsPage []byte
+	docsPath string
 }
 
 // New creates an App. With no Config, or with a zero-valued field, Zinc's
@@ -269,8 +285,46 @@ func New(config ...Config) *App {
 		}
 		app.spec = &servedSpec{app: app, cfg: cfg.OpenAPI}
 		app.specPath = cfg.OpenAPIPath
+		if cfg.DocsPath != "-" {
+			if !strings.HasPrefix(cfg.DocsPath, "/") {
+				panic(fmt.Sprintf("zinc: Config.DocsPath %q must start with / or be \"-\"", cfg.DocsPath))
+			}
+			app.docsPath = cfg.DocsPath
+			app.renderDocs(cfg.OpenAPIPath)
+		}
 	}
 	return app
+}
+
+// renderDocs renders the reference page for the spec at specPath.
+func (a *App) renderDocs(specPath string) {
+	title := a.config.OpenAPI.Title
+	if title == "" {
+		title, _ = defaultOpenAPIInfo()
+	}
+	page, err := docspage.Render(docspage.Scalar, specPath, title, "")
+	if err != nil {
+		panic("zinc: " + err.Error())
+	}
+	a.docsPage = page
+}
+
+// builtinRoutes lists the endpoints the app serves itself, the spec and the
+// reference page, except where a route of the app's own takes the path.
+func (a *App) builtinRoutes() []RouteInfo {
+	var out []RouteInfo
+	add := func(path, handler string) {
+		if _, ctx := a.router.Find(MethodGet, path); ctx == nil {
+			out = append(out, RouteInfo{Method: MethodGet, Path: path, Handler: handler, Builtin: true})
+		}
+	}
+	if a.spec != nil {
+		add(a.specPath, "zinc.OpenAPISpec")
+	}
+	if a.docsPage != nil {
+		add(a.docsPath, "zinc.DocsPage")
+	}
+	return out
 }
 
 // normalizeConfig resolves zero values to defaults. Negative limits and
@@ -286,6 +340,9 @@ func normalizeConfig(cfg Config) Config {
 	}
 	if cfg.OpenAPIPath == "" {
 		cfg.OpenAPIPath = DefaultOpenAPIPath
+	}
+	if cfg.DocsPath == "" {
+		cfg.DocsPath = DefaultDocsPath
 	}
 	if cfg.ErrorHandler == nil {
 		cfg.ErrorHandler = DefaultErrorHandler
@@ -592,6 +649,14 @@ func (a *App) RouteNotFound(path string, handlers ...HandlerFunc) {
 		a.notFoundRoutes = &routeTable{config: &a.config}
 	}
 	mustRegister(a.notFoundRoutes.Add(MethodGet, path, handlers...))
+	// A handler for exactly a built-in endpoint's path claims it, as a
+	// route there would. A pattern, such as /{rest...}, doesn't.
+	switch path {
+	case a.specPath:
+		a.spec, a.specPath = nil, ""
+	case a.docsPath:
+		a.docsPage, a.docsPath = nil, ""
+	}
 }
 
 // MethodNotAllowed replaces the application-wide 405 handler.
@@ -602,15 +667,16 @@ func (a *App) MethodNotAllowed(handler HandlerFunc) {
 // Routes returns registered routes and mounts in registration order.
 func (a *App) Routes() []RouteInfo {
 	routes := a.router.Routes()
-	if len(a.mounts) == 0 {
+	builtins := a.builtinRoutes()
+	if len(a.mounts) == 0 && len(builtins) == 0 {
 		return routes
 	}
-	out := make([]RouteInfo, 0, len(routes)+len(a.mounts))
+	out := make([]RouteInfo, 0, len(routes)+len(a.mounts)+len(builtins))
 	out = append(out, routes...)
 	for _, mount := range a.mounts {
 		out = append(out, mount.info.export())
 	}
-	return out
+	return append(out, builtins...)
 }
 
 // TryHandle registers a route whose declaration came from dynamic input.
@@ -684,6 +750,13 @@ func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 	}
 	if mount := a.matchMount(path); mount != nil {
 		return mount.info.export(), true
+	}
+	if method == MethodGet || method == MethodHead {
+		for _, b := range a.builtinRoutes() {
+			if b.Path == path {
+				return b, true
+			}
+		}
 	}
 	return RouteInfo{}, false
 }

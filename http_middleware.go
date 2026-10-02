@@ -6,6 +6,7 @@ package zinc
 import (
 	"net/http"
 
+	"github.com/0mjs/zinc/internal/preflight"
 	"github.com/0mjs/zinc/internal/prerouting"
 )
 
@@ -116,6 +117,9 @@ func Skip(skip func(*Context) bool, mw Middleware) Middleware {
 	// routing still can't be registered on a group when it's wrapped.
 	if name, ok := prerouting.Name(mw); ok {
 		prerouting.Mark(wrapped, name)
+	}
+	if preflight.Is(mw) {
+		preflight.Mark(wrapped)
 	}
 	return wrapped
 }

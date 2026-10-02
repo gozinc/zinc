@@ -141,5 +141,6 @@ func decodeBodyOnly(c *Context, decode Decoder, v any, requireBody bool) error {
 		}
 		return wrapBindError("body", err)
 	}
+	keepParamsOutOfBody(v)
 	return nil
 }

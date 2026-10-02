@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024-present Matt J. Stevenson and Contributors
+
+package zinc
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+type sourced struct {
+	Role   string `header:"X-Role"`
+	Limit  int    `query:"limit" default:"20"`
+	Tenant string `header:"X-Tenant" json:"tenant" xml:"tenant"`
+	Name   string `json:"name" xml:"name"`
+}
+
+// A body never fills a field tagged only for the URL, headers or cookies,
+// whatever its format; a field tagged for both takes either.
+func TestBodyOnlyFillsBodyFields(t *testing.T) {
+	decode := func(body []byte, v any) error { return json.Unmarshal(body, v) } // a YAML stand-in
+	app := New(Config{Decoders: map[string]Decoder{"application/yaml": decode}})
+	var got sourced
+	app.Post("/", Typed(func(_ *Context, in sourced) (NoContent, error) { got = in; return NoContent{}, nil }))
+	send := func(contentType, body string, header ...string) {
+		t.Helper()
+		got = sourced{}
+		r := httptest.NewRequest("POST", "/", strings.NewReader(body))
+		r.Header.Set("Content-Type", contentType)
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("%s: %d %s", contentType, w.Code, w.Body)
+		}
+	}
+	for _, ct := range []string{"application/json", "application/yaml"} {
+		send(ct, `{"Role":"admin","Limit":99,"tenant":"acme","name":"Ada"}`)
+		if got.Role != "" || got.Limit != 20 || got.Tenant != "acme" || got.Name != "Ada" {
+			t.Errorf("%s: %+v", ct, got)
+		}
+	}
+	send("application/xml", `<sourced><Role>admin</Role><tenant>acme</tenant><name>Ada</name></sourced>`)
+	if got.Role != "" || got.Tenant != "acme" || got.Name != "Ada" {
+		t.Errorf("xml: %+v", got)
+	}
+	// The header still binds, and wins over the body for a both-tagged field.
+	send("application/json", `{"tenant":"body"}`, "X-Role", "viewer", "X-Tenant", "header")
+	if got.Role != "viewer" || got.Tenant != "header" {
+		t.Errorf("headers: %+v", got)
+	}
+
+	// The single-source body binders follow the same rule.
+	plain := New()
+	plain.Post("/", func(c *Context) error {
+		var in sourced
+		if err := c.Bind().JSON(&in); err != nil {
+			return err
+		}
+		return c.JSON(in)
+	})
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"Role":"admin","name":"Ada"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	plain.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), `"Role":""`) {
+		t.Fatalf("Bind().JSON: %s", w.Body)
+	}
+}
+
+// A plain handler's route status is its default; its own status, an error,
+// and a typed NoContent keep theirs.
+func TestRouteStatusForPlainHandlers(t *testing.T) {
+	app := New()
+	app.Post("/default", func(c *Context) error { return c.JSON("ok") }).Status(http.StatusCreated)
+	app.Post("/own", func(c *Context) error { return c.Status(http.StatusAccepted).JSON("ok") }).Status(http.StatusCreated)
+	app.Post("/error", func(c *Context) error { return ErrConflict }).Status(http.StatusCreated)
+	app.Post("/typed", Typed(func(*Context, struct{}) (string, error) { return "ok", nil })).Status(http.StatusCreated)
+	app.Delete("/gone", Typed(func(*Context, struct{}) (NoContent, error) { return NoContent{}, nil }))
+	for target, want := range map[string]int{"POST /default": 201, "POST /own": 202, "POST /error": 409, "POST /typed": 201, "DELETE /gone": 204} {
+		method, path, _ := strings.Cut(target, " ")
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+		if w.Code != want {
+			t.Errorf("%s: %d, want %d", target, w.Code, want)
+		}
+	}
+}

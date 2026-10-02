@@ -6,7 +6,6 @@ package zinc_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -19,22 +18,12 @@ import (
 )
 
 // These tests come from the 0.7 framework audit's probes (findings F03 to
-// F11 and the API observations). Each asserts the behavior Zinc should have.
-// Until the phase that fixes it lands, pending skips it with that phase and
-// finding, so `go test -v -run Audit` lists what's still open. The phase
-// removes its pending call.
+// F11 and the API observations). Each asserts the behavior Zinc now has;
+// they were added failing, skipped by phase, and turned on as each phase
+// landed (0.6.1 and 0.6.2).
 //
 // The OpenAPI findings (F01, F02, F12, F13) are scenarios in the openapitest
 // audit, where the baseline tracks them.
-
-// pending skips a test whose fix is planned for phase. With
-// ZINC_AUDIT_OPEN=1 it runs instead, to show the test still fails.
-func pending(t *testing.T, phase, finding string) {
-	t.Helper()
-	if os.Getenv("ZINC_AUDIT_OPEN") != "1" {
-		t.Skipf("open: %s fixes %s", phase, finding)
-	}
-}
 
 func serve(app *zinc.App, method, target, body string, header ...string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
@@ -70,7 +59,6 @@ func TestAuditExplicitStatusWins(t *testing.T) {
 
 // D7: a plain handler's route status is its runtime default too.
 func TestAuditPlainRouteStatus(t *testing.T) {
-	pending(t, "P18", "D7")
 	app := zinc.New()
 	app.Post("/", func(c *zinc.Context) error { return c.JSON("ok") }).Status(http.StatusCreated)
 	if w := serve(app, "POST", "/", ""); w.Code != http.StatusCreated {
@@ -80,7 +68,6 @@ func TestAuditPlainRouteStatus(t *testing.T) {
 
 // F03: a field tagged only for the URL or headers can't be set by the body.
 func TestAuditSourceOwnership(t *testing.T) {
-	pending(t, "P17", "F03")
 	type input struct {
 		Role   string `header:"X-Role"`
 		DryRun bool   `query:"dry_run"`
@@ -97,7 +84,6 @@ func TestAuditSourceOwnership(t *testing.T) {
 // F08: Bind().All binds what a typed handler binds, headers and cookies
 // included.
 func TestAuditAllMatchesTyped(t *testing.T) {
-	pending(t, "P17", "F08")
 	type input struct {
 		Token   string `header:"X-Token" json:"-"`
 		Session string `cookie:"session" json:"-"`
@@ -200,7 +186,6 @@ func TestAuditSkipKeepsPreroutingMark(t *testing.T) {
 
 // F05: CORS on a group answers its routes' preflight requests.
 func TestAuditGroupCORSPreflight(t *testing.T) {
-	pending(t, "P19", "F05")
 	app := zinc.New()
 	app.Group("/api", cors.New()).Post("/pets", func(c *zinc.Context) error { return c.JSON("ok") })
 	w := serve(app, "OPTIONS", "/api/pets", "", "Origin", "https://example.com", "Access-Control-Request-Method", "POST")
@@ -211,7 +196,6 @@ func TestAuditGroupCORSPreflight(t *testing.T) {
 
 // D2: the built-in spec endpoint shows in route inspection.
 func TestAuditBuiltinsInRoutes(t *testing.T) {
-	pending(t, "P20", "D2")
 	app := zinc.New()
 	if _, ok := app.FindRoute("GET", "/openapi.json"); !ok {
 		t.Fatal("FindRoute doesn't find /openapi.json")
@@ -220,7 +204,6 @@ func TestAuditBuiltinsInRoutes(t *testing.T) {
 
 // A GET body is either bound and documented, or neither.
 func TestAuditGETBodyPolicy(t *testing.T) {
-	pending(t, "P17", "GET body policy")
 	type input struct {
 		Name string `json:"name"`
 	}

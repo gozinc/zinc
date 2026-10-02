@@ -31,6 +31,61 @@ type bindingPlan struct {
 	// err is the first field binding can't fill. A Typed handler panics with
 	// it at registration; a binder returns it.
 	err error
+	// paramOnly are the fields tagged for the path, query, headers or
+	// cookies and for no body format. A body decode can still write them,
+	// as encoding/json matches keys to field names, so each decode resets
+	// them: the body never fills a field the struct says comes from
+	// elsewhere.
+	paramOnly []bindingField
+}
+
+// bodyTags are the struct tags that opt a field into the body. Zinc can't ask
+// a configured decoder which tag it reads, so the common ones are listed.
+var bodyTags = [...]string{"json", "xml", "form", "yaml", "toml", "msgpack", "cbor", "bson"}
+
+// paramOnly reports whether field is tagged for the path, query, headers or
+// cookies and for no body format.
+func paramOnly(field reflect.StructField) bool {
+	param := false
+	for _, tag := range [...]string{"path", "query", "header", "cookie"} {
+		if v, ok := field.Tag.Lookup(tag); ok && v != "-" {
+			param = true
+			break
+		}
+	}
+	if !param {
+		return false
+	}
+	for _, tag := range bodyTags {
+		if v, ok := field.Tag.Lookup(tag); ok && v != "-" {
+			return false
+		}
+	}
+	return true
+}
+
+// keepParamsOutOfBody undoes what a body decode wrote to the fields the plan
+// lists as parameter-only, restoring their default or zero value.
+func (plan *bindingPlan) keepParamsOutOfBody(val reflect.Value) {
+	for _, f := range plan.paramOnly {
+		fv := f.value(val)
+		fv.SetZero()
+		if f.def != nil {
+			_ = f.setter.set(fv, f.def)
+		}
+	}
+}
+
+// keepParamsOutOfBody is keepParamsOutOfBody for a binder's target, when it's
+// a pointer to a struct.
+func keepParamsOutOfBody(v any) {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
+		return
+	}
+	if plan := bindingPlanFor(rv.Elem().Type()); len(plan.paramOnly) > 0 {
+		plan.keepParamsOutOfBody(rv.Elem())
+	}
 }
 
 // bindingField keeps both the wire name and Go field label: the former locates
@@ -245,6 +300,9 @@ func (plan *bindingPlan) compileField(root reflect.Type, i int, path []int, fiel
 		def := compileDefault(root, field, setter)
 		if def != nil {
 			plan.hasDefaults = true
+		}
+		if paramOnly(field) {
+			plan.paramOnly = append(plan.paramOnly, bindingField{index: i, path: path, setter: setter, def: def})
 		}
 		add := func(list *[]bindingField, compiled bindingField) {
 			compiled.path = path

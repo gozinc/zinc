@@ -66,11 +66,9 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 				return err
 			}
 		}
-		// The route's status is the default; set it first so a status fn
-		// sets itself, 200 included, wins.
-		if declared := c.declaredStatus(); declared != 0 {
-			c.status = declared
-		} else if noContent {
+		// A route's status is already set when it matches. NoContent's
+		// default comes before fn, so a status fn sets itself still wins.
+		if noContent && c.declaredStatus() == 0 {
 			c.status = StatusNoContent
 		}
 		out, err := fn(c, in)
@@ -121,10 +119,9 @@ func describeHandler(h HandlerFunc) (handlerTypes, bool) {
 	return types, ok
 }
 
-// bindTyped binds like Bind().All and also binds header fields, after the
-// body and before query and path values.
+// bindTyped binds exactly as Bind().All does.
 func (c *Context) bindTyped(v any) error {
-	return bindRequest(c, v, true)
+	return bindRequest(c, v)
 }
 
 // declaredStatus returns the success status set with Route.Status for the

@@ -250,6 +250,10 @@ func (a *App) OpenAPI(path string, cfg OpenAPIConfig, middleware ...HandlerFunc)
 		panic(err.Error())
 	}
 	a.spec, a.specPath = nil, ""
+	if a.docsPage != nil {
+		// The reference page follows the spec to its new path.
+		a.renderDocs(path)
+	}
 	spec := &servedSpec{app: a, cfg: cfg}
 	handlers := append(append([]HandlerFunc(nil), middleware...), spec.serve)
 	return a.Get(path, handlers...).Hidden()

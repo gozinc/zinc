@@ -9,6 +9,8 @@ import (
 	"math/bits"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/0mjs/zinc/internal/preflight"
 )
 
 // routeMap indexes static routes by method and exact spelling. Its values are
@@ -44,6 +46,26 @@ type routeTable struct {
 	// docsVersion counts changes to route metadata after registration, such
 	// as Hidden or Summary, so a served spec knows when to rebuild.
 	docsVersion uint64
+	// entries and handlers hold each route's tree entry and its handler as
+	// registered, by route index, so Route.Status can wrap the handler.
+	// Dispatch never reads them.
+	entries  []*radixRoute
+	handlers []HandlerFunc
+	// preflight holds, by "METHOD path", a route's middleware that also
+	// answers CORS preflight requests, outermost first. Only automatic
+	// OPTIONS reads it.
+	preflight map[string][]HandlerFunc
+}
+
+// setDefaultStatus makes code the status of whatever the route writes,
+// unless a handler sets another: the route's handler is wrapped to set it
+// before the route's middleware and handlers run.
+func (r *routeTable) setDefaultStatus(index uint32, code int) {
+	entry, base := r.entries[index], r.handlers[index]
+	entry.handler = func(c *Context) error {
+		c.status = code
+		return base(c)
+	}
 }
 
 // Add registers handlers for method and path.
@@ -117,6 +139,17 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		r.addStaticSpellings(method, mask, path, route)
 	}
 	r.routeInfos = append(r.routeInfos, info)
+	r.entries = append(r.entries, route)
+	r.handlers = append(r.handlers, precomposed)
+	for _, h := range handlers[:len(handlers)-1] {
+		if preflight.Is(h) {
+			if r.preflight == nil {
+				r.preflight = map[string][]HandlerFunc{}
+			}
+			key := method + " " + registeredPath
+			r.preflight[key] = append(r.preflight[key], h)
+		}
+	}
 	if types, ok := describeHandler(finalHandler); ok {
 		doc := r.doc(infoIndex)
 		doc.in, doc.out, doc.typed = types.in, types.out, true
