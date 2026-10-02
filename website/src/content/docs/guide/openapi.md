@@ -79,9 +79,9 @@ The spec is public by default. For a private API, [protect it or turn it off](#s
 |---|---|
 | `path:"store"` fields | Path parameters, with the field's type. Every `{name}` in the route is listed, as a string if no field binds it. |
 | `query`, `header` and `cookie` fields | Query, header and cookie parameters. `validate:"required"` makes one required, and `default:"20"` documents the value [binding](/guide/binding/#default-values) fills in when the request leaves it out. |
-| `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required only with `validate:"required"` and a validator. |
-| `form` fields | A form body, or `multipart/form-data` when a field holds a file. A field tagged both `json` and `form` is in both bodies, since binding reads it from either. |
-| The output type | The success response. `zinc.NoContent` gives `204` with no body. Fields without `omitempty` are required, since they're always sent. |
+| `json` fields | The JSON request body. Fields bound from the path, query or headers are left out of it. A field is required only with `validate:"required"` and a validator. The same schema is listed as `application/xml` when the input has `xml` tags, and under each [configured decoder](/guide/customization/#body-formats)'s media type. |
+| `form` fields | A form body, or `multipart/form-data` when a field holds a file. A field tagged both `json` and `form` is in both bodies, since binding reads it from either. A file field's `media:"image/png"` tag documents the part's content type, and binding rejects other types. |
+| The output type | The success response. `zinc.NoContent` gives `204` with no body. Fields without `omitempty` are required, since they're always sent. The [output types](/guide/typed-handlers/#send-text-files-and-redirects) document their media type: `text/plain`, `text/html`, `application/octet-stream`, or a redirect with `Location`. |
 | `.Status(201)` | The success status. |
 | A route with input | A `400` response, and a `422` when the app has a [validator](/guide/binding/#validation). |
 | Every route | A `500` response. |
@@ -104,7 +104,7 @@ app.Put("/pets/{id}", func(c *zinc.Context) error {
 
 `Input` and `Output` take a value of the type. Zinc doesn't check that the handler really uses them, so keep them in step with the code. On a typed handler they panic: its types are already known.
 
-Without `Output`, a `.Response` for a success status or `.Status`, Zinc can't know what the handler sends, so it doesn't guess. The spec lists a `default` response with a body of any type:
+Without `Output`, a `.Response` or `.Produces` for a success status, or `.Status`, Zinc can't know what the handler sends, so it doesn't guess. The spec lists a `default` response with a body of any type:
 
 ```json
 "default": {
@@ -127,6 +127,8 @@ Every route has these methods. Each returns the route, so they chain:
 | `.Hidden()` | Leaves the route out of the spec |
 | `.Errors(404, 409)` | Adds error statuses the handler answers by returning an error, such as `zinc.NotFound(...)` |
 | `.Response(409, Conflict{})` | Adds a response the handler writes itself; pass `nil` for one with no body |
+| `.Produces(200, "text/csv")` | The media types a status is sent as, when Zinc can't tell: a plain handler, or a `Bytes`, `File` or `Stream` output |
+| `.Consumes("text/csv")` | The media types the request body is accepted as, in place of the ones Zinc infers |
 | `.Security("bearer")` | Names the security schemes that protect the route; with no names, marks it public |
 
 Unset fields stay out of the spec. Zinc doesn't invent summaries or operation IDs.

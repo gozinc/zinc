@@ -30,7 +30,7 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | Method | Purpose |
 |---|---|
 | `Name(name) Route` | A unique name for `URL` and `RouteByName`, and the OpenAPI operation ID; panics on a duplicate |
-| `Status(code) Route` | The success status of a [typed handler](/guide/typed-handlers/), such as `201`; panics unless `code` is 2xx |
+| `Status(code) Route` | The route's status, such as `201`, for whatever it writes, typed or plain; a handler's own `c.Status` or an error wins. Panics unless `code` is 2xx or a redirect (301, 302, 303, 307, 308) |
 | `Summary(text) Route` | A one-line summary in the [OpenAPI](/guide/openapi/) spec |
 | `Description(text) Route` | A longer description in the spec; Markdown works |
 | `Tags(tags...) Route` | Tags that group the route in the spec, after its group's |
@@ -39,6 +39,8 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | `Input(v) Route` | The request type of a handler that isn't typed, such as `CreateUser{}`; panics on a typed route |
 | `Output(v) Route` | The success-response type of a handler that isn't typed; panics on a typed route |
 | `Response(status, v) Route` | Another response the handler writes itself; `nil` means no body |
+| `Produces(status, mediaTypes...) Route` | The media types `status` is sent as, where Zinc can't tell |
+| `Consumes(mediaTypes...) Route` | The request body's media types, in place of the inferred ones |
 | `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
 | `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; any one is enough, and none marks it public. `"oauth:pets:read"` adds a scope |
 | `SecurityAll(schemes...) Route` | Like `Security`, but every scheme is needed |
@@ -56,6 +58,11 @@ app.Post("/users", zinc.Typed(createUser)).Status(zinc.StatusCreated)
 |---|---|
 | `zinc.Typed[In, Out](fn func(*Context, In) (Out, error)) HandlerFunc` | A handler that binds and validates `In`, calls `fn`, and writes `Out` as JSON |
 | `zinc.NoContent` | The `Out` type for a response without a body: `204` unless another status is declared |
+| `zinc.Text`, `zinc.HTML` | `Out` types sent as `text/plain` and `text/html` |
+| `zinc.Bytes{Type, Data}` | Bytes sent as `Type`, or `application/octet-stream` |
+| `zinc.File{Path, FS, Name}` | A file from disk or `FS`; `Name` makes it a download |
+| `zinc.Stream{Type, Reader}` | `Reader` copied to the response, then closed if it's an `io.Closer` |
+| `zinc.Redirect` | A URL: `302`, or the route's redirect status, with `Location` |
 
 See [Typed Handlers](/guide/typed-handlers/).
 

@@ -75,6 +75,16 @@ These change behavior on purpose. Check each against your app.
 - **CORS on a group answers preflight requests.** `app.Group("/api", cors.New())` used to leave the browser's automatic `OPTIONS` request without CORS headers; now the group's CORS middleware answers it.
 - **Every app serves a reference page at `/docs`**, next to its spec, unless a route of your own uses the path. For a private API, set `zinc.Config{DocsPath: "-"}`, or turn the spec off, which turns the page off too. `Routes()` and `FindRoute()` list both endpoints, with `Builtin` set.
 
+## Changes in 0.6.3
+
+0.6.3 adds API; nothing you have stops working.
+
+- **Typed handlers send more than JSON.** Return `zinc.Text`, `HTML`, `Bytes`, `File`, `Stream` or `Redirect`, and the spec documents the media type. See [Send text, files and redirects](/guide/typed-handlers/#send-text-files-and-redirects).
+- **`.Produces(status, types...)` and `.Consumes(types...)`** declare media types Zinc can't tell from the code.
+- **`.Status` accepts redirect codes**, `301`, `302`, `303`, `307` and `308`, as well as `2xx`.
+- **Request bodies list every format binding accepts**: XML when the input has `xml` tags, and each configured decoder's media type. A `string` input is a `text/plain` body.
+- **A `media` tag on a file field** documents and enforces the upload's content type.
+
 ## Benchmarks are scored with ties
 
 The [benchmark](/extra/benchmarks/) scores count a scenario as a tie when Zinc and the fastest rival are within 3% of each other, either way. Before, the lower median won however small the gap, so a 0.2% difference counted as much as a 50% one. The headline is lower than 0.5's as a result, and every tie is listed.
