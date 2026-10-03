@@ -270,7 +270,8 @@ const markLines = (lines: number[]) => ({
   /* The plate, the same as the request journey's. */
   .plate {
     --rule: #1f242a;
-    align-self: start;
+    /* The copy beside it is taller, so the plate sits in its middle. */
+    align-self: center;
     background: var(--z-plate);
     border: 1px solid var(--rule);
     border-radius: 12px;
