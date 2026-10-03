@@ -98,6 +98,7 @@ const markLines = (lines: number[]) => ({
         <span class="file">users.go</span>
         <span class="serves"><code>GET /openapi.json</code> · <code>GET /docs</code></span>
       </div>
+      <div class="panes">
       {parts.map((p, i) => (
         <div class="pane" role="tabpanel" id={`spec-pane-${p.id}`} aria-labelledby={`spec-tab-${p.id}`} hidden={i !== 0}>
           <div class="code"><Code code={code.replace(/\t/g, "    ")} lang="go" theme={zincFrost as any} transformers={[markLines(p.marks)]} /></div>
@@ -109,6 +110,7 @@ const markLines = (lines: number[]) => ({
           </div>
         </div>
       ))}
+      </div>
     </div>
 
     <div class="copy">
@@ -321,15 +323,26 @@ const markLines = (lines: number[]) => ({
     padding: 0;
   }
 
+  /* Every pane sits in the same cell, so the plate is as tall as the
+     tallest one and doesn't change height as parts are picked. Only the
+     picked pane is visible. */
+  .panes {
+    display: grid;
+    flex: 1;
+  }
+
   .pane {
     animation: swap 320ms ease both;
     display: flex;
-    flex: 1;
     flex-direction: column;
+    grid-area: 1 / 1;
   }
 
   .pane[hidden] {
-    display: none;
+    animation: none;
+    display: flex;
+    pointer-events: none;
+    visibility: hidden;
   }
 
   @keyframes swap {
@@ -340,7 +353,7 @@ const markLines = (lines: number[]) => ({
   }
 
   .code {
-    flex: 1;
+    flex: none;
   }
 
   .code :global(.astro-code) {
@@ -402,9 +415,11 @@ const markLines = (lines: number[]) => ({
     padding: 0;
   }
 
+  /* A shorter pane's spare height goes here, at the bottom. */
   .exchange {
     background: #0b0d10;
     border-top: 1px solid var(--rule);
+    flex: 1;
     font: var(--z-code-weight, 500) 0.76rem/1.55 var(--sl-font-mono);
     padding: 0.85rem 1.3rem 1rem;
   }
