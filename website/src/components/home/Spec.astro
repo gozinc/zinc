@@ -1,217 +1,168 @@
 ---
-// An inspection certificate for one endpoint. Galvanized steel ships with a
-// 3.1 certificate: what was specified, and what was tested. A Zinc app's
-// OpenAPI 3.1 spec is the same promise. Each row ties a line of the code to
-// what /openapi.json states and to what Zinc did with a real request that
-// broke it. Every request and response here is from a real run.
+// The OpenAPI section: one handler's code on a plate, and what each part of
+// it becomes in the spec and on the wire. It mirrors the request journey
+// above (plate on the left this time) and uses the same plate. Every request
+// and response is from a real run against Zinc.
+import { Code } from "astro:components";
+import zincFrost from "../../themes/zinc-frost.json";
 
-interface Row {
-  k: string; // the token in the specimen it comes from
-  property: string;
-  code: string;
-  spec: string;
-  request: string;
-  response: string;
-  status: number;
+const code = `type CreateUser struct {
+	OrgID  string \`path:"org"\`
+	DryRun bool   \`query:"dry_run"\`
+	Email  string \`json:"email" validate:"required,email"\`
 }
 
-const rows: Row[] = [
+api.Post("/orgs/{org}/users", zinc.Typed(createUser)).
+	Status(http.StatusCreated)`;
+
+interface Line { dir: "in" | "out"; text: string }
+interface Part {
+  id: string;
+  name: string;
+  blurb: string;
+  marks: number[]; // 1-based lines of the code it comes from
+  spec: string;
+  exchange: Line[];
+}
+
+const parts: Part[] = [
   {
-    k: "org",
-    property: "org",
-    code: 'path:"org"',
-    spec: "path parameter · string · required",
-    request: "POST /api/orgs/acme/users",
-    response: '201 · "org_id":"acme"',
-    status: 201,
+    id: "path",
+    name: "Path parameters",
+    blurb: "A path tag is a required parameter, typed from its field.",
+    marks: [2, 7],
+    spec: "org · in: path · string · required",
+    exchange: [
+      { dir: "in", text: 'POST /api/orgs/acme/users  {"email":"ada@example.com"}' },
+      { dir: "out", text: '201  {"id":1,"org_id":"acme","email":"ada@example.com"}' },
+    ],
   },
   {
-    k: "dry",
-    property: "dry_run",
-    code: 'query:"dry_run"  bool',
-    spec: "query parameter · boolean",
-    request: "?dry_run=yes",
-    response: '400 · "dry_run":"must be a boolean"',
-    status: 400,
+    id: "query",
+    name: "Query parameters",
+    blurb: "Parsed into the field's type; a value that won't parse is a 400 naming it.",
+    marks: [3],
+    spec: "dry_run · in: query · boolean",
+    exchange: [
+      { dir: "in", text: "POST /api/orgs/acme/users?dry_run=yes" },
+      { dir: "out", text: '400  "dry_run": "must be a boolean"' },
+    ],
   },
   {
-    k: "fmt",
-    property: "email · format",
-    code: 'validate:"…,email"',
-    spec: 'format: "email"',
-    request: '{"email":"nope"}',
-    response: '422 · "email":"must be an email address"',
-    status: 422,
+    id: "validate",
+    name: "Validation",
+    blurb: "validate tags become schema keywords, and every request is checked against them.",
+    marks: [4],
+    spec: 'required: ["email"] · email: format: "email"',
+    exchange: [
+      { dir: "in", text: "{}" },
+      { dir: "out", text: '422  "email": "is required"' },
+      { dir: "in", text: '{"email":"nope"}' },
+      { dir: "out", text: '422  "email": "must be an email address"' },
+    ],
   },
   {
-    k: "req",
-    property: "email · required",
-    code: 'validate:"required,…"',
-    spec: 'required: ["email"]',
-    request: "{}",
-    response: '422 · "email":"is required"',
-    status: 422,
-  },
-  {
-    k: "out",
-    property: "success",
-    code: "(User, error) · .Status(201)",
-    spec: "201 → User",
-    request: '{"email":"ada@example.com"}',
-    response: '201 · {"id":1,"org_id":"acme",…}',
-    status: 201,
-  },
-  {
-    k: "err",
-    property: "errors",
-    code: "return err",
-    spec: "400 · 422 · 500 → Error",
-    request: '{"email":',
-    response: '400 · "invalid request body"',
-    status: 400,
+    id: "responses",
+    name: "Responses and errors",
+    blurb: "The return type is the 201 body; errors take your error handler's shape.",
+    marks: [7, 8],
+    spec: "201 → User · 400, 422, 500 → Error",
+    exchange: [
+      { dir: "in", text: '{"email":' },
+      { dir: "out", text: '400  "invalid request body"' },
+    ],
   },
 ];
+
+const markLines = (lines: number[]) => ({
+  line(this: any, node: any, line: number) {
+    if (lines.includes(line)) this.addClassToHast(node, "mark");
+  },
+});
 ---
 
 <section class="spec" data-spec>
-  <header class="head">
-    <div>
-      <p class="kicker">OpenAPI 3.1 · built in</p>
-      <h2>Your types, certified.</h2>
+  <div class="body">
+    <div class="plate">
+      <div class="bar">
+        <span class="file">users.go</span>
+        <span class="serves"><code>GET /openapi.json</code> · <code>GET /docs</code></span>
+      </div>
+      {parts.map((p, i) => (
+        <div class="pane" role="tabpanel" id={`spec-pane-${p.id}`} aria-labelledby={`spec-tab-${p.id}`} hidden={i !== 0}>
+          <div class="code"><Code code={code.replace(/\t/g, "    ")} lang="go" theme={zincFrost as any} transformers={[markLines(p.marks)]} /></div>
+          <p class="said"><span class="tag">In the spec</span><code>{p.spec}</code></p>
+          <div class="exchange" aria-label="A real request and Zinc's response">
+            {p.exchange.map((l) => (
+              <p class={l.dir === "out" && !l.text.startsWith("2") ? "out err" : l.dir}><span class="dir" aria-hidden="true">{l.dir === "in" ? "→" : "←"}</span>{l.text}</p>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
-    <div class="lede">
-      <p>
-        Galvanized steel ships with a 3.1 inspection certificate: what was specified, and what was
-        tested. A Zinc app ships one too. Every app serves an OpenAPI 3.1 spec at <code>/openapi.json</code>
-        and a reference page at <code>/docs</code>, built from the types you already wrote, and every rule
-        the spec states is a rule Zinc checks on each request.
+
+    <div class="copy">
+      <p class="kicker">OpenAPI · built in</p>
+      <h2>Your types are the spec.</h2>
+      <p class="lede">
+        Every app serves an OpenAPI 3.1 spec at <code>/openapi.json</code> and a reference page at <code>/docs</code>,
+        built from the handlers you already wrote. A rule shows up in the spec only when Zinc checks it on requests.
       </p>
+      <p class="pick">Pick one to see it in the spec and on the wire.</p>
+      <ul class="parts" role="tablist" aria-label="Parts of the handler" aria-orientation="vertical">
+        {parts.map((p, i) => (
+          <li role="tab" id={`spec-tab-${p.id}`} aria-controls={`spec-pane-${p.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1} data-part={i}>
+            <strong>{p.name}</strong>
+            <span>{p.blurb}</span>
+          </li>
+        ))}
+      </ul>
       <p class="links">
         <a href="/guide/openapi/">OpenAPI guide →</a>
         <a href="/guide/coming-from-huma-or-fuego/">Coming from Huma or Fuego →</a>
       </p>
     </div>
-  </header>
-
-  <article class="cert" aria-label="An inspection certificate for POST /api/orgs/{org}/users">
-    <i class="reg tl" aria-hidden="true"></i><i class="reg tr" aria-hidden="true"></i>
-    <i class="reg bl" aria-hidden="true"></i><i class="reg br" aria-hidden="true"></i>
-
-    <div class="bar">
-      <span><b>Inspection certificate</b> · OpenAPI 3.1</span>
-      <span class="no">No. POST /api/orgs/&#123;org&#125;/users</span>
-    </div>
-
-    <div class="top">
-      <div class="specimen">
-        <p class="label">Specimen · users.go</p>
-        <pre data-specimen><span class="kw">type</span> <span class="ty">CreateUser</span> <span class="kw">struct</span> &#123;
-    OrgID  <span class="ty">string</span> <span class="tok" data-k="org">`path:"org"`</span>
-    DryRun <span class="ty">bool</span>   <span class="tok" data-k="dry">`query:"dry_run"`</span>
-    Email  <span class="ty">string</span> <span class="st">`json:"email"</span> <span class="st">validate:"</span><span class="tok" data-k="req">required</span><span class="st">,</span><span class="tok" data-k="fmt">email</span><span class="st">"`</span>
-&#125;
-
-api.<span class="fn">Post</span>(<span class="st">"/orgs/&#123;org&#125;/users"</span>, zinc.<span class="fn">Typed</span>(<span class="tok" data-k="out">createUser</span>)).
-    <span class="fn">Status</span>(http.StatusCreated)  <span class="cm">// errors go to the</span> <span class="tok" data-k="err">error handler</span></pre>
-      </div>
-      <dl class="issued">
-        <div><dt>Issued by</dt><dd>zinc.New()</dd></div>
-        <div><dt>Specified at</dt><dd><code>GET /openapi.json</code></dd></div>
-        <div><dt>Rendered at</dt><dd><code>GET /docs</code></dd></div>
-        <div><dt>Verified by</dt><dd><code>app.Validate()</code> → <code>nil</code></dd></div>
-      </dl>
-    </div>
-
-    <div class="table" role="table" aria-label="Each property: the code, what the spec states, and a real request">
-      <div class="tr th" role="row">
-        <span role="columnheader">Property</span>
-        <span role="columnheader">From your code</span>
-        <span role="columnheader">Specified</span>
-        <span role="columnheader">Tested with a real request</span>
-        <span role="columnheader" class="res">Result</span>
-      </div>
-      {rows.map((r, i) => (
-        <div class="tr" role="row" data-k={r.k} tabindex="0">
-          <span role="cell" class="prop"><b class="n">3.1.{i + 1}</b>{r.property}</span>
-          <span role="cell" class="code"><code>{r.code}</code></span>
-          <span role="cell" class="specd">{r.spec}</span>
-          <span role="cell" class="test">
-            <code class="req">{r.request}</code>
-            <code class={`resp s${Math.floor(r.status / 100)}`}>{r.response}</code>
-          </span>
-          <span role="cell" class="res"><b>✓</b> conforms</span>
-        </div>
-      ))}
-    </div>
-
-    <footer class="foot">
-      <div class="seal" data-seal aria-label="Conforms">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <defs>
-            <path id="seal-ring" d="M60,60 m-44,0 a44,44 0 1,1 88,0 a44,44 0 1,1 -88,0" />
-          </defs>
-          <circle cx="60" cy="60" r="56" class="rim" />
-          <circle cx="60" cy="60" r="34" class="core" />
-          <text class="ring"><textPath href="#seal-ring" startOffset="0">SPEC · ENFORCED · OPENAPI 3.1 · ZINC ·</textPath></text>
-          <text x="60" y="57" class="big">Zn</text>
-          <text x="60" y="72" class="small">CONFORMS</text>
-        </svg>
-      </div>
-      <div class="remarks">
-        <p class="label">Remarks</p>
-        <p>
-          A rule appears in the spec only when it's checked on requests; a rule nothing checks stops the
-          route from registering. Routes OpenAPI can't tell apart, and examples of the wrong type, fail
-          at startup. Zinc's spec output is audited in CI against 147 scenarios, real responses and a
-          generated client.
-        </p>
-        <p class="out">Outside this certificate: YAML output and polymorphic (<code>oneOf</code>) types.</p>
-      </div>
-    </footer>
-  </article>
+  </div>
 </section>
 
 <script>
-  // A row and the code it comes from light up together, from either side.
   document.querySelectorAll<HTMLElement>("[data-spec]").forEach((root) => {
-    const cert = root.querySelector<HTMLElement>(".cert")!;
-    const parts = [...root.querySelectorAll<HTMLElement>("[data-k]")];
-    const light = (k: string | null) => {
-      parts.forEach((p) => p.classList.toggle("lit", k !== null && p.dataset.k === k));
-      cert.classList.toggle("focus", k !== null);
+    const tabs = [...root.querySelectorAll<HTMLElement>("[role=tab]")];
+    const panes = [...root.querySelectorAll<HTMLElement>("[role=tabpanel]")];
+    const select = (i: number, focus = false) => {
+      const n = (i + tabs.length) % tabs.length;
+      tabs.forEach((t, k) => {
+        t.setAttribute("aria-selected", String(k === n));
+        t.tabIndex = k === n ? 0 : -1;
+      });
+      panes.forEach((p, k) => (p.hidden = k !== n));
+      if (focus) tabs[n].focus();
     };
-    parts.forEach((p) => {
-      p.addEventListener("pointerenter", () => light(p.dataset.k ?? null));
-      p.addEventListener("pointerleave", () => light(null));
-      p.addEventListener("focus", () => light(p.dataset.k ?? null));
-      p.addEventListener("blur", () => light(null));
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => select(i));
+      t.addEventListener("keydown", (e) => {
+        const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+        if (step) {
+          e.preventDefault();
+          select(i + step, true);
+        } else if (e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          select(e.key === "Home" ? 0 : tabs.length - 1, true);
+        }
+      });
     });
-
-    // The seal is pressed when the certificate comes into view.
-    const seal = root.querySelector<HTMLElement>("[data-seal]")!;
-    if (!("IntersectionObserver" in window) || matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      seal.classList.add("pressed");
-      return;
-    }
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        seal.classList.add("pressed");
-        io.disconnect();
-      }
-    }, { threshold: 0.6 });
-    io.observe(seal);
   });
 </script>
 
 <style>
-  .head {
-    align-items: end;
+  .body {
+    align-items: stretch;
     display: grid;
-    gap: 1.5rem clamp(2rem, 5vw, 4rem);
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-    margin-bottom: 2rem;
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.78fr);
   }
 
+  /* The copy, on the right this time. */
   .kicker {
     color: var(--z-muted);
     font: 500 0.72rem/1 var(--sl-font-mono);
@@ -227,11 +178,11 @@ api.<span class="fn">Post</span>(<span class="st">"/orgs/&#123;org&#125;/users"<
     text-wrap: balance;
   }
 
-  .lede p {
+  .lede {
     color: var(--z-muted);
     font-size: 1rem;
     line-height: 1.65;
-    margin: 0;
+    margin: 0.9rem 0 1.5rem;
   }
 
   .lede code {
@@ -239,11 +190,66 @@ api.<span class="fn">Post</span>(<span class="st">"/orgs/&#123;org&#125;/users"<
     font-size: 0.86em;
   }
 
-  .lede .links {
+  .pick {
+    color: var(--z-soft);
+    font: 400 0.72rem/1 var(--sl-font-mono);
+    margin: 0 0 0.6rem;
+  }
+
+  .parts {
+    display: grid;
+    gap: 0.2rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .parts li {
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--z-muted);
+    cursor: pointer;
+    display: grid;
+    gap: 0.2rem;
+    margin: 0 -0.7rem;
+    outline: none;
+    padding: 0.6rem 0.7rem 0.65rem;
+    transition: background-color 160ms ease, border-color 160ms ease;
+  }
+
+  .parts li:hover {
+    background: color-mix(in srgb, var(--z-panel) 60%, transparent);
+  }
+
+  .parts li[aria-selected="true"] {
+    background: var(--z-panel);
+    border-color: var(--sl-color-hairline-light);
+  }
+
+  .parts li:focus-visible {
+    border-color: var(--z-muted);
+  }
+
+  .parts strong {
+    color: var(--z-body);
+    font-size: 0.98rem;
+    font-weight: 600;
+  }
+
+  .parts li[aria-selected="true"] strong {
+    color: var(--z-text);
+  }
+
+  .parts span {
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+
+  .links {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1.4rem;
-    margin-top: 1rem;
+    margin: 1.4rem 0 0;
   }
 
   .links a {
@@ -261,376 +267,179 @@ api.<span class="fn">Post</span>(<span class="st">"/orgs/&#123;org&#125;/users"<
     color: var(--z-zn);
   }
 
-  /* The certificate: a ruled sheet with registration marks. */
-  .cert {
-    background:
-      repeating-linear-gradient(0deg, transparent 0 27px, color-mix(in srgb, var(--z-zn) 4%, transparent) 27px 28px),
-      var(--z-panel);
-    border: 1px solid color-mix(in srgb, var(--z-zn) 22%, transparent);
-    border-radius: 4px;
-    box-shadow: inset 0 0 0 5px var(--z-panel), inset 0 0 0 6px color-mix(in srgb, var(--z-zn) 14%, transparent);
-    padding: 1.4rem 1.6rem 1.2rem;
-    position: relative;
+  /* The plate, the same as the request journey's. */
+  .plate {
+    --rule: #1f242a;
+    align-self: start;
+    background: var(--z-plate);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    color: var(--z-plate-ink);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
   }
-
-  .reg {
-    border-color: color-mix(in srgb, var(--z-zn) 45%, transparent);
-    border-style: solid;
-    height: 12px;
-    position: absolute;
-    width: 12px;
-  }
-
-  .reg.tl { border-width: 1px 0 0 1px; left: 12px; top: 12px; }
-  .reg.tr { border-width: 1px 1px 0 0; right: 12px; top: 12px; }
-  .reg.bl { border-width: 0 0 1px 1px; bottom: 12px; left: 12px; }
-  .reg.br { border-width: 0 1px 1px 0; bottom: 12px; right: 12px; }
 
   .bar {
-    border-bottom: 1px solid color-mix(in srgb, var(--z-zn) 22%, transparent);
-    color: var(--z-muted);
+    align-items: baseline;
+    background: var(--z-plate-bar);
+    border-bottom: 1px solid var(--rule);
     display: flex;
     flex-wrap: wrap;
-    font: 400 0.72rem/1.4 var(--sl-font-mono);
-    gap: 0.4rem 1rem;
+    font: 400 0.74rem/1 var(--sl-font-mono);
+    gap: 0.5rem 1rem;
     justify-content: space-between;
-    letter-spacing: 0.04em;
-    padding: 0 0.4rem 0.8rem;
-    text-transform: uppercase;
+    padding: 0.8rem 1.1rem;
   }
 
-  .bar b {
-    color: var(--z-text);
-    font-weight: 600;
+  .file {
+    color: #eceff4;
   }
 
-  .bar .no {
-    text-transform: none;
+  .serves {
+    color: var(--z-plate-mute);
   }
 
-  .label {
-    color: var(--z-soft);
-    font: 500 0.68rem/1 var(--sl-font-mono);
-    letter-spacing: 0.06em;
-    margin: 0 0 0.6rem;
-    text-transform: uppercase;
-  }
-
-  .top {
-    border-bottom: 1px solid color-mix(in srgb, var(--z-zn) 22%, transparent);
-    display: grid;
-    gap: 1rem 2rem;
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-    padding: 1.1rem 0.4rem;
-  }
-
-  .specimen pre {
-    background: var(--z-plate);
-    border: 1px solid var(--z-plate-line);
-    border-radius: 6px;
-    color: var(--z-plate-ink);
-    font: var(--z-code-weight, 500) 0.8rem/1.6 var(--sl-font-mono);
-    margin: 0;
-    overflow-x: auto;
-    padding: 0.85rem 1rem;
-    tab-size: 4;
-  }
-
-  .kw { color: var(--z-code-kw); }
-  .ty { color: var(--z-code-type); }
-  .st { color: var(--z-code-str); }
-  .fn { color: var(--z-code-fn); }
-  .cm { color: #6c788e; font-style: italic; }
-
-  .tok {
-    border-radius: 3px;
-    box-shadow: 0 0 0 1px transparent;
-    color: var(--z-code-str);
-    transition: background 0.15s, box-shadow 0.15s, color 0.15s;
-  }
-
-  .tok[data-k="out"],
-  .tok[data-k="err"] {
-    color: var(--z-plate-ink);
-  }
-
-  .tok[data-k="err"] {
-    font-style: italic;
-  }
-
-  .tok.lit {
-    background: color-mix(in srgb, var(--z-code-str) 18%, transparent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--z-code-str) 18%, transparent);
-    color: #e7f2dc;
-  }
-
-  .issued {
-    align-content: start;
-    display: grid;
-    gap: 0.75rem;
-    margin: 1.4rem 0 0;
-  }
-
-  .issued div {
-    border-bottom: 1px dashed color-mix(in srgb, var(--z-zn) 20%, transparent);
-    display: grid;
-    gap: 0.2rem;
-    padding-bottom: 0.6rem;
-  }
-
-  .issued dt {
-    color: var(--z-soft);
-    font: 500 0.66rem/1 var(--sl-font-mono);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  .issued dd {
-    color: var(--z-text);
-    font: 500 0.82rem/1.4 var(--sl-font-mono);
-    margin: 0;
-  }
-
-  .issued code {
+  .serves code {
+    background: none;
     color: inherit;
     font-size: 1em;
+    padding: 0;
   }
 
-  /* The results table. */
-  .table {
-    padding: 0.4rem 0;
+  .pane {
+    animation: swap 320ms ease both;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
   }
 
-  .tr {
+  .pane[hidden] {
+    display: none;
+  }
+
+  @keyframes swap {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  .code {
+    flex: 1;
+  }
+
+  .code :global(.astro-code) {
+    background: var(--z-plate) !important;
+    border: 0;
+    border-radius: 0;
+    counter-reset: ln;
+    font-size: 0.8rem;
+    line-height: 1.8;
+    margin: 0;
+    overflow-x: auto;
+    padding: 1.1rem 0;
+  }
+
+  .code :global(.line) {
+    counter-increment: ln;
+    display: inline-block;
+    min-width: 100%;
+    padding: 0 1.3rem 0 0;
+  }
+
+  .code :global(.line)::before {
+    color: #414955;
+    content: counter(ln);
+    display: inline-block;
+    margin-right: 1.1rem;
+    text-align: right;
+    width: 2.4rem;
+  }
+
+  .code :global(.line.mark) {
+    background: rgba(136, 192, 208, 0.09);
+    box-shadow: inset 2px 0 0 #88c0d0;
+  }
+
+  .code :global(.line.mark)::before {
+    color: #88c0d0;
+  }
+
+  .said {
     align-items: baseline;
-    border-bottom: 1px solid color-mix(in srgb, var(--z-zn) 10%, transparent);
-    display: grid;
-    gap: 0.4rem 1.1rem;
-    grid-template-columns: 9.5rem minmax(0, 0.95fr) minmax(0, 1fr) minmax(0, 1.55fr) 6.5rem;
-    padding: 0.7rem 0.4rem;
-    transition: background 0.15s, opacity 0.15s;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    margin: 0;
+    padding: 0.8rem 1.3rem;
   }
 
-  .tr:focus-visible {
-    outline: 1.5px solid var(--z-zn);
-    outline-offset: -2px;
+  .tag {
+    color: #88c0d0;
+    font: 500 0.7rem/1 var(--sl-font-mono);
   }
 
-  .th {
-    color: var(--z-soft);
-    font: 500 0.66rem/1.2 var(--sl-font-mono);
-    letter-spacing: 0.06em;
-    padding-bottom: 0.5rem;
-    text-transform: uppercase;
+  .said code {
+    background: none;
+    color: #d8dee9;
+    font: var(--z-code-weight, 500) 0.78rem/1.5 var(--sl-font-mono);
+    padding: 0;
   }
 
-  .cert.focus .tr:not(.th):not(.lit) {
-    opacity: 0.45;
+  .exchange {
+    background: #0b0d10;
+    border-top: 1px solid var(--rule);
+    font: var(--z-code-weight, 500) 0.76rem/1.55 var(--sl-font-mono);
+    padding: 0.85rem 1.3rem 1rem;
   }
 
-  .tr.lit {
-    background: var(--z-zn-soft);
-  }
-
-  .prop {
-    color: var(--z-text);
-    font-size: 0.88rem;
-    font-weight: 600;
-  }
-
-  .n {
-    color: var(--z-soft);
-    display: block;
-    font: 500 0.66rem/1.6 var(--sl-font-mono);
-  }
-
-  .code code,
-  .test code {
-    font: 500 0.76rem/1.45 var(--sl-font-mono);
+  .exchange p {
+    color: var(--z-plate-mute);
+    display: flex;
+    gap: 0.7rem;
+    margin: 0;
     overflow-wrap: anywhere;
   }
 
-  .code code {
-    color: var(--z-text);
+  .exchange .dir {
+    flex: none;
+    width: 0.8rem;
   }
 
-  .specd {
-    color: var(--z-body);
-    font: 400 0.78rem/1.45 var(--sl-font-mono);
+  .exchange .in {
+    color: #d8dee9;
   }
 
-  .test {
-    display: grid;
-    gap: 0.2rem;
+  .exchange .in .dir {
+    color: #88c0d0;
   }
 
-  .test .req {
-    color: var(--z-muted);
+  .exchange .out {
+    color: #a3be8c;
+    font-weight: 500;
   }
 
-  .test .req::before {
-    content: "→ ";
-    color: var(--z-soft);
+  /* A refused request: the 400s and 422s here are Zinc doing its job. */
+  .exchange .out.err {
+    color: #ebcb8b;
   }
 
-  .test .resp::before {
-    content: "← ";
-    color: var(--z-soft);
-  }
-
-  .resp.s2 { color: var(--z-tip); }
-  .resp.s4 { color: var(--z-caution); }
-
-  .res {
-    color: var(--z-tip);
-    font: 500 0.74rem/1.4 var(--sl-font-mono);
-    text-align: right;
-  }
-
-  .th .res {
-    color: var(--z-soft);
-  }
-
-  .res b {
-    font-weight: 700;
-  }
-
-  /* The seal, struck in zinc, and the remarks. */
-  .foot {
-    align-items: center;
-    border-top: 1px solid color-mix(in srgb, var(--z-zn) 22%, transparent);
-    display: grid;
-    gap: 1.5rem 2rem;
-    grid-template-columns: 8.5rem minmax(0, 1fr);
-    padding: 1.2rem 0.4rem 0.2rem;
-  }
-
-  .seal {
-    aspect-ratio: 1;
-    background: #c9ced3 url("/zn-spangle-hd.webp") center / 220px auto;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 6px 18px rgba(0, 0, 0, 0.45);
-    opacity: 0;
-    transform: rotate(-14deg) scale(1.25);
-    transition: opacity 0.35s ease-out, transform 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
-    width: 8.5rem;
-  }
-
-  .seal.pressed {
-    opacity: 1;
-    transform: rotate(-9deg) scale(1);
-  }
-
-  .seal svg {
-    display: block;
-    height: 100%;
-    width: 100%;
-  }
-
-  .seal .rim {
-    fill: none;
-    stroke: rgba(21, 23, 26, 0.55);
-    stroke-width: 1.2;
-  }
-
-  .seal .core {
-    fill: none;
-    stroke: rgba(21, 23, 26, 0.45);
-    stroke-width: 1;
-  }
-
-  .seal .ring {
-    fill: rgba(21, 23, 26, 0.78);
-    font: 600 8.6px var(--sl-font-mono);
-    letter-spacing: 0.2em;
-  }
-
-  .seal .big {
-    fill: #15171a;
-    font: 400 22px var(--z-font-display);
-    text-anchor: middle;
-  }
-
-  .seal .small {
-    fill: rgba(21, 23, 26, 0.85);
-    font: 700 7.4px var(--sl-font-mono);
-    letter-spacing: 0.18em;
-    text-anchor: middle;
-  }
-
-  .remarks p {
-    color: var(--z-muted);
-    font-size: 0.88rem;
-    line-height: 1.6;
-    margin: 0;
-    max-width: 72ch;
-  }
-
-  .remarks .label {
-    margin-bottom: 0.5rem;
-  }
-
-  .remarks .out {
-    color: var(--z-soft);
-    font-size: 0.82rem;
-    margin-top: 0.6rem;
-  }
-
-  .remarks code {
-    font-size: 0.9em;
-  }
-
-  @media (max-width: 64rem) {
-    .head,
-    .top {
+  @media (max-width: 60rem) {
+    .body {
       grid-template-columns: minmax(0, 1fr);
     }
-    .issued {
-      margin-top: 0;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .tr {
-      grid-template-columns: 8rem minmax(0, 1fr) minmax(0, 1fr);
-    }
-    .tr .test {
-      grid-column: 2 / 4;
-    }
-    .tr .res {
-      grid-column: 1;
-      grid-row: 2;
-      text-align: left;
-    }
-    .th .test,
-    .th .res {
-      display: none;
+
+    .copy {
+      order: -1;
     }
   }
 
-  @media (max-width: 40rem) {
-    .cert {
-      padding: 1.1rem 0.9rem 1rem;
-    }
-    .issued {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .th {
-      display: none;
-    }
-    .tr {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.35rem;
-    }
-    .tr .test,
-    .tr .res {
-      grid-column: auto;
-      grid-row: auto;
-    }
-    .foot {
-      grid-template-columns: 6.5rem minmax(0, 1fr);
-      align-items: start;
-    }
-    .seal {
-      width: 6.5rem;
+  @media (prefers-reduced-motion: reduce) {
+    .pane {
+      animation: none;
     }
   }
 </style>
