@@ -1,7 +1,8 @@
 ---
 // The OpenAPI section: one handler's code on a plate, and what each part of
-// it becomes in the spec and on the wire. It mirrors the request journey
-// above (plate on the left this time) and uses the same plate. Every request
+// it becomes in the spec and on the wire. It's laid out like the request
+// journey above, heading first, then the plate (on the left this time) and
+// the parts to pick, the same height side by side. Every request
 // and response is from a real run against Zinc.
 import { Code } from "astro:components";
 import zincFrost from "../../themes/zinc-frost.json";
@@ -82,6 +83,15 @@ const markLines = (lines: number[]) => ({
 ---
 
 <section class="spec" data-spec>
+  <div class="head">
+    <p class="kicker">OpenAPI · built in</p>
+    <h2>Your types are the spec.</h2>
+    <p class="lede">
+      Every app serves an OpenAPI 3.1 spec at <code>/openapi.json</code> and a reference page at <code>/docs</code>,
+      built from the handlers you already wrote. A rule shows up in the spec only when Zinc checks it on requests.
+    </p>
+  </div>
+
   <div class="body">
     <div class="plate">
       <div class="bar">
@@ -102,12 +112,6 @@ const markLines = (lines: number[]) => ({
     </div>
 
     <div class="copy">
-      <p class="kicker">OpenAPI · built in</p>
-      <h2>Your types are the spec.</h2>
-      <p class="lede">
-        Every app serves an OpenAPI 3.1 spec at <code>/openapi.json</code> and a reference page at <code>/docs</code>,
-        built from the handlers you already wrote. A rule shows up in the spec only when Zinc checks it on requests.
-      </p>
       <p class="pick">Pick one to see it in the spec and on the wire.</p>
       <ul class="parts" role="tablist" aria-label="Parts of the handler" aria-orientation="vertical">
         {parts.map((p, i) => (
@@ -162,7 +166,12 @@ const markLines = (lines: number[]) => ({
     grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.78fr);
   }
 
-  /* The copy, on the right this time. */
+  /* The parts fill the column, so it's as tall as the plate. */
+  .copy {
+    display: flex;
+    flex-direction: column;
+  }
+
   .kicker {
     color: var(--z-muted);
     font: 500 0.72rem/1 var(--sl-font-mono);
@@ -175,6 +184,7 @@ const markLines = (lines: number[]) => ({
     font: 600 clamp(1.9rem, 3.4vw, 2.6rem) / 1.08 var(--sl-font);
     letter-spacing: -0.035em;
     margin: 0;
+    max-width: 22ch;
     text-wrap: balance;
   }
 
@@ -182,7 +192,8 @@ const markLines = (lines: number[]) => ({
     color: var(--z-muted);
     font-size: 1rem;
     line-height: 1.65;
-    margin: 0.9rem 0 1.5rem;
+    margin: 0.9rem 0 2.25rem;
+    max-width: 62ch;
   }
 
   .lede code {
@@ -197,8 +208,11 @@ const markLines = (lines: number[]) => ({
   }
 
   .parts {
-    display: grid;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     gap: 0.2rem;
+    justify-content: space-between;
     list-style: none;
     margin: 0;
     padding: 0;
@@ -270,8 +284,6 @@ const markLines = (lines: number[]) => ({
   /* The plate, the same as the request journey's. */
   .plate {
     --rule: #1f242a;
-    /* The copy beside it is taller, so the plate sits in its middle. */
-    align-self: center;
     background: var(--z-plate);
     border: 1px solid var(--rule);
     border-radius: 12px;
@@ -433,9 +445,6 @@ const markLines = (lines: number[]) => ({
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .copy {
-      order: -1;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
