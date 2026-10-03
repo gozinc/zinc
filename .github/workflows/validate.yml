@@ -86,5 +86,5 @@ jobs:
         working-directory: website
       - run: npm run check:examples
         working-directory: website
-      - run: npm audit --audit-level=low
+      - run: npm run check:audit
         working-directory: website
