@@ -8,6 +8,7 @@ package limiter
 import (
 	"container/list"
 	"math"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -162,6 +163,12 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return c.Next()
 	}
+}
+
+// Doc describes the middleware for the OpenAPI spec: a request over the
+// limit is answered with 429. Pass it to Document beside the middleware.
+func Doc() zinc.MiddlewareDoc {
+	return zinc.MiddlewareDoc{Errors: []int{http.StatusTooManyRequests}}
 }
 
 // Concurrency bounds the requests running downstream at once to limit and

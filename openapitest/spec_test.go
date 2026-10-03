@@ -146,9 +146,9 @@ func TestValidationCatchesMistakes(t *testing.T) {
 
 	for name, mutate := range map[string]func(schemas map[string]any){
 		"dangling $ref": func(s map[string]any) {
-			get(s, "oaPet", "properties", "owner")["anyOf"].([]any)[0].(map[string]any)["$ref"] = "#/components/schemas/Nope"
+			get(s, "OaPet", "properties", "owner")["anyOf"].([]any)[0].(map[string]any)["$ref"] = "#/components/schemas/Nope"
 		},
-		"bad keyword value": func(s map[string]any) { get(s, "oaPet", "properties", "name")["minLength"] = -1 },
+		"bad keyword value": func(s map[string]any) { get(s, "OaPet", "properties", "name")["minLength"] = -1 },
 	} {
 		doc := load(t, goldenPath)
 		mutate(get(doc, "components", "schemas"))
@@ -157,7 +157,7 @@ func TestValidationCatchesMistakes(t *testing.T) {
 		if err := c.AddResource(goldenURL, doc); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := c.Compile(goldenURL + "#/components/schemas/oaPet"); err == nil {
+		if _, err := c.Compile(goldenURL + "#/components/schemas/OaPet"); err == nil {
 			t.Errorf("%s: compiled without error", name)
 		}
 	}

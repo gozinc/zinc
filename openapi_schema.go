@@ -22,11 +22,12 @@ type SchemaProvider interface {
 	OpenAPISchema() map[string]any
 }
 
-// SchemaNamer lets a struct type choose its component name in the OpenAPI
-// spec, in place of its Go name, such as "Pet" for a type named petRecord or
-// a generic Page[Pet]. Its input variant adds Input to the name, and its
-// request-body variant Body. If two types claim one name, the later is
-// qualified by its package, as with Go names.
+// SchemaNamer lets a named type choose its component name in the OpenAPI
+// spec, in place of its Go name, such as "Pet" for a struct named petRecord
+// or a generic Page[Pet], or "UserStatus" for an enum type named Status. A
+// struct's input variant adds Input to the name, and its request-body variant
+// Body, unless the name already ends with it. If two types claim one name,
+// the later is qualified by its package, as with Go names.
 type SchemaNamer interface {
 	OpenAPIName() string
 }
@@ -67,6 +68,7 @@ type schema struct {
 	exclusiveMinimum     *float64
 	exclusiveMaximum     *float64
 	minLength, maxLength *int
+	pattern              string
 	minItems, maxItems   *int
 	// raw replaces everything else: a SchemaProvider's own schema.
 	raw map[string]any
@@ -351,9 +353,11 @@ func (g *schemaGen) component(t reflect.Type, mode schemaMode) string {
 	return name
 }
 
-// uniqueName is the type's name, sanitized for a component key, with its
-// package added when another type already has the name. Input variants end
-// in Input, and request bodies without their parameter fields in Body.
+// uniqueName is the type's name, sanitized for a component key and starting
+// with a capital, with its package added in front when another type already
+// has the name: createPet becomes CreatePet, and a second CreatePet
+// PetsCreatePet. Input variants end in Input, and request bodies without
+// their parameter fields in Body, unless the name already does.
 func (g *schemaGen) uniqueName(t reflect.Type, mode schemaMode) string {
 	suffix := ""
 	switch mode {
@@ -362,13 +366,15 @@ func (g *schemaGen) uniqueName(t reflect.Type, mode schemaMode) string {
 	case modeBody:
 		suffix = "Body"
 	}
-	goName := t.Name()
+	name := exportedName(sanitizeComponentName(t.Name()))
 	if namer, ok := reflect.New(t).Interface().(SchemaNamer); ok {
 		if chosen := sanitizeComponentName(namer.OpenAPIName()); chosen != "" {
-			goName = chosen
+			name = chosen
 		}
 	}
-	name := sanitizeComponentName(goName) + suffix
+	if !strings.HasSuffix(name, suffix) {
+		name += suffix
+	}
 	if _, used := g.taken[name]; !used {
 		return name
 	}
@@ -376,9 +382,9 @@ func (g *schemaGen) uniqueName(t reflect.Type, mode schemaMode) string {
 	if i := strings.LastIndexByte(pkg, '/'); i >= 0 {
 		pkg = pkg[i+1:]
 	}
-	name = sanitizeComponentName(pkg+"."+t.Name()) + suffix
-	if _, used := g.taken[name]; !used {
-		return name
+	qualified := exportedName(sanitizeComponentName(pkg)) + name
+	if _, used := g.taken[qualified]; !used {
+		return qualified
 	}
 	base := sanitizeComponentName(t.PkgPath()+"."+t.Name()) + suffix
 	name = base
@@ -454,6 +460,14 @@ func (g *schemaGen) validateRequired(f jsonField) bool {
 		}
 	}
 	return false
+}
+
+// exportedName capitalizes a name's first letter, as Go exports names.
+func exportedName(name string) string {
+	if name == "" || name[0] < 'a' || name[0] > 'z' {
+		return name
+	}
+	return string(name[0]-'a'+'A') + name[1:]
 }
 
 // sanitizeComponentName keeps the characters OpenAPI allows in component
@@ -753,8 +767,8 @@ func hasParamFields(t reflect.Type) bool {
 	return false
 }
 
-// applyFieldTags adds what the doc, example and validate tags say to fs, and
-// reports whether the field is required. Validate tags count only when g
+// applyFieldTags adds what the doc, example, enum, pattern and validate tags
+// say to fs, and reports whether the field is required. Validate tags count only when g
 // includes validation.
 func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	if doc := f.tag.Get("doc"); doc != "" {
@@ -781,6 +795,13 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	}
 	if text, ok := f.tag.Lookup("enum"); ok {
 		applyEnumTag(target, text, f)
+	}
+	if text, ok := f.tag.Lookup("pattern"); ok && target.ref == "" && target.raw == nil {
+		// Zinc checks a pattern whatever the validator, so the spec always
+		// states it; a tag that can't compile fails registration instead.
+		if _, err := compilePattern(text, base(f.typ)); err == nil {
+			target.pattern = text
+		}
 	}
 	if g.rules == nil {
 		return false
@@ -1119,6 +1140,9 @@ func (s *schema) MarshalJSON() ([]byte, error) {
 	}
 	if s.maxLength != nil {
 		field("maxLength", *s.maxLength)
+	}
+	if s.pattern != "" {
+		field("pattern", s.pattern)
 	}
 	if s.items != nil {
 		field("items", s.items)

@@ -23,7 +23,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/createPetBody"
+                "$ref": "#/components/schemas/CreatePetBody"
               }
             }
           }
@@ -34,7 +34,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/pet"
+                  "$ref": "#/components/schemas/Pet"
                 }
               }
             }
@@ -64,7 +64,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/conflict"
+                  "$ref": "#/components/schemas/Conflict"
                 }
               }
             }
@@ -114,7 +114,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/pet"
+                      "$ref": "#/components/schemas/Pet"
                     },
                     {
                       "type": "null"
@@ -173,7 +173,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/createPetBody"
+                "$ref": "#/components/schemas/CreatePetBody"
               }
             }
           }
@@ -184,7 +184,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/pet"
+                  "$ref": "#/components/schemas/Pet"
                 }
               }
             }
@@ -284,7 +284,7 @@
                     "null"
                   ],
                   "items": {
-                    "$ref": "#/components/schemas/pet"
+                    "$ref": "#/components/schemas/Pet"
                   }
                 }
               }
@@ -316,6 +316,38 @@
   },
   "components": {
     "schemas": {
+      "Conflict": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "CreatePetBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cat",
+              "dog",
+              ""
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
       "Error": {
         "type": "object",
         "description": "The error body Zinc's default error handler writes.",
@@ -353,39 +385,7 @@
           "error"
         ]
       },
-      "conflict": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "reason"
-        ]
-      },
-      "createPetBody": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 40
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "cat",
-              "dog",
-              ""
-            ]
-          }
-        },
-        "required": [
-          "name"
-        ]
-      },
-      "owner": {
+      "Owner": {
         "type": "object",
         "properties": {
           "email": {
@@ -397,7 +397,7 @@
           "email"
         ]
       },
-      "pet": {
+      "Pet": {
         "type": "object",
         "properties": {
           "id": {
@@ -420,7 +420,7 @@
           "owner": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/owner"
+                "$ref": "#/components/schemas/Owner"
               },
               {
                 "type": "null"
@@ -456,7 +456,7 @@
           "parent": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/pet"
+                "$ref": "#/components/schemas/Pet"
               },
               {
                 "type": "null"

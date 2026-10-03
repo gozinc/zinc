@@ -61,7 +61,7 @@
             }
           },
           {
-            "name": "X-Tenant",
+            "name": "x-tenant",
             "in": "header",
             "required": true,
             "schema": {
@@ -74,7 +74,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/oaCreatePetBody"
+                "$ref": "#/components/schemas/OaCreatePetBody"
               }
             }
           }
@@ -85,7 +85,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/oaPet"
+                  "$ref": "#/components/schemas/OaPet"
                 }
               }
             }
@@ -115,7 +115,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/oaConflict"
+                  "$ref": "#/components/schemas/OaConflict"
                 }
               }
             }
@@ -191,7 +191,7 @@
             "name": "sort",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/oaSort",
+              "$ref": "#/components/schemas/OaSort",
               "default": "name"
             }
           },
@@ -214,7 +214,7 @@
                     "null"
                   ],
                   "items": {
-                    "$ref": "#/components/schemas/oaPet"
+                    "$ref": "#/components/schemas/OaPet"
                   }
                 }
               }
@@ -287,7 +287,7 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/oaPet"
+                      "$ref": "#/components/schemas/OaPet"
                     },
                     {
                       "type": "null"
@@ -368,7 +368,7 @@
             }
           },
           {
-            "name": "X-Tenant",
+            "name": "x-tenant",
             "in": "header",
             "required": true,
             "schema": {
@@ -381,7 +381,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/oaCreatePetBody"
+                "$ref": "#/components/schemas/OaCreatePetBody"
               }
             }
           }
@@ -392,7 +392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/oaPet"
+                  "$ref": "#/components/schemas/OaPet"
                 }
               }
             }
@@ -767,7 +767,7 @@
           "error"
         ]
       },
-      "oaConflict": {
+      "OaConflict": {
         "type": "object",
         "properties": {
           "reason": {
@@ -778,7 +778,7 @@
           "reason"
         ]
       },
-      "oaCreatePetBody": {
+      "OaCreatePetBody": {
         "type": "object",
         "properties": {
           "name": {
@@ -792,7 +792,7 @@
           "name"
         ]
       },
-      "oaOwner": {
+      "OaOwner": {
         "type": "object",
         "properties": {
           "email": {
@@ -804,7 +804,7 @@
           "email"
         ]
       },
-      "oaPet": {
+      "OaPet": {
         "type": "object",
         "properties": {
           "id": {
@@ -830,7 +830,7 @@
           "owner": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/oaOwner"
+                "$ref": "#/components/schemas/OaOwner"
               },
               {
                 "type": "null"
@@ -845,7 +845,7 @@
           "owner"
         ]
       },
-      "oaSort": {
+      "OaSort": {
         "type": "string",
         "enum": [
           "name",

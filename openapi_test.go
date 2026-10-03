@@ -246,11 +246,11 @@ func TestOpenAPIClaimsOnlyEnforcedRules(t *testing.T) {
 	}
 	// Request schemas: nothing required when the validator doesn't say.
 	// oaPet is a response schema, so its required list comes from omitempty.
-	if strings.Contains(string(doc.Components.Schemas["oaCreatePetBody"]), `"required"`) {
-		t.Errorf("a silent validator's oaCreatePetBody has required fields: %s", doc.Components.Schemas["oaCreatePetBody"])
+	if strings.Contains(string(doc.Components.Schemas["OaCreatePetBody"]), `"required"`) {
+		t.Errorf("a silent validator's oaCreatePetBody has required fields: %s", doc.Components.Schemas["OaCreatePetBody"])
 	}
-	if !strings.Contains(string(doc.Components.Schemas["oaPet"]), `"required"`) {
-		t.Errorf("the response schema oaPet lost its always-sent fields: %s", doc.Components.Schemas["oaPet"])
+	if !strings.Contains(string(doc.Components.Schemas["OaPet"]), `"required"`) {
+		t.Errorf("the response schema oaPet lost its always-sent fields: %s", doc.Components.Schemas["OaPet"])
 	}
 	if strings.Count(string(doc.Paths), `"required": true`) != 1 {
 		t.Errorf("with a silent validator, more than the path parameter is required:\n%s", doc.Paths)
@@ -264,7 +264,7 @@ func TestOpenAPIClaimsOnlyEnforcedRules(t *testing.T) {
 			} `json:"components"`
 		}
 		_ = json.Unmarshal([]byte(spec), &d)
-		return d.Components.Schemas["oaPet"].Properties["kind"]["enum"] != nil
+		return d.Components.Schemas["OaPet"].Properties["kind"]["enum"] != nil
 	}
 	if !kindEnum(builtin) || kindEnum(silent) {
 		t.Errorf("oaPet.kind's oneof: built-in %v, silent %v", kindEnum(builtin), kindEnum(silent))
@@ -294,7 +294,7 @@ func TestOpenAPIClaimsOnlyEnforcedRules(t *testing.T) {
 	without := silent
 	// Header and path parameters are still listed, just not marked required
 	// by a validate tag (path parameters are always required).
-	if !strings.Contains(without, `"name": "X-Tenant"`) || !strings.Contains(without, `"description": "The pet's ID."`) {
+	if !strings.Contains(without, `"name": "x-tenant"`) || !strings.Contains(without, `"description": "The pet's ID."`) {
 		t.Fatalf("without a Validator, parameters or doc tags went missing:\n%s", without)
 	}
 }
@@ -578,10 +578,10 @@ func TestOpenAPIUserErrorType(t *testing.T) {
 	if !strings.Contains(string(doc.Components.Schemas["Error"]), `"error"`) {
 		t.Fatalf("Error is not the envelope: %s", doc.Components.Schemas["Error"])
 	}
-	if !strings.Contains(string(doc.Components.Schemas["zinc.Error"]), `"reason"`) {
+	if !strings.Contains(string(doc.Components.Schemas["ZincError"]), `"reason"`) {
 		t.Fatalf("the user's Error is missing: %v", slices.Collect(maps.Keys(doc.Components.Schemas)))
 	}
-	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/zinc.Error"`) {
+	if !strings.Contains(string(spec), `"$ref": "#/components/schemas/ZincError"`) {
 		t.Fatal("the response doesn't refer to the user's Error")
 	}
 	// With a custom error handler there's no envelope, so the name is free.

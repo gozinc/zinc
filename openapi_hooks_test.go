@@ -44,7 +44,7 @@ func TestSpecHooks(t *testing.T) {
 		want string
 	}{
 		{"broken ref", OpenAPIConfig{Mutate: func(s map[string]any) error {
-			delete(s["components"].(map[string]any)["schemas"].(map[string]any), "oaPet")
+			delete(s["components"].(map[string]any)["schemas"].(map[string]any), "OaPet")
 			return nil
 		}}, "the spec after its hooks: #/paths/~1pets"},
 		{"no title", OpenAPIConfig{Mutate: func(s map[string]any) error {

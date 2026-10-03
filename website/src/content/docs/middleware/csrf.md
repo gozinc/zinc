@@ -179,6 +179,12 @@ curl -X POST -b '_csrf=abc' http://localhost:8080/transfer
 # {"error":"csrf","reason":"token_missing"}
 ```
 
+To list these in the [OpenAPI](/guide/openapi/#describe-what-middleware-adds) spec, pass `csrf.Doc()` to `Document` beside the middleware. It describes the default readers: on `POST`, `PUT`, `PATCH` and `DELETE`, the `X-CSRF-Token` header as a security scheme named `csrf`, required with the route's own security, and `400` and `403`. A generated client sets the token once rather than on every call. With other `Readers`, write your own `zinc.MiddlewareDoc`.
+
+```go
+api := app.Group("/api", csrf.New()).Document(csrf.Doc())
+```
+
 ## Related
 
 - [Session](/middleware/session/): the cookie-based sign-in that CSRF protection guards.

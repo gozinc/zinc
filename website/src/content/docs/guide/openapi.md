@@ -234,6 +234,74 @@ An OAuth 2 scheme lists its flows:
 
 A scheme missing something its type needs, such as an `oauth2` scheme without flows, is also an error, since the spec would be invalid.
 
+## Describe what middleware adds
+
+Middleware is a plain function, so the spec can't see the credentials it checks or the errors it answers. Describe them with `Document`, beside the `Use` or group it describes. Zinc's middleware with something to add comes with a `Doc` function:
+
+```go
+app := zinc.New()
+app.Use(timeout.New(timeout.Config{Timeout: 5 * time.Second}))
+app.Document(timeout.Doc())
+
+api := app.Group("/api", csrf.New()).Document(csrf.Doc())
+api.Post("/pets", zinc.Typed(createPet)).Status(201)
+```
+
+`POST /api/pets` now requires the CSRF token, and lists `403` and `503` beside its own responses. The token is a security scheme, so a generated client sets it once, not on every call:
+
+```json
+"security": [
+  {
+    "csrf": []
+  }
+]
+```
+
+```json
+"securitySchemes": {
+  "csrf": {
+    "type": "apiKey",
+    "in": "header",
+    "name": "X-CSRF-Token",
+    "description": "The CSRF token: the value of the cookie a safe request set."
+  }
+}
+```
+
+```text
+responses: 201, 400, 403, 422, 500, 503
+```
+
+On a route with its own security, the token joins each requirement: a route that takes an API key or a bearer token needs the token with either.
+
+`App.Document` covers every route, `Group.Document` the group's routes, and `Route.Document` one route. For your own middleware, write a `zinc.MiddlewareDoc`:
+
+```go
+api.Document(zinc.MiddlewareDoc{
+	Methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete},
+	Headers: []zinc.HeaderDoc{{
+		Name:        "Idempotency-Key",
+		Description: "Makes a retry safe.",
+		Required:    true,
+	}},
+	Errors:  []int{http.StatusConflict},
+})
+```
+
+| Field | Means |
+|---|---|
+| `Methods` | The methods it applies to. Empty means every method. |
+| `Security` | Credentials it checks, by scheme name: added to the spec's schemes and required with the route's own security. No `401` is added; list what it answers in `Errors` |
+| `Headers` | Other request headers it reads, which callers pass on each call. A header the route's input already binds is listed once, from the input. |
+| `Errors` | Statuses it answers by returning an error, described with your error handler's body |
+
+| Middleware | `Doc()` adds |
+|---|---|
+| [CSRF](/middleware/csrf/) | On `POST`, `PUT`, `PATCH` and `DELETE`: the `X-CSRF-Token` header as the `csrf` security scheme, `400` and `403` |
+| [Timeout](/middleware/timeout/) | `503` |
+| [Limiter](/middleware/limiter/) | `429` |
+| [Body Limit](/middleware/bodylimit/) | `413` |
+
 ## Serve the spec
 
 Every app serves its spec at `/openapi.json`, and a browsable reference page for it at `/docs`, for `GET` and `HEAD`. Describe the API with `Config.OpenAPI`:
@@ -359,7 +427,7 @@ The output is the same for the same routes, so the file only changes when the AP
 | other types with `MarshalText` | a string |
 | named structs | a shared schema under `components/schemas`, referenced with `$ref`. A generic one is named after its arguments: `Page[User]` is `PageUser` |
 
-Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embedded structs. Fields promoted from an embedded pointer aren't required in a response, since a nil pointer leaves them out. Three more tags add detail:
+Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embedded structs. Fields promoted from an embedded pointer aren't required in a response, since a nil pointer leaves them out. More tags add detail:
 
 | Tag | Adds |
 |---|---|
@@ -367,6 +435,7 @@ Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embe
 | `doc:"The pet's ID."` | A description |
 | `example:"7"` | An example value |
 | `enum:"s,m,l"` | The values the field takes, or its elements for a slice. Zinc checks them on input, whatever the validator |
+| `pattern:"^[a-z0-9-]+$"` | A regular expression a string must match. Zinc checks it on input, whatever the validator |
 
 The request body of the first example, `CreatePetBody`, becomes:
 
@@ -437,15 +506,22 @@ The tag describes the field; it doesn't filter it. Binding still fills a `readon
 
 ### Name a component
 
-A struct's component is named after its Go type. To choose another name, such as for an unexported type or a generic one, add an `OpenAPIName` method (`zinc.SchemaNamer`):
+A component is named after its Go type, starting with a capital, so `createPet` is `CreatePet`. A struct's input variant adds `Input`, and a request body without its parameter fields `Body`, unless the name already ends with it: `createPetInput` stays `CreatePetInput`.
+
+To choose another name, add an `OpenAPIName` method (`zinc.SchemaNamer`). It works for enum types as well as structs:
 
 ```go
 type petRecord struct{ ID string `json:"id"` }
 
 func (petRecord) OpenAPIName() string { return "PetSummary" }
+
+type Status string
+
+func (Status) Enum() []any         { return []any{"active", "disabled"} }
+func (Status) OpenAPIName() string { return "PetStatus" }
 ```
 
-Its input variant is then `PetSummaryInput`. If two types claim one name, the later one is listed under its package.
+If two types claim one name, the later one gets its package name in front, such as `AdminCreatePet`.
 
 ### Types from other packages
 
@@ -491,7 +567,15 @@ Rename the parameters to match, or leave one route out of the spec with `.Hidden
 
 ### A type named Error
 
-With Zinc's default error handler, the spec's `Error` schema is Zinc's error body. Your own type named `Error` is listed under its package, such as `main.Error`.
+With Zinc's default error handler, the spec's `Error` schema is Zinc's error body. Your own type named `Error` gets its package name in front, such as `MainError`.
+
+### Header names are spelled as you tag them
+
+`header:"ETag"` is `ETag` in the spec, and `header:"X-CSRF-Token"` is `X-CSRF-Token`. On the wire, `net/http` sends its canonical form, such as `Etag`; header names aren't case-sensitive, and binding matches any spelling.
+
+### A pattern counts an empty value as left out
+
+Like `enum`, `pattern` skips a zero value, which is what a field left out binds as. Use `validate:"required"` to refuse an empty one. Write the pattern in the syntax Go's `regexp` and JSON Schema share, and anchor it with `^` and `$`: like JSON Schema's `pattern`, it matches anywhere in the value. A pattern that doesn't compile, or one on a field that isn't a string, panics when the typed route is registered.
 
 ### What's left out
 

@@ -537,6 +537,7 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	// Zinc's built-in ones, or those a RuleSetValidator declares.
 	g.rules = enforcedRules(a.config.Validator)
 	usesErrors := false
+	middlewareSchemes := map[string]OpenAPISecurityScheme{}
 	table := a.router
 	for i, meta := range table.routeInfos {
 		if meta.mounted || !slices.Contains(oaMethods, meta.method) {
@@ -565,12 +566,43 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 				authErrors = append(authErrors, http.StatusForbidden)
 			}
 		}
-		op, errs, err := buildOperation(g, a, meta, rd, authErrors)
+		middleware := middlewareFor(a, rd, meta.method)
+		op, errs, err := buildOperation(g, a, meta, rd, middleware, authErrors)
 		if err != nil {
 			return nil, err
 		}
 		usesErrors = usesErrors || errs
-		if rd.securitySet {
+		// Credentials a middleware checks join every requirement: either of
+		// the route's schemes, and the CSRF token, say.
+		extra := map[string]OpenAPISecurityScheme{}
+		for _, d := range middleware {
+			for name, scheme := range d.Security {
+				if known, ok := cfg.SecuritySchemes[name]; ok && !reflect.DeepEqual(known, scheme) {
+					return nil, fmt.Errorf("zinc: %s %s: middleware security scheme %q differs from the one in OpenAPIConfig.SecuritySchemes", meta.method, meta.path, name)
+				}
+				if known, ok := middlewareSchemes[name]; ok && !reflect.DeepEqual(known, scheme) {
+					return nil, fmt.Errorf("zinc: %s %s: two middleware describe security scheme %q differently", meta.method, meta.path, name)
+				}
+				middlewareSchemes[name] = scheme
+				extra[name] = scheme
+			}
+		}
+		if len(extra) > 0 {
+			if len(reqs) == 0 {
+				reqs = []map[string][]string{{}}
+			}
+			joined := make([]map[string][]string, len(reqs))
+			for i, req := range reqs {
+				joined[i] = maps.Clone(req)
+				for name := range extra {
+					if _, ok := joined[i][name]; !ok {
+						joined[i][name] = []string{}
+					}
+				}
+			}
+			reqs = joined
+		}
+		if rd.securitySet || len(extra) > 0 {
 			if reqs == nil {
 				reqs = []map[string][]string{}
 			}
@@ -615,8 +647,13 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 	if len(g.components) > 0 {
 		doc.Components.Schemas = g.components
 	}
-	if len(cfg.SecuritySchemes) > 0 {
-		schemes, err := checkSecuritySchemes(cfg.SecuritySchemes)
+	allSchemes := maps.Clone(cfg.SecuritySchemes)
+	if len(middlewareSchemes) > 0 && allSchemes == nil {
+		allSchemes = map[string]OpenAPISecurityScheme{}
+	}
+	maps.Copy(allSchemes, middlewareSchemes)
+	if len(allSchemes) > 0 {
+		schemes, err := checkSecuritySchemes(allSchemes)
 		if err != nil {
 			return nil, err
 		}
@@ -627,7 +664,7 @@ func buildOpenAPI(a *App, cfg OpenAPIConfig) (*oaDocument, error) {
 
 // buildOperation describes one route, and reports whether it can answer with
 // Zinc's error envelope.
-func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErrors []int) (*oaOperation, bool, error) {
+func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, middleware []MiddlewareDoc, authErrors []int) (*oaOperation, bool, error) {
 	op := &oaOperation{
 		Tags:        rd.tags,
 		Summary:     rd.summary,
@@ -679,13 +716,25 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 		}
 		for _, f := range plan.headerFields {
 			s, required := paramSchema(f)
-			op.Parameters = append(op.Parameters, oaParameter{Name: f.headerName, In: "header", Required: required, Schema: s})
+			// Spelled as the tag spells it, such as X-API-Key; header names
+			// aren't case-sensitive, and binding matches any spelling.
+			op.Parameters = append(op.Parameters, oaParameter{Name: spelledHeader(f.structField(in)), In: "header", Required: required, Schema: s})
 			hasInput = true
 		}
 		for _, f := range plan.cookieFields {
 			s, required := paramSchema(f)
 			op.Parameters = append(op.Parameters, oaParameter{Name: f.name, In: "cookie", Required: required, Schema: s})
 			hasInput = true
+		}
+	}
+	// What the middleware reads, app-wide first, unless the input already
+	// binds the header.
+	for _, d := range middleware {
+		for _, h := range d.Headers {
+			if slices.ContainsFunc(op.Parameters, func(p oaParameter) bool { return p.In == "header" && strings.EqualFold(p.Name, h.Name) }) {
+				continue
+			}
+			op.Parameters = append(op.Parameters, oaParameter{Name: h.Name, In: "header", Description: h.Description, Required: h.Required, Schema: &schema{typ: []string{"string"}}})
 		}
 	}
 
@@ -763,6 +812,11 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, authErro
 		}
 	}
 	usesErrors := errorBody != noErrorBody
+	for _, d := range middleware {
+		for _, status := range d.Errors {
+			responses[status] = errorResponse(status, errorBody)
+		}
+	}
 	for _, status := range authErrors {
 		responses[status] = errorResponse(status, errorBody)
 	}
@@ -1168,6 +1222,16 @@ func hasTag(t reflect.Type, tag string) bool {
 	return false
 }
 
+// spelledHeader is a header field's name as its tag spells it. Binding
+// lower-cases it, which matches any spelling a client sends.
+func spelledHeader(sf reflect.StructField) string {
+	if name, _, _ := strings.Cut(sf.Tag.Get("header"), ","); name != "" {
+		return name
+	}
+	name, _ := bindingFieldName(sf, "header")
+	return name
+}
+
 // outputHeaders describes the header fields of output type t. A header
 // sent from a number or bool is always present, so it's required.
 func (g *schemaGen) outputHeaders(t reflect.Type) orderedMap[oaHeader] {
@@ -1191,7 +1255,9 @@ func (g *schemaGen) outputHeaders(t reflect.Type) orderedMap[oaHeader] {
 		s := g.schemaFor(ft)
 		// A header is sent or not; it's never null.
 		s.typ = slices.DeleteFunc(s.typ, func(t string) bool { return t == "null" })
-		headers.set(h.name, oaHeader{Required: required, Schema: s})
+		// The spec spells the header as the tag does, such as ETag; net/http
+		// sends its canonical form, and header names aren't case-sensitive.
+		headers.set(h.spelled, oaHeader{Required: required, Schema: s})
 	}
 	return headers
 }

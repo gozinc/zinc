@@ -90,7 +90,7 @@ var _ = schemaUser{internal: "not in the schema"}
 
 func TestSchemaStructComponent(t *testing.T) {
 	g := newSchemaGen()
-	if got := schemaJSON(t, g.schemaFor(reflect.TypeFor[schemaUser]())); got != `{"$ref":"#/components/schemas/schemaUser"}` {
+	if got := schemaJSON(t, g.schemaFor(reflect.TypeFor[schemaUser]())); got != `{"$ref":"#/components/schemas/SchemaUser"}` {
 		t.Fatalf("ref: %s", got)
 	}
 	want := `{"type":"object","properties":{` +
@@ -100,30 +100,30 @@ func TestSchemaStructComponent(t *testing.T) {
 		`"age":{"type":["integer","null"],"format":"int64","minimum":0,"exclusiveMaximum":150},` +
 		`"role":{"type":"string","enum":["admin","member"]},` +
 		`"tags":{"type":["array","null"],"items":{"type":"string"},"maxItems":5},` +
-		`"home":{"$ref":"#/components/schemas/schemaAddress","description":"Where they live."},` +
-		`"work":{"anyOf":[{"$ref":"#/components/schemas/schemaAddress"},{"type":"null"}]},` +
+		`"home":{"$ref":"#/components/schemas/SchemaAddress","description":"Where they live."},` +
+		`"work":{"anyOf":[{"$ref":"#/components/schemas/SchemaAddress"},{"type":"null"}]},` +
 		`"count":{"type":"string"},` +
 		`"created_at":{"type":"string","format":"date-time"},` +
-		`"friends":{"type":["array","null"],"items":{"anyOf":[{"$ref":"#/components/schemas/schemaUser"},{"type":"null"}]}}` +
+		`"friends":{"type":["array","null"],"items":{"anyOf":[{"$ref":"#/components/schemas/SchemaUser"},{"type":"null"}]}}` +
 		`},"required":["id","email","age","role","tags","home","work","count","created_at","friends"]}`
-	if got := schemaJSON(t, g.components["schemaUser"]); got != want {
+	if got := schemaJSON(t, g.components["SchemaUser"]); got != want {
 		t.Fatalf("component:\n got %s\nwant %s", got, want)
 	}
 	// A response always carries a field without omitempty, so the output
 	// schema requires it; a request has to carry validate:"required", and a
 	// field whose rules reject its zero value, such as min=1 or oneof.
-	if got := schemaJSON(t, g.inputSchemaFor(reflect.TypeFor[schemaUser]())); got != `{"$ref":"#/components/schemas/schemaUserInput"}` {
+	if got := schemaJSON(t, g.inputSchemaFor(reflect.TypeFor[schemaUser]())); got != `{"$ref":"#/components/schemas/SchemaUserInput"}` {
 		t.Fatalf("input ref: %s", got)
 	}
-	if got := string(mustJSON(t, g.components["schemaUserInput"].required)); got != `["email","name","role"]` {
+	if got := string(mustJSON(t, g.components["SchemaUserInput"].required)); got != `["email","name","role"]` {
 		t.Fatalf("input required: %s", got)
 	}
 	// schemaAddress's city has no omitempty, so responses require it and
 	// requests don't: two components.
-	if g.components["schemaAddressInput"] == nil {
+	if g.components["SchemaAddressInput"] == nil {
 		t.Fatal("schemaAddress's input schema differs (city is required only in responses) but has no component")
 	}
-	if got := schemaJSON(t, g.components["schemaAddress"]); got != `{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}` {
+	if got := schemaJSON(t, g.components["SchemaAddress"]); got != `{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}` {
 		t.Fatalf("address: %s", got)
 	}
 }
@@ -155,18 +155,18 @@ func TestSchemaEmbeddingFollowsEncodingJSON(t *testing.T) {
 		typ := reflect.TypeOf(tt.value)
 		g := newSchemaGen()
 		g.schemaFor(typ)
-		if got := schemaJSON(t, g.components[typ.Name()]); got != tt.want {
+		if got := schemaJSON(t, g.components[exportedName(typ.Name())]); got != tt.want {
 			t.Errorf("%v:\n got %s\nwant %s", typ, got, tt.want)
 		}
 		encoded, _ := json.Marshal(tt.value)
 		var keys map[string]any
 		_ = json.Unmarshal(encoded, &keys)
-		for _, p := range g.components[typ.Name()].properties {
+		for _, p := range g.components[exportedName(typ.Name())].properties {
 			if _, ok := keys[p.name]; !ok {
 				t.Errorf("%v: schema has %q, encoding/json doesn't write it: %s", typ, p.name, encoded)
 			}
 		}
-		if len(keys) != len(g.components[typ.Name()].properties) {
+		if len(keys) != len(g.components[exportedName(typ.Name())].properties) {
 			t.Errorf("%v: encoding/json writes %s", typ, encoded)
 		}
 	}
@@ -191,7 +191,7 @@ func TestSchemaFollowsEncodingJSONNils(t *testing.T) {
 	g := newSchemaGen()
 	g.schemaFor(reflect.TypeFor[schemaNilable]())
 	want := `{"type":"object","properties":{"id":{"type":"integer","format":"int64"},"list":{"type":["array","null"],"items":{"type":"integer","format":"int64"}},"maybe":{"type":"array","items":{"type":"integer","format":"int64"}},"zero":{"type":"object","additionalProperties":{"type":"integer","format":"int64"}},"payload":{"type":"number"}},"required":["list","payload"]}`
-	if got := schemaJSON(t, g.components["schemaNilable"]); got != want {
+	if got := schemaJSON(t, g.components["SchemaNilable"]); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 	encoded, _ := json.Marshal(schemaNilable{Payload: "1.5"})
@@ -211,17 +211,17 @@ func TestSchemaBodyLeavesOutParameters(t *testing.T) {
 	g := newSchemaGen()
 	body := schemaJSON(t, g.bodySchemaFor(reflect.TypeFor[schemaCreate]()))
 	full := schemaJSON(t, g.schemaFor(reflect.TypeFor[schemaCreate]()))
-	if body != `{"$ref":"#/components/schemas/schemaCreateBody"}` || full != `{"$ref":"#/components/schemas/schemaCreate"}` {
+	if body != `{"$ref":"#/components/schemas/SchemaCreateBody"}` || full != `{"$ref":"#/components/schemas/SchemaCreate"}` {
 		t.Fatalf("refs: body %s, full %s", body, full)
 	}
-	if got := schemaJSON(t, g.components["schemaCreateBody"]); got != `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}` {
+	if got := schemaJSON(t, g.components["SchemaCreateBody"]); got != `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}` {
 		t.Fatalf("body component: %s", got)
 	}
-	if got := schemaJSON(t, g.components["schemaCreate"]); got != `{"type":"object","properties":{"Org":{"type":"string"},"DryRun":{"type":"boolean"},"Tenant":{"type":"string"},"name":{"type":"string"}},"required":["Org","DryRun","Tenant","name"]}` {
+	if got := schemaJSON(t, g.components["SchemaCreate"]); got != `{"type":"object","properties":{"Org":{"type":"string"},"DryRun":{"type":"boolean"},"Tenant":{"type":"string"},"name":{"type":"string"}},"required":["Org","DryRun","Tenant","name"]}` {
 		t.Fatalf("full component: %s", got)
 	}
 	// A type with no parameter fields uses its input component as the body.
-	if got := schemaJSON(t, g.bodySchemaFor(reflect.TypeFor[schemaAddress]())); got != `{"$ref":"#/components/schemas/schemaAddressInput"}` {
+	if got := schemaJSON(t, g.bodySchemaFor(reflect.TypeFor[schemaAddress]())); got != `{"$ref":"#/components/schemas/SchemaAddressInput"}` {
 		t.Fatalf("plain body: %s", got)
 	}
 	// Where input and output agree, they share one component.
@@ -270,12 +270,12 @@ func TestSchemaNamesAndRecursion(t *testing.T) {
 	g := newSchemaGen()
 	g.schemaFor(reflect.TypeFor[schemaPage[schemaUser]]())
 	g.schemaFor(reflect.TypeFor[schemaNode]())
-	for _, name := range []string{"schemaPageSchemaUser", "schemaNode", "schemaUser", "schemaAddress"} {
+	for _, name := range []string{"SchemaPageSchemaUser", "SchemaNode", "SchemaUser", "SchemaAddress"} {
 		if g.components[name] == nil {
 			t.Fatalf("missing component %q; have %v", name, keysOf(g.components))
 		}
 	}
-	if got := schemaJSON(t, g.components["schemaNode"]); got != `{"type":"object","properties":{"children":{"type":["array","null"],"items":{"$ref":"#/components/schemas/schemaNode"}}},"required":["children"]}` {
+	if got := schemaJSON(t, g.components["SchemaNode"]); got != `{"type":"object","properties":{"children":{"type":["array","null"],"items":{"$ref":"#/components/schemas/SchemaNode"}}},"required":["children"]}` {
 		t.Fatalf("recursive: %s", got)
 	}
 
@@ -285,7 +285,7 @@ func TestSchemaNamesAndRecursion(t *testing.T) {
 		Street string `json:"street"`
 	}
 	local := schemaJSON(t, g.schemaFor(reflect.TypeFor[schemaAddress]()))
-	if local != `{"$ref":"#/components/schemas/zinc.schemaAddress"}` {
+	if local != `{"$ref":"#/components/schemas/ZincSchemaAddress"}` {
 		t.Fatalf("same-name type: %s; have %v", local, keysOf(g.components))
 	}
 }
@@ -363,11 +363,11 @@ func TestSchemaEnumsAndTypeMap(t *testing.T) {
 	g := newSchemaGen()
 	g.types = map[reflect.Type]map[string]any{reflect.TypeFor[schemaMoneyAmount](): {"type": "string", "format": "decimal"}}
 	g.schemaFor(reflect.TypeFor[holder]())
-	want := `{"type":"object","properties":{"level":{"$ref":"#/components/schemas/schemaLevel"},"levels":{"type":["array","null"],"items":{"$ref":"#/components/schemas/schemaLevel"}},"size":{"type":"string","enum":["s","m","l"]},"sizes":{"type":["array","null"],"items":{"type":"integer","format":"int64","enum":[1,2]}},"price":{"format":"decimal","type":"string"},"big":{"type":["integer","null"]}},"required":["level","levels","size","sizes","price","big"]}`
-	if got := schemaJSON(t, g.components["holder"]); got != want {
+	want := `{"type":"object","properties":{"level":{"$ref":"#/components/schemas/SchemaLevel"},"levels":{"type":["array","null"],"items":{"$ref":"#/components/schemas/SchemaLevel"}},"size":{"type":"string","enum":["s","m","l"]},"sizes":{"type":["array","null"],"items":{"type":"integer","format":"int64","enum":[1,2]}},"price":{"format":"decimal","type":"string"},"big":{"type":["integer","null"]}},"required":["level","levels","size","sizes","price","big"]}`
+	if got := schemaJSON(t, g.components["Holder"]); got != want {
 		t.Errorf("\n got %s\nwant %s", got, want)
 	}
-	if got := schemaJSON(t, g.components["schemaLevel"]); got != `{"type":"integer","enum":[1,2,3]}` {
+	if got := schemaJSON(t, g.components["SchemaLevel"]); got != `{"type":"integer","enum":[1,2,3]}` {
 		t.Errorf("enum component: %s", got)
 	}
 }

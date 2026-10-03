@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/0mjs/zinc"
@@ -92,6 +93,13 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return cfg.ErrorHandler(c, timeoutErr)
 	}
+}
+
+// Doc describes the middleware for the OpenAPI spec: a request that runs
+// past the deadline is answered with 503. Pass it to Document beside the
+// middleware.
+func Doc() zinc.MiddlewareDoc {
+	return zinc.MiddlewareDoc{Errors: []int{http.StatusServiceUnavailable}}
 }
 
 // Get returns installed deadline metadata.

@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -39,6 +40,101 @@ type routeDoc struct {
 	examples []docExample
 	// operationHooks edit the route's operation, from Route.Operation.
 	operationHooks []func(op map[string]any)
+	// middleware describes what the route's middleware adds, from
+	// Group.Document and Route.Document.
+	middleware []MiddlewareDoc
+}
+
+// MiddlewareDoc describes, for the OpenAPI spec, what a middleware adds to
+// the routes it runs on: the credentials and request headers it reads and
+// the errors it can answer. A middleware is a plain function, so Zinc can't see this for
+// itself. Pass it to App.Document, Group.Document or Route.Document beside
+// the middleware:
+//
+//	api.Use(csrf.New())
+//	api.Document(csrf.Doc())
+type MiddlewareDoc struct {
+	// Methods limits the description to requests with these methods, such
+	// as the unsafe ones CSRF protection checks. Empty means every method.
+	Methods []string
+	// Security holds credentials the middleware checks on every request it
+	// covers, such as a CSRF token, by scheme name. Each is added to the
+	// spec's security schemes and required together with the route's own
+	// security, so a generated client sets it once rather than on every
+	// call. A scheme of the same name in OpenAPIConfig.SecuritySchemes must
+	// be the same. Unlike a route's security, it adds no 401 or 403; list
+	// what the middleware answers in Errors.
+	Security map[string]OpenAPISecurityScheme
+	// Headers are request headers the middleware reads, other than
+	// credentials: each is a parameter callers pass.
+	Headers []HeaderDoc
+	// Errors are statuses it answers by returning an error, described with
+	// the body the error handler writes, as Route.Errors does.
+	Errors []int
+}
+
+// HeaderDoc is a request header a middleware reads.
+type HeaderDoc struct {
+	// Name is the header's name, spelled as the spec should show it.
+	Name        string
+	Description string
+	// Required says requests the middleware runs on must send it.
+	Required bool
+}
+
+// mustMiddlewareDocs checks and copies docs passed to a Document method.
+func mustMiddlewareDocs(method string, docs []MiddlewareDoc) []MiddlewareDoc {
+	out := make([]MiddlewareDoc, len(docs))
+	for i, d := range docs {
+		for _, status := range d.Errors {
+			if status < 400 || status > 599 {
+				panic(fmt.Sprintf("zinc: %s error status %d is not an error status", method, status))
+			}
+		}
+		for _, h := range d.Headers {
+			if strings.TrimSpace(h.Name) == "" {
+				panic("zinc: " + method + " header needs a Name")
+			}
+		}
+		for name := range d.Security {
+			if strings.TrimSpace(name) == "" {
+				panic("zinc: " + method + " security scheme needs a name")
+			}
+		}
+		methods := make([]string, len(d.Methods))
+		for j, m := range d.Methods {
+			methods[j] = strings.ToUpper(m)
+		}
+		out[i] = MiddlewareDoc{Methods: methods, Security: maps.Clone(d.Security), Headers: slices.Clone(d.Headers), Errors: slices.Clone(d.Errors)}
+	}
+	return out
+}
+
+// appliesTo reports whether the description covers requests with method.
+func (d MiddlewareDoc) appliesTo(method string) bool {
+	return len(d.Methods) == 0 || slices.Contains(d.Methods, method)
+}
+
+// middlewareFor lists the descriptions that cover a route's requests with
+// method, the app's first.
+func middlewareFor(a *App, rd *routeDoc, method string) []MiddlewareDoc {
+	var out []MiddlewareDoc
+	for _, docs := range [][]MiddlewareDoc{a.middlewareDocs, rd.middleware} {
+		for _, d := range docs {
+			if d.appliesTo(method) {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// Document adds descriptions of the route's own middleware, the handlers
+// before its last, to the spec.
+func (r Route) Document(docs ...MiddlewareDoc) Route {
+	doc := r.doc("Document")
+	doc.middleware = append(doc.middleware, mustMiddlewareDocs("Document", docs)...)
+	return r
 }
 
 // docExample is a named example of a response, or of the request body when
@@ -327,6 +423,7 @@ type groupDocs struct {
 	security    [][]string
 	securitySet bool
 	hidden      bool
+	middleware  []MiddlewareDoc
 }
 
 // Tags adds tags to every route registered in the group from now on, and to
@@ -365,6 +462,15 @@ func (g *Group) Hidden() *Group {
 	return g
 }
 
+// Document adds descriptions of the group's middleware to every route
+// registered in the group from now on, and its child groups' routes. Like
+// Use, it panics once the group has routes.
+func (g *Group) Document(docs ...MiddlewareDoc) *Group {
+	g.mustBeOpen("Document")
+	g.docs.middleware = append(g.docs.middleware, mustMiddlewareDocs("Document", docs)...)
+	return g
+}
+
 // mustBeOpen panics when the group has already captured its settings.
 func (g *Group) mustBeOpen(method string) {
 	if g.sealedBy == "" {
@@ -379,7 +485,7 @@ func (g *Group) mustBeOpen(method string) {
 
 // apply copies the group's defaults onto a route it registered.
 func (d groupDocs) apply(r Route) {
-	if len(d.tags) == 0 && !d.securitySet && !d.hidden {
+	if len(d.tags) == 0 && !d.securitySet && !d.hidden && len(d.middleware) == 0 {
 		return
 	}
 	doc := r.table.doc(r.index)
@@ -389,6 +495,7 @@ func (d groupDocs) apply(r Route) {
 		doc.securitySet = true
 	}
 	doc.hidden = doc.hidden || d.hidden
+	doc.middleware = append(slices.Clone(d.middleware), doc.middleware...)
 }
 
 // inherit copies the defaults into a child group.
@@ -398,6 +505,7 @@ func (d groupDocs) inherit() groupDocs {
 		security:    cloneRequirements(d.security),
 		securitySet: d.securitySet,
 		hidden:      d.hidden,
+		middleware:  slices.Clone(d.middleware),
 	}
 }
 

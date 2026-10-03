@@ -214,12 +214,14 @@ type mountedHandler struct {
 // Configure routes and middleware before serving; registration is not safe
 // concurrently with requests.
 type App struct {
-	config           Config
-	trustedProxies   []netip.Prefix
-	router           *routeTable
-	notFoundRoutes   *routeTable
-	middleware       []HandlerFunc
-	middlewareChain  []HandlerFunc
+	config          Config
+	trustedProxies  []netip.Prefix
+	router          *routeTable
+	notFoundRoutes  *routeTable
+	middleware      []HandlerFunc
+	middlewareChain []HandlerFunc
+	// middlewareDocs describe the app-wide middleware, from App.Document.
+	middlewareDocs   []MiddlewareDoc
 	httpHandler      http.Handler
 	httpHandlerTail  *httpHandlerSlot
 	prefixMiddleware []prefixMiddleware
@@ -549,6 +551,13 @@ func (a *App) closeStaticRoots() error {
 func (a *App) Use(handlers ...HandlerFunc) {
 	a.middleware = append(a.middleware, handlers...)
 	a.rebuildMiddlewareChain()
+}
+
+// Document adds descriptions of the app's middleware, which runs on every
+// route, to every route in the spec. See MiddlewareDoc.
+func (a *App) Document(docs ...MiddlewareDoc) {
+	a.middlewareDocs = append(a.middlewareDocs, mustMiddlewareDocs("Document", docs)...)
+	a.router.docsVersion++
 }
 
 // UseHTTP wraps the whole application in standard net/http middleware.

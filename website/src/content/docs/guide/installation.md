@@ -47,7 +47,7 @@ Middleware that needs a third-party library, such as JWT, lives in [`github.com/
 
 ```bash
 go list -m github.com/0mjs/zinc
-# github.com/0mjs/zinc v0.7.0
+# github.com/0mjs/zinc v0.7.1
 ```
 
 ## Upgrade

@@ -27,6 +27,7 @@ v1.Get("/users/{id}", showUser) // GET /api/v1/users/{id}
 | `Tags(tags...) *Group` | [OpenAPI](/guide/openapi/) tags for every route registered in the group from now on, and its child groups. Panics once the group has routes or child groups, like `Use` |
 | `Security(schemes...) *Group` | The security schemes that protect every route registered in the group from now on, in the spec; any one is enough. `Route.Security` overrides it |
 | `SecurityAll(schemes...) *Group` | Like `Security`, but every scheme is needed |
+| `Document(docs ...MiddlewareDoc) *Group` | What the group's middleware adds to every route registered in it from now on, in the spec: credentials, request headers and error statuses, by method. Panics once the group has routes, like `Use` |
 | `Hidden() *Group` | Leaves every route registered in the group from now on, and its child groups' routes, out of the spec |
 | `UseHTTP(middleware...) *Group` | Standard `func(http.Handler) http.Handler` middleware for this group, through `zinc.FromHTTP` |
 | `HandleHTTP(pattern, http.Handler) Route` | A standard handler below the prefix |

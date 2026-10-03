@@ -113,6 +113,13 @@ A bucket is removed once it has been idle for `IdleTTL` and has refilled complet
 
 A request over the limit gets whatever `LimitReached` returns. The default is `zinc.TooManyRequests("rate limit exceeded")`, which the default error handler sends as `429`. `limiter.Concurrency` returns `zinc.ErrTooManyRequests`.
 
+To list the `429` in the [OpenAPI](/guide/openapi/#describe-what-middleware-adds) spec, pass `limiter.Doc()` to `Document` beside the middleware. It describes the default `LimitReached`.
+
+```go
+app.Use(limiter.New())
+app.Document(limiter.Doc())
+```
+
 ## Related
 
 - [Client IP and proxies](/guide/ip-address/) makes per-IP keys accurate behind a load balancer.
