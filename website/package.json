@@ -16,7 +16,8 @@
     "deploy": "npm run build && wrangler deploy",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "check:audit": "node scripts/check-audit.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.6",

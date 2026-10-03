@@ -81,10 +81,12 @@ func (s spec) hasPath(path string) bool {
 	return ok
 }
 
+// param finds a parameter. Header names match in any case, as HTTP's do.
 func (s spec) param(method, path, in, name string) map[string]any {
 	for _, p := range asList(s.op(method, path)["parameters"]) {
 		pm, _ := p.(map[string]any)
-		if pm["in"] == in && pm["name"] == name {
+		got, _ := pm["name"].(string)
+		if pm["in"] == in && (got == name || in == "header" && strings.EqualFold(got, name)) {
 			return pm
 		}
 	}

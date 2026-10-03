@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/0mjs/zinc"
 	"github.com/0mjs/zinc/middleware/internal/shared"
@@ -92,6 +93,12 @@ func New(configs ...Config) zinc.Middleware {
 
 		return c.Next()
 	}
+}
+
+// Doc describes the middleware for the OpenAPI spec: a body over the limit
+// is answered with 413. Pass it to Document beside the middleware.
+func Doc() zinc.MiddlewareDoc {
+	return zinc.MiddlewareDoc{Errors: []int{http.StatusRequestEntityTooLarge}}
 }
 
 func resolveBodyLimitConfig(config Config) Config {

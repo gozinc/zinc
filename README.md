@@ -136,7 +136,7 @@ Output types, response headers, `Route.Errors`, checked examples, security schem
 ## What you get
 
 - **Routing:** a radix router with groups, parameters, catch-alls, and clear precedence: static, then parameter, then catch-all.
-- **Binding:** path, query, header, form, multipart, JSON, and XML input, validated by `validate` tags with built-in rules, or a validator you plug in. YAML, TOML, or a faster JSON library plug in per app with one map entry, and Zinc itself requires no other module.
+- **Binding:** path, query, header, form, multipart, JSON, and XML input, validated by `validate` tags with built-in rules and `pattern` tags, or a validator you plug in. YAML, TOML, or a faster JSON library plug in per app with one map entry, and Zinc itself requires no other module.
 - **OpenAPI:** a 3.1 spec and a `/docs` page from your types, with validation rules that match what's enforced, checked in CI against 147 scenarios and a generated client.
 - **Responses:** JSON, text, files, streams, templates, and redirects.
 - **Errors:** JSON error responses by default, short constructors like `zinc.NotFound("…")`, and domain errors that choose their own status. Internal error text never reaches clients.

@@ -8,6 +8,7 @@ import (
 	"net/mail"
 	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -85,14 +86,18 @@ func (e invalidFields) Error() string {
 // Fields returns the messages by field name.
 func (e invalidFields) Fields() map[string]string { return e }
 
-// rulePlan checks a struct type's validate tags and enum values. Enum
-// values, from an enum tag or an EnumProvider type, are Zinc's own claims,
-// so they're always checked; validate tags only when Zinc is the validator.
+// rulePlan checks a struct type's validate tags, enum values and patterns.
+// Enum values, from an enum tag or an EnumProvider type, and pattern tags are
+// Zinc's own claims, so they're always checked; validate tags only when Zinc
+// is the validator.
 type rulePlan struct {
 	fields []ruleField
 	// unsupported lists validate rules outside BuiltinRules, as
 	// "Type.Field: rule", for the error when Zinc is the validator.
 	unsupported []string
+	// invalid lists pattern tags that can't be used, as "Type.Field: why",
+	// for the error whatever the validator.
+	invalid []string
 }
 
 type ruleField struct {
@@ -102,6 +107,7 @@ type ruleField struct {
 	tagRules []rule
 	omit     bool // omitempty: a zero value skips tagRules
 	enum     []any
+	pattern  *regexp.Regexp
 	nested   *rulePlan
 }
 
@@ -150,6 +156,13 @@ func compileRulePlan(t reflect.Type, visiting map[reflect.Type]bool) *rulePlan {
 		} else if provider, ok := reflect.New(elem).Elem().Interface().(EnumProvider); ok && elem.Kind() != reflect.Struct {
 			rf.enum = provider.Enum()
 		}
+		if text, ok := f.Tag.Lookup("pattern"); ok {
+			re, err := compilePattern(text, elem)
+			if err != nil {
+				plan.invalid = append(plan.invalid, fmt.Sprintf("%s.%s: %v", t, f.Name, err))
+			}
+			rf.pattern = re
+		}
 		for _, token := range strings.Split(f.Tag.Get("validate"), ",") {
 			name, param, _ := strings.Cut(strings.TrimSpace(token), "=")
 			switch name {
@@ -170,16 +183,31 @@ func compileRulePlan(t reflect.Type, visiting map[reflect.Type]bool) *rulePlan {
 			if nested := compileRulePlan(st, visiting); nested != nil {
 				rf.nested = nested
 				plan.unsupported = append(plan.unsupported, nested.unsupported...)
+				plan.invalid = append(plan.invalid, nested.invalid...)
 			}
 		}
-		if len(rf.tagRules) > 0 || len(rf.enum) > 0 || rf.nested != nil {
+		if len(rf.tagRules) > 0 || len(rf.enum) > 0 || rf.pattern != nil || rf.nested != nil {
 			plan.fields = append(plan.fields, rf)
 		}
 	}
-	if len(plan.fields) == 0 && len(plan.unsupported) == 0 {
+	if len(plan.fields) == 0 && len(plan.unsupported) == 0 && len(plan.invalid) == 0 {
 		return nil
 	}
 	return plan
+}
+
+// compilePattern compiles a pattern tag for a field whose type, pointers
+// removed, is t. Like JSON Schema's pattern, it matches anywhere in the
+// value unless anchored with ^ and $.
+func compilePattern(text string, t reflect.Type) (*regexp.Regexp, error) {
+	if t.Kind() != reflect.String {
+		return nil, fmt.Errorf("pattern applies only to strings, not %s", t)
+	}
+	re, err := regexp.Compile(text)
+	if err != nil {
+		return nil, fmt.Errorf("pattern %q: %w", text, err)
+	}
+	return re, nil
 }
 
 // wireName is the name a client knows a field by: its JSON name, or else
@@ -228,6 +256,13 @@ func (p *rulePlan) check(v reflect.Value, tags bool, prefix string, errs invalid
 				errs = invalidFields{}
 			}
 			errs[name] = "must be one of: " + enumText(f.enum)
+			continue
+		}
+		if f.pattern != nil && !fv.IsZero() && !f.pattern.MatchString(fv.String()) {
+			if errs == nil {
+				errs = invalidFields{}
+			}
+			errs[name] = "must match the pattern " + f.pattern.String()
 			continue
 		}
 		if f.nested != nil {
@@ -499,10 +534,18 @@ func isUUID(s string, version byte) bool {
 	return version == 0 || s[14] == version
 }
 
-// ruleSupportError reports a typed handler's input or output using a
-// validate rule the app's validator doesn't declare, so no rule in a tag is
-// silently unenforced. A validator that declares nothing isn't checked.
+// ruleSupportError reports a typed handler's input or output with a pattern
+// tag that isn't a valid regular expression on a string, or using a validate
+// rule the app's validator doesn't declare, so no rule in a tag is silently
+// unenforced. A validator that declares nothing isn't checked for rules.
 func ruleSupportError(types handlerTypes, cfg *Config) error {
+	// Pattern tags are checked whatever the validator, so a bad one is always
+	// an error.
+	for _, t := range []reflect.Type{types.in, types.out} {
+		if plan := rulePlanFor(nestedStruct(t)); plan != nil && len(plan.invalid) > 0 {
+			return fmt.Errorf("zinc: these pattern tags can't be used: %s", strings.Join(plan.invalid, ", "))
+		}
+	}
 	var v Validator
 	if cfg != nil {
 		v = cfg.Validator

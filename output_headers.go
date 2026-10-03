@@ -16,11 +16,13 @@ import (
 // outputHeader is a field of a typed handler's output that's sent as a
 // response header rather than in the body.
 type outputHeader struct {
-	index  []int
-	name   string // canonical header name
-	field  string // Go field name, for messages
-	t      reflect.Type
-	cookie bool // *http.Cookie or []*http.Cookie, sent as Set-Cookie
+	index []int
+	name  string // canonical header name, for net/http
+	// spelled is the name as the tag spells it, such as ETag, for the spec.
+	spelled string
+	field   string // Go field name, for messages
+	t       reflect.Type
+	cookie  bool // *http.Cookie or []*http.Cookie, sent as Set-Cookie
 }
 
 var (
@@ -79,7 +81,7 @@ func collectOutputHeaders(st reflect.Type, prefix []int, seen map[reflect.Type]b
 		if name == "" || name == "-" || !f.IsExported() || f.Tag.Get("json") != "-" {
 			continue
 		}
-		h := outputHeader{index: index, name: http.CanonicalHeaderKey(name), field: st.Name() + "." + f.Name, t: f.Type}
+		h := outputHeader{index: index, name: http.CanonicalHeaderKey(name), spelled: name, field: st.Name() + "." + f.Name, t: f.Type}
 		h.cookie = f.Type == cookieType || f.Type == cookieSliceType
 		switch {
 		case h.cookie && h.name != "Set-Cookie":

@@ -245,6 +245,30 @@ func New(configs ...Config) zinc.Middleware {
 	}
 }
 
+// Doc describes the middleware with its default Readers for the OpenAPI
+// spec: requests with an unsafe method send the token in the X-CSRF-Token
+// header, and are refused with 400 when it's missing and 403 when it doesn't
+// match. The token is a security scheme named "csrf", required with each
+// route's own security, so a generated client sets it once rather than on
+// every call. Pass it to Document beside the middleware:
+//
+//	api.Use(csrf.New())
+//	api.Document(csrf.Doc())
+//
+// With other Readers, describe them in a zinc.MiddlewareDoc of your own.
+func Doc() zinc.MiddlewareDoc {
+	return zinc.MiddlewareDoc{
+		Methods: []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+		Security: map[string]zinc.OpenAPISecurityScheme{"csrf": {
+			Type:        "apiKey",
+			In:          "header",
+			Name:        zinc.HeaderXCSRFToken,
+			Description: "The CSRF token: the value of the cookie a safe request set.",
+		}},
+		Errors: []int{http.StatusBadRequest, http.StatusForbidden},
+	}
+}
+
 // FromHeader reads token candidates from a request header.
 func FromHeader(header string) Reader {
 	header = textproto.CanonicalMIMEHeaderKey(header)

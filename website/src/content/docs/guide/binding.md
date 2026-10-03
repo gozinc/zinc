@@ -271,7 +271,7 @@ The rules mean what they mean to [go-playground/validator](https://github.com/go
 | `oneof=a b` | One of the listed values, for strings and numbers |
 | `email`, `uuid`, `uuid4`, `url`, `uri`, `http_url` | The string's format |
 
-Structs inside the input are checked too, including those in slices and maps: a failure in the second owner is named `owners[1].email`. Values listed with an `enum` tag or an `EnumProvider` type are checked as well.
+Structs inside the input are checked too, including those in slices and maps: a failure in the second owner is named `owners[1].email`. Values listed with an `enum` tag or an `EnumProvider` type are checked as well, and so are [`pattern` tags](#match-a-pattern).
 
 A rule Zinc doesn't have, such as `alphanum` or `dive`, stops a typed handler from registering, so it can't go unchecked:
 
@@ -279,9 +279,28 @@ A rule Zinc doesn't have, such as `alphanum` or `dive`, stops a typed handler fr
 panic: zinc: Zinc's built-in validator doesn't enforce these validate rules: main.Code.Value: alphanum; use rules it declares, or a Validator that declares them with RuleSet
 ```
 
+### Match a pattern
+
+For a format no rule covers, such as a key that appears in URLs, add a `pattern` tag. It's a separate tag because regular expressions contain commas, and Zinc checks it whatever the validator, as it does `enum`:
+
+```go
+type CreateProject struct {
+	Key  string `json:"key" pattern:"^[a-z0-9][a-z0-9-]{0,39}$" validate:"required"`
+	Name string `json:"name" validate:"required"`
+}
+```
+
+```bash
+curl -X POST localhost:8080/projects -H 'Content-Type: application/json' \
+  -d '{"key":"Web App","name":"Web app"}'
+# {"error":{"status":422,"message":"validation failed","fields":{"key":"must match the pattern ^[a-z0-9][a-z0-9-]{0,39}$"}}}
+```
+
+The [OpenAPI](/guide/openapi/) spec lists it as the field's `pattern`. Anchor it with `^` and `$`, since it matches anywhere in the value, and add `required` to refuse an empty value, which counts as left out. A pattern that doesn't compile, or one on a field that isn't a string, stops a typed handler from registering.
+
 ### Use go-playground/validator
 
-For more rules, set `Config.Validator` to an adapter. It replaces Zinc's rules; values from `enum` tags and `EnumProvider` types are still checked. Add a `RuleSet` method listing the rules it enforces: the [OpenAPI](/guide/openapi/) spec claims those, and a typed handler using any other rule fails to register:
+For more rules, set `Config.Validator` to an adapter. It replaces Zinc's rules; `enum` and `pattern` tags and `EnumProvider` types are still checked. Add a `RuleSet` method listing the rules it enforces: the [OpenAPI](/guide/openapi/) spec claims those, and a typed handler using any other rule fails to register:
 
 ```go
 type playground struct{ v *validator.Validate }

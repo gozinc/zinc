@@ -57,6 +57,12 @@ It matches `zinc.ErrRequestEntityTooLarge` and `bodylimit.ErrExceeded` with `err
 This middleware only makes the limit smaller. Binding and `c.BodyBytes` still stop at `Config.BodyLimit`, so a route that accepts bodies over 4 MiB needs a larger `Config.BodyLimit` as well.
 :::
 
+To list the `413` in the [OpenAPI](/guide/openapi/#describe-what-middleware-adds) spec, pass `bodylimit.Doc()` to `Document` beside the middleware:
+
+```go
+uploads := app.Group("/uploads", bodylimit.New(bodylimit.Config{Limit: 1 << 20})).Document(bodylimit.Doc())
+```
+
 ## Related
 
 - [Decompress](/middleware/decompress/) inflates gzip request bodies, with its own cap on the decompressed size.

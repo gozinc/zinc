@@ -234,7 +234,7 @@ func TestConformanceCatchesMismatches(t *testing.T) {
 	if err := c.AddResource(url, doc); err != nil {
 		t.Fatal(err)
 	}
-	sch, err := c.Compile(url + "#/components/schemas/pet")
+	sch, err := c.Compile(url + "#/components/schemas/Pet")
 	if err != nil {
 		t.Fatal(err)
 	}

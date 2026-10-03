@@ -98,7 +98,7 @@ Be clear on these before you move:
 - **More formats on the wire.** Huma negotiates CBOR as well as JSON, generates PATCH operations from your PUT, and has helpers for conditional requests. Zinc negotiates the formats you configure, with JSON and XML built in.
 - **A built-in CLI.** Huma can configure a service from flags and environment variables.
 - **Existing Gin or Echo apps.** Fuego's adaptors document a Gin or Echo server you already have. Zinc documents Zinc routes; it can [take over routes gradually](/cookbook/existing-net-http-service/) inside a `net/http` service, not inside Gin or Echo.
-- **Rules beyond the common ones.** Huma validates requests against the JSON Schema it generates, so its rules are JSON Schema's. Zinc's built-in rules cover `required`, lengths, ranges, `oneof`, `email`, `uuid` and `url`; for more, plug in go-playground/validator.
+- **Rules beyond the common ones.** Huma validates requests against the JSON Schema it generates, so its rules are JSON Schema's. Zinc's built-in rules cover `required`, lengths, ranges, `oneof`, `email`, `uuid` and `url`, and a `pattern` tag takes a regular expression; for more, plug in go-playground/validator.
 
 ## Next steps
 

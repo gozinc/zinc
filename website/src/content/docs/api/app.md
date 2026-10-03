@@ -45,6 +45,7 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | `RequestExample(name, value) Route` | A named example of the request body, a value of the input type |
 | `Operation(func(op map[string]any)) Route` | Edits the route's operation in the spec, as JSON, before `OpenAPIConfig.Mutate` |
 | `Errors(statuses...) Route` | Error statuses the route answers by returning an error, described with the error handler's body |
+| `Document(docs ...MiddlewareDoc) Route` | What the route's own middleware adds to the spec: credentials, request headers and error statuses, by method |
 | `Security(schemes...) Route` | The security schemes that protect the route, replacing its group's; any one is enough, and none marks it public. `"oauth:pets:read"` adds a scope |
 | `SecurityAll(schemes...) Route` | Like `Security`, but every scheme is needed |
 
@@ -123,9 +124,21 @@ type OpenAPIOAuthFlow struct {
 	AuthorizationURL, TokenURL, RefreshURL string
 	Scopes                                 map[string]string // scope: description
 }
+
+type MiddlewareDoc struct {
+	Methods  []string                         // the methods it applies to; empty means all
+	Security map[string]OpenAPISecurityScheme // credentials it checks, required with the route's security
+	Headers  []HeaderDoc                      // other request headers it reads
+	Errors   []int                            // statuses it answers with an error
+}
+
+type HeaderDoc struct {
+	Name, Description string
+	Required          bool
+}
 ```
 
-A type with an `OpenAPIName() string` method (`zinc.SchemaNamer`) chooses its component's name. A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. A named type that implements `zinc.EnumProvider`, with an `Enum() []any` method, becomes an enum. See [OpenAPI](/guide/openapi/).
+A type with an `OpenAPIName() string` method (`zinc.SchemaNamer`), a struct or an enum, chooses its component's name; otherwise a component is named after the Go type, starting with a capital. A type that implements `zinc.SchemaProvider`, with an `OpenAPISchema() map[string]any` method, supplies its own JSON Schema. A named type that implements `zinc.EnumProvider`, with an `Enum() []any` method, becomes an enum. See [OpenAPI](/guide/openapi/).
 
 ## Groups and middleware
 
@@ -134,6 +147,7 @@ A type with an `OpenAPIName() string` method (`zinc.SchemaNamer`) chooses its co
 | `Group(prefix, middleware...) *Group` | Routes that share a prefix and middleware |
 | `Route(prefix, fn func(*Group), middleware...) *Group` | The same, declared in a nested block |
 | `Use(middleware...)` | Middleware for every request |
+| `Document(docs ...MiddlewareDoc)` | What the app's middleware adds to every route in the spec. See [Describe what middleware adds](/guide/openapi/#describe-what-middleware-adds) |
 | `UsePrefix(prefix, middleware...)` | Middleware for requests under a prefix, before routing |
 | `UseHTTP(middleware ...zinc.HTTPMiddleware)` | Standard `func(http.Handler) http.Handler` middleware around the whole app |
 | `Mount(prefix, http.Handler)` | A handler that owns a subtree; receives paths without the prefix |

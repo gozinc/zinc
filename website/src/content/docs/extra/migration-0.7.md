@@ -1,13 +1,13 @@
 ---
 title: Upgrading to 0.7
-description: What changed in Zinc 0.7. Zinc checks validate tags itself, and the OpenAPI spec claims only the rules something enforces.
+description: What changed in Zinc 0.7 and 0.7.1. Zinc checks validate tags itself, the OpenAPI spec claims only the rules something enforces, and 0.7.1 tidies the spec's names.
 slug: extra/migration-0.7
 ---
 
 0.7 makes the spec a contract: every rule it states is a rule a request is checked against. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.7.0
+go get github.com/0mjs/zinc@v0.7.1
 go test ./...
 ```
 
@@ -50,6 +50,22 @@ Values listed with an `enum` tag or an `EnumProvider` type were documented but n
 
 Generated clients may change with these: fields that become required lose their pointer.
 
+### 0.7.1: component names start with a capital
+
+A component used to keep its Go type's name as written, so an unexported `createInput` was `createInputInput` and a clash was `flags.createInput`. Now:
+
+| Go type | 0.7.0 | 0.7.1 |
+|---|---|---|
+| `pet` in a response | `pet` | `Pet` |
+| `createPetInput` as a request | `createPetInputInput` | `CreatePetInput` |
+| a second `createPet`, in package `admin` | `admin.createPet` | `AdminCreatePet` |
+
+A generated client's type names may change with them; most generators already capitalized, so many won't. A name you chose with `OpenAPIName` is kept as you wrote it, without a repeated suffix.
+
+### 0.7.1: header names are spelled as you tag them
+
+The spec used to show headers in Go's canonical form, such as `Etag` for `header:"ETag"` and `X-Csrf-Token` for `header:"X-CSRF-Token"`. It now spells them as the tag does. Header names aren't case-sensitive, so clients keep working; a test that compares the spec's text may need the new spelling.
+
 ## What's new
 
 - **[Validation](/guide/binding/#validation)** without a dependency: `required`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, `oneof`, `email`, `uuid`, `url` and more, through nested structs, slices and maps, with each field named as the client sent it.
@@ -58,10 +74,13 @@ Generated clients may change with these: fields that become required lose their 
 - **[Spec hooks](/guide/openapi/#edit-the-spec)**: `OpenAPIConfig.Extensions`, `Route.Operation` and `OpenAPIConfig.Mutate` edit the spec as JSON, and the result is checked again.
 - **The request logger** passes the request's context to `slog`, so a handler that reads trace IDs from it can add them.
 - **[A Production Service](/cookbook/production/)**: one program with limits, timeouts, request IDs, validation, a protected spec and graceful shutdown.
+- **0.7.1: [`pattern` tags](/guide/binding/#match-a-pattern)**: a regular expression a string must match, checked with any validator and listed in the spec.
+- **0.7.1: [Describe what middleware adds](/guide/openapi/#describe-what-middleware-adds)**: `App.Document`, `Group.Document` and `Route.Document` add a middleware's credentials, headers and errors to the spec, and the CSRF, Timeout, Limiter and Body Limit middleware each have a `Doc()`.
+- **0.7.1: `SchemaNamer` names enum types** as well as structs; it always could, and the docs now say so.
 
 ## Not in 0.7
 
-Polymorphic types, such as a `oneOf` with a discriminator, are planned separately. They touch the schema, decoding, errors and generated clients together, and ship when all of those are ready.
+Zinc doesn't support polymorphic types, such as a `oneOf` with a discriminator.
 
 ## Next steps
 

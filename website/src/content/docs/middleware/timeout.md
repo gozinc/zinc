@@ -94,6 +94,13 @@ The default handler's error matches all of these with `errors.Is` and `errors.As
 The middleware checks the error, not the clock. If your handler sets its own shorter deadline with `context.WithTimeout` and returns its `context.DeadlineExceeded`, the client also gets a `503`.
 :::
 
+To list the `503` in the [OpenAPI](/guide/openapi/#describe-what-middleware-adds) spec, pass `timeout.Doc()` to `Document` beside the middleware:
+
+```go
+app.Use(timeout.New())
+app.Document(timeout.Doc())
+```
+
 ## Related
 
 - [Request timeouts](/cookbook/timeout/) walks through deadlines for database and HTTP calls.

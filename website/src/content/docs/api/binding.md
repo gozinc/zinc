@@ -31,6 +31,7 @@ Full signatures and doc comments are on [pkg.go.dev](https://pkg.go.dev/github.c
 | `default` | `` Limit int `query:"limit" default:"20"` ``: the value when the request leaves the field out; commas separate a slice's values |
 | `form` | `` Avatar *multipart.FileHeader `form:"avatar"` `` |
 | `json`, `xml` | Standard encoding tags for the body; a configured decoder uses its library's tags, such as `yaml` |
+| `pattern` | `` Key string `json:"key" pattern:"^[a-z0-9-]+$"` ``: a regular expression a string must match, checked with any validator; a zero value counts as left out |
 
 A field binds from path, query, header, cookie, or form only when it has that source's tag. `query:",omitempty"` uses the field name in lower case, and `query:"-"` is the same as no tag.
 
@@ -69,7 +70,7 @@ type RuleSetValidator interface {
 func BuiltinRules() []string
 ```
 
-A `RuleSetValidator` lists the `validate` rules it enforces: the OpenAPI spec claims only those, and a typed handler using another rule panics at registration. Without `Config.Validator`, Zinc checks `BuiltinRules`: `required`, `omitempty`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, `oneof`, `email`, `uuid`, `uuid4`, `url`, `uri` and `http_url`, through nested structs, slices and maps. Values from `enum` tags and `EnumProvider` types are checked with any validator. A failure is a `*ValidationError`, `422`, whose `Fields()` names each field as the client sent it.
+A `RuleSetValidator` lists the `validate` rules it enforces: the OpenAPI spec claims only those, and a typed handler using another rule panics at registration. Without `Config.Validator`, Zinc checks `BuiltinRules`: `required`, `omitempty`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, `oneof`, `email`, `uuid`, `uuid4`, `url`, `uri` and `http_url`, through nested structs, slices and maps. Values from `enum` tags and `EnumProvider` types, and `pattern` tags, are checked with any validator; a `pattern` that doesn't compile, or one on a field that isn't a string, panics at registration. A failure is a `*ValidationError`, `422`, whose `Fields()` names each field as the client sent it.
 
 ## Decoders
 

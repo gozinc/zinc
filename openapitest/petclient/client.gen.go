@@ -57,6 +57,20 @@ func (e PetKind) Valid() bool {
 	}
 }
 
+// Conflict defines model for Conflict.
+type Conflict struct {
+	Reason string `json:"reason"`
+}
+
+// CreatePetBody defines model for CreatePetBody.
+type CreatePetBody struct {
+	Kind *CreatePetBodyKind `json:"kind,omitempty"`
+	Name string             `json:"name"`
+}
+
+// CreatePetBodyKind defines model for CreatePetBody.Kind.
+type CreatePetBodyKind string
+
 // Error The error body Zinc's default error handler writes.
 type Error struct {
 	Error struct {
@@ -72,26 +86,12 @@ type Error struct {
 	} `json:"error"`
 }
 
-// Conflict defines model for conflict.
-type Conflict struct {
-	Reason string `json:"reason"`
-}
-
-// CreatePetBody defines model for createPetBody.
-type CreatePetBody struct {
-	Kind *CreatePetBodyKind `json:"kind,omitempty"`
-	Name string             `json:"name"`
-}
-
-// CreatePetBodyKind defines model for CreatePetBody.Kind.
-type CreatePetBodyKind string
-
-// Owner defines model for owner.
+// Owner defines model for Owner.
 type Owner struct {
 	Email openapi_types.Email `json:"email"`
 }
 
-// Pet defines model for pet.
+// Pet defines model for Pet.
 type Pet struct {
 	Born    time.Time          `json:"born"`
 	Chipped bool               `json:"chipped"`
