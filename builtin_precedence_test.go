@@ -98,8 +98,13 @@ func TestMountAtBuiltinPathClaimsIt(t *testing.T) {
 	app := New()
 	app.Static("/docs", dir)
 	t.Cleanup(func() { _ = app.Close() })
-	if rec := performRequest(t, app, "GET", "/docs", nil, nil); rec.Body.String() != "site" {
-		t.Fatalf("Static /docs: %d %q", rec.Code, rec.Body)
+	// The mount answers /docs, with the directory's redirect to /docs/,
+	// and serves its index there; the built-in docs page answers neither.
+	if rec := performRequest(t, app, "GET", "/docs", nil, nil); rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/docs/" {
+		t.Fatalf("Static /docs: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := performRequest(t, app, "GET", "/docs/", nil, nil); rec.Body.String() != "site" {
+		t.Fatalf("Static /docs/: %d %q", rec.Code, rec.Body)
 	}
 	if info, ok := app.FindRoute("GET", "/docs"); !ok || !info.Mounted {
 		t.Fatalf("FindRoute /docs: %+v %v", info, ok)
