@@ -6,7 +6,6 @@ package zinc
 import (
 	"errors"
 	"fmt"
-	"math/bits"
 	"strings"
 	"unicode/utf8"
 )
@@ -321,55 +320,11 @@ func remapFoldedParams(values *paramRanges, count int, original, folded string) 
 	}
 }
 
-type allowedMethodSet struct {
-	// Standard methods use a mask; extension methods allocate only when present.
-	mask  methodMask
-	extra []string
-}
-
-var routeMethods = []string{
-	MethodGet,
-	MethodHead,
-	MethodPost,
-	MethodPut,
-	MethodPatch,
-	MethodDelete,
-	MethodOptions,
-	MethodConnect,
-	MethodTrace,
-}
-
-const routeMethodCount = 9
 const indexedParamThreshold = 10
 
 // maxRouteParams is the most parameters a route can have: a wide route's
 // name index (radixRoute.paramIndices) holds each position in a byte.
 const maxRouteParams = 256
-
-type methodMask uint16
-
-const (
-	methodMaskGet methodMask = 1 << iota
-	methodMaskHead
-	methodMaskPost
-	methodMaskPut
-	methodMaskPatch
-	methodMaskDelete
-	methodMaskOptions
-	methodMaskConnect
-	methodMaskTrace
-)
-
-const allowHeaderTableSize = 1 << 9
-
-var allowHeaderByMask [allowHeaderTableSize]string
-
-func init() {
-	// Every standard-method combination has a canonical, allocation-free Allow value.
-	for raw := 0; raw < len(allowHeaderByMask); raw++ {
-		allowHeaderByMask[raw] = buildAllowHeader(methodMask(raw))
-	}
-}
 
 func lookupStaticRouteExact(methodRoutes map[string]*radixRoute, originalPath, path string) *radixRoute {
 	if len(methodRoutes) == 0 {
@@ -384,127 +339,6 @@ func lookupStaticRouteExact(methodRoutes map[string]*radixRoute, originalPath, p
 		}
 	}
 	return nil
-}
-
-func singleBitIndex(mask methodMask) int {
-	raw := uint16(mask)
-	if raw == 0 || raw&(raw-1) != 0 {
-		return -1
-	}
-	index := bits.TrailingZeros16(raw)
-	if index >= routeMethodCount {
-		return -1
-	}
-	return index
-}
-
-func (s *allowedMethodSet) addMethod(method string) {
-	if method == "" {
-		return
-	}
-	if mask := methodMaskFor(method); mask != 0 {
-		s.mask |= mask
-		return
-	}
-	for _, existing := range s.extra {
-		if existing == method {
-			return
-		}
-	}
-	s.extra = append(s.extra, method)
-}
-
-func (s allowedMethodSet) empty() bool {
-	return s.mask == 0 && len(s.extra) == 0
-}
-
-func (s allowedMethodSet) withAutomatic(autoHead, autoOptions bool) allowedMethodSet {
-	if s.empty() {
-		return allowedMethodSet{}
-	}
-	if autoHead && s.mask&methodMaskGet != 0 {
-		s.mask |= methodMaskHead
-	}
-	if autoOptions {
-		s.mask |= methodMaskOptions
-	}
-	return s
-}
-
-func (s allowedMethodSet) header(autoHead, autoOptions bool) string {
-	s = s.withAutomatic(autoHead, autoOptions)
-	if s.empty() {
-		return ""
-	}
-	if len(s.extra) == 0 {
-		return allowHeader(s.mask)
-	}
-	return buildAllowHeaderWithExtra(s.mask, sortedExtra(s.extra))
-}
-
-func methodMaskFor(method string) methodMask {
-	switch method {
-	case MethodGet:
-		return methodMaskGet
-	case MethodHead:
-		return methodMaskHead
-	case MethodPost:
-		return methodMaskPost
-	case MethodPut:
-		return methodMaskPut
-	case MethodPatch:
-		return methodMaskPatch
-	case MethodDelete:
-		return methodMaskDelete
-	case MethodOptions:
-		return methodMaskOptions
-	case MethodConnect:
-		return methodMaskConnect
-	case MethodTrace:
-		return methodMaskTrace
-	default:
-		return 0
-	}
-}
-
-func allowHeader(mask methodMask) string {
-	if mask == 0 {
-		return ""
-	}
-	if int(mask) < len(allowHeaderByMask) {
-		return allowHeaderByMask[int(mask)]
-	}
-	return buildAllowHeader(mask)
-}
-
-func buildAllowHeader(mask methodMask) string {
-	if mask == 0 {
-		return ""
-	}
-	return buildAllowHeaderWithExtra(mask, nil)
-}
-
-func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
-	if mask == 0 && len(extra) == 0 {
-		return ""
-	}
-	var builder strings.Builder
-	for _, method := range routeMethods {
-		if mask&methodMaskFor(method) == 0 {
-			continue
-		}
-		if builder.Len() > 0 {
-			builder.WriteString(", ")
-		}
-		builder.WriteString(method)
-	}
-	for _, method := range extra {
-		if builder.Len() > 0 {
-			builder.WriteString(", ")
-		}
-		builder.WriteString(method)
-	}
-	return builder.String()
 }
 
 // addToTree records route in the route tree under each of its spellings

@@ -5,7 +5,6 @@ package zinc
 
 import (
 	"fmt"
-	"sort"
 )
 
 // The route tree holds every route of a routeTable, static and parameterized,
@@ -14,105 +13,6 @@ import (
 // collect every method the path allows. At every level a literal edge is
 // tried before a parameter, and a parameter before a catch-all, with
 // backtracking. benchmarks/ROUTER_SPEC.md states the matching rules.
-
-// nodeMethods is a terminal node's routes, by method.
-type nodeMethods struct {
-	std    [routeMethodCount]*radixRoute
-	custom []customRoute
-}
-
-type customRoute struct {
-	method string
-	route  *radixRoute
-}
-
-func (m *nodeMethods) get(slot int, method string) *radixRoute {
-	if slot >= 0 {
-		return m.std[slot]
-	}
-	for i := range m.custom {
-		if m.custom[i].method == method {
-			return m.custom[i].route
-		}
-	}
-	return nil
-}
-
-// set records route for the method, reporting false if it already has one.
-func (m *nodeMethods) set(slot int, method string, route *radixRoute) bool {
-	if m.get(slot, method) != nil {
-		return false
-	}
-	if slot >= 0 {
-		m.std[slot] = route
-		return true
-	}
-	m.custom = append(m.custom, customRoute{method: method, route: route})
-	return true
-}
-
-// addAllowed adds the methods whose route here takes captured parameters.
-func (m *nodeMethods) addAllowed(into *allowedMethodSet, captured int) {
-	for slot, route := range m.std {
-		if route != nil && int(route.paramCount) == captured {
-			into.mask |= methodMaskFor(routeMethods[slot])
-		}
-	}
-	for _, c := range m.custom {
-		if int(c.route.paramCount) == captured {
-			into.addMethod(c.method)
-		}
-	}
-}
-
-// treeArena hands out the tree's nodes, method tables and routes from
-// chunks, so registering a route costs a few allocations per chunk instead
-// of several per route. The tree lives as long as the app, so nothing in a
-// chunk is ever freed early. A nil arena allocates each one on its own.
-type treeArena struct {
-	nodes   arenaChunk[radixNode]
-	methods arenaChunk[nodeMethods]
-	routes  arenaChunk[radixRoute]
-}
-
-// arenaChunkMax bounds a chunk, so a small app wastes little.
-const arenaChunkMax = 64
-
-type arenaChunk[T any] struct {
-	free []T
-	size int
-}
-
-func (c *arenaChunk[T]) alloc() *T {
-	if len(c.free) == 0 {
-		c.size = min(max(c.size*2, 4), arenaChunkMax)
-		c.free = make([]T, c.size)
-	}
-	v := &c.free[0]
-	c.free = c.free[1:]
-	return v
-}
-
-func (a *treeArena) node() *radixNode {
-	if a == nil {
-		return new(radixNode)
-	}
-	return a.nodes.alloc()
-}
-
-func (a *treeArena) methodTable() *nodeMethods {
-	if a == nil {
-		return new(nodeMethods)
-	}
-	return a.methods.alloc()
-}
-
-func (a *treeArena) route() *radixRoute {
-	if a == nil {
-		return new(radixRoute)
-	}
-	return a.routes.alloc()
-}
 
 // nodeFor walks the static, parameter and catch-all edges of a validated
 // pattern, creating them as needed, and returns the terminal node. Static
@@ -247,16 +147,6 @@ func (n *radixNode) terminal(captured int, w *treeWalk) *radixRoute {
 		n.methods.addAllowed(w.allowed, captured)
 	}
 	return nil
-}
-
-// sortedExtra returns custom methods in sorted order for Allow.
-func sortedExtra(extra []string) []string {
-	if len(extra) < 2 || sort.StringsAreSorted(extra) {
-		return extra
-	}
-	sorted := append([]string(nil), extra...)
-	sort.Strings(sorted)
-	return sorted
 }
 
 // treeMatchPath prepares path for a walk of the route tree: an ASCII path
