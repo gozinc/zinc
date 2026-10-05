@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/0mjs/zinc"
 	"github.com/0mjs/zinc/middleware/internal/shared"
@@ -41,6 +42,10 @@ func New(configs ...Config) zinc.Middleware {
 		panic("compress: MinLength must be greater than or equal to zero")
 	}
 
+	// A gzip.Writer holds about a megabyte of compression state, so each
+	// instance keeps its writers, all at its one level, for reuse.
+	pool := &sync.Pool{}
+
 	return func(c *zinc.Context) error {
 		if !requestAcceptsGzip(c.Header(zinc.HeaderAcceptEncoding)) {
 			appendVary(c.Writer().Header(), zinc.HeaderAcceptEncoding)
@@ -53,6 +58,7 @@ func New(configs ...Config) zinc.Middleware {
 			method:         c.Method(),
 			level:          level,
 			minLength:      config.MinLength,
+			pool:           pool,
 		}
 		c.SetWriter(writer)
 		finished := false
@@ -69,6 +75,7 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		finished = true
 		closeErr := writer.Close()
+		writer.release()
 		c.SetWriter(baseWriter)
 		if err != nil {
 			return err
@@ -93,6 +100,7 @@ func finishOnPanic(c *zinc.Context, baseWriter http.ResponseWriter, writer *gzip
 	}
 	if value != http.ErrAbortHandler {
 		_ = writer.Close()
+		writer.release()
 	}
 	panic(value)
 }
@@ -140,6 +148,7 @@ type gzipResponseWriter struct {
 	status      int
 	wroteHeader bool
 	writer      *gzip.Writer
+	pool        *sync.Pool
 	buffer      bytes.Buffer
 }
 
@@ -271,12 +280,30 @@ func (w *gzipResponseWriter) startGzip() error {
 	weakenETag(w.Header())
 	w.writeRawHeader()
 
+	if w.pool == nil {
+		// Built without New, as a test does: no pool to draw from.
+	} else if writer, _ := w.pool.Get().(*gzip.Writer); writer != nil {
+		writer.Reset(w.ResponseWriter)
+		w.writer = writer
+		return nil
+	}
 	writer, err := gzip.NewWriterLevel(w.ResponseWriter, w.level)
 	if err != nil {
 		return err
 	}
 	w.writer = writer
 	return nil
+}
+
+// release returns a closed gzip writer to the pool, pointed at nothing so
+// it keeps no reference to this response.
+func (w *gzipResponseWriter) release() {
+	if w.writer == nil || w.pool == nil {
+		return
+	}
+	w.writer.Reset(io.Discard)
+	w.pool.Put(w.writer)
+	w.writer = nil
 }
 
 // compressible reports whether the response may be gzip-encoded: it is not
