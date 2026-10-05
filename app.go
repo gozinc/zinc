@@ -93,7 +93,8 @@ func (r Route) Name(name string) Route {
 // sets another with Context.Status, or returns an error. The spec documents
 // it. It panics unless code is a success status (2xx) or a redirect (301,
 // 302, 303, 307 or 308), the status a Redirect output or Context.Redirect
-// sends.
+// sends. On a route whose output is Redirect, it panics unless code is a
+// redirect.
 func (r Route) Status(code int) Route {
 	if r.table == nil {
 		panic("zinc: Status on a route that was not registered")
@@ -103,6 +104,9 @@ func (r Route) Status(code int) Route {
 	case code == 301, code == 302, code == 303, code == 307, code == 308:
 	default:
 		panic(fmt.Sprintf("zinc: route status %d is not a success or redirect status", code))
+	}
+	if doc := r.table.routeDocs[r.index]; doc != nil {
+		r.table.checkRedirectStatus(r.index, doc.out, code)
 	}
 	r.table.routeInfos[r.index].status = uint16(code)
 	r.table.setDefaultStatus(r.index, code)

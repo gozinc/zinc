@@ -338,6 +338,11 @@ func (c *Context) NoContent() error {
 	if c.status == 0 || c.status == http.StatusOK {
 		c.status = http.StatusNoContent
 	}
+	return c.writeNoContent()
+}
+
+// writeNoContent writes the selected status without a body.
+func (c *Context) writeNoContent() error {
 	writer, _, err := c.prepareResponse("")
 	if err == nil {
 		writer.WriteHeader(c.responseStatus())
