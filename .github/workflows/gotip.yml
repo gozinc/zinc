@@ -1,0 +1,33 @@
+name: gotip
+# Go's development version, as an early warning. Typed handlers are
+# recognised by their closures' code pointers, which depend on how the
+# compiler lays closures out; a change shows here before a Go release ships
+# it. Failures are visible but don't block anything.
+on:
+  push:
+    branches: [dev]
+  schedule:
+    - cron: '17 6 * * 1' # Mondays
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.x'
+      - name: Build gotip
+        run: |
+          go install golang.org/dl/gotip@latest
+          gotip download
+          gotip version
+      - run: gotip test ./...
+      # The audit fails if a typed route's schemas go missing.
+      - run: gotip test ./...
+        working-directory: openapitest

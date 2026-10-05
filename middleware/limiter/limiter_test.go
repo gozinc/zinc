@@ -198,3 +198,47 @@ func TestConcurrency(t *testing.T) {
 		t.Fatalf("first status=%d body=%q", first.Code, first.Body.String())
 	}
 }
+
+// A refused request says when to come back: the time until a token refills,
+// rounded up to whole seconds, so waiting it out works.
+func TestRetryAfter(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	app := zinc.New()
+	app.Use(New(Config{Rate: 0.5, Capacity: 1, Now: func() time.Time { return now }}))
+	app.Get("/", func(c *zinc.Context) error { return c.NoContent() })
+	get := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+		return w
+	}
+	if w := get(); w.Code != http.StatusNoContent {
+		t.Fatalf("first: %d", w.Code)
+	}
+	w := get()
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "2" {
+		t.Fatalf("second: %d, Retry-After %q", w.Code, w.Header().Get("Retry-After"))
+	}
+	now = now.Add(1500 * time.Millisecond) // half a second short
+	if w := get(); w.Header().Get("Retry-After") != "1" {
+		t.Fatalf("1.5s later: Retry-After %q", w.Header().Get("Retry-After"))
+	}
+	now = now.Add(500 * time.Millisecond)
+	if w := get(); w.Code != http.StatusNoContent {
+		t.Fatalf("after waiting it out: %d", w.Code)
+	}
+
+	// LimitReached runs after the header is set, so it can change it.
+	custom := zinc.New()
+	custom.Use(New(Config{Rate: 1, Capacity: 1, Now: func() time.Time { return now }, LimitReached: func(c *zinc.Context) error {
+		c.SetHeader("Retry-After", "60")
+		return zinc.TooManyRequests("busy")
+	}}))
+	custom.Get("/", func(c *zinc.Context) error { return c.NoContent() })
+	for range 2 {
+		w = httptest.NewRecorder()
+		custom.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	}
+	if w.Header().Get("Retry-After") != "60" {
+		t.Fatalf("custom LimitReached: Retry-After %q", w.Header().Get("Retry-After"))
+	}
+}

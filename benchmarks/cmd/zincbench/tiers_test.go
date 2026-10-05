@@ -84,3 +84,6 @@ func TestScoreTieBand(t *testing.T) {
 		t.Fatalf("headline wins = %d, want 1", r.wins())
 	}
 }
+
+// wins counts headline scenarios Zinc wins by more than TieBand.
+func (r *Run) wins() int { return r.score(headline).Wins }

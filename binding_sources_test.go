@@ -50,6 +50,14 @@ func TestBodyOnlyFillsBodyFields(t *testing.T) {
 	if got.Role != "" || got.Tenant != "acme" || got.Name != "Ada" {
 		t.Errorf("xml: %+v", got)
 	}
+	// An escaped key still matches the field, and a body with non-ASCII
+	// text is checked the same way.
+	for _, body := range []string{`{"\u0052ole":"admin"}`, `{"\u0072ole":"admin"}`, `{"Ro\u006ce":"admin"}`, `{"Limit":99,"name":"\u00e9"}`, "{\"Limit\":99,\"name\":\"\u00e9\"}"} {
+		send("application/json", body)
+		if got.Role != "" || got.Limit != 20 {
+			t.Errorf("%s: %+v", body, got)
+		}
+	}
 	// The header still binds, and wins over the body for a both-tagged field.
 	send("application/json", `{"tenant":"body"}`, "X-Role", "viewer", "X-Tenant", "header")
 	if got.Role != "viewer" || got.Tenant != "header" {
@@ -138,6 +146,9 @@ func TestBodyMentionsParams(t *testing.T) {
 		{`{"limit":5}`, true},
 		{`{"name":"Ada","tenant":"x"}`, false},
 		{`{"r":1}`, false},
+		{`{"\u0072ole":"admin"}`, true},
+		{"{\"\u017fort\":1}", true},
+		{"{\"\u212aind\":1}", true},
 		{``, false},
 	} {
 		if got := plan.bodyMentionsParams([]byte(tt.body)); got != tt.want {

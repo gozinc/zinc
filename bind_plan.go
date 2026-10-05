@@ -55,12 +55,19 @@ type bindingPlan struct {
 
 // bodyMentionsParams reports whether body could have filled a
 // parameter-only field: whether any of their names appear in it, ignoring
-// ASCII case, as encoding/json matches them.
+// ASCII case, as encoding/json matches them. A key can also reach a field
+// spelled another way: escaped ("\u0072ole" is "role") or folded from a
+// non-ASCII letter ("ſort" matches Sort, the Kelvin sign matches K). The
+// scan can't see through either, so a body with a backslash or a non-ASCII
+// byte counts as mentioning them.
 func (plan *bindingPlan) bodyMentionsParams(body []byte) bool {
 	if plan.paramNamesFold {
 		return true
 	}
 	for i, b := range body {
+		if b == '\\' || b >= utf8.RuneSelf {
+			return true
+		}
 		if !plan.paramFirst[b] {
 			continue
 		}
