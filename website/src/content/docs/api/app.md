@@ -185,9 +185,9 @@ A nil filesystem panics at registration, like other registration mistakes. Optio
 | Method | Returns |
 |---|---|
 | `Routes() []RouteInfo` | Every route and mount, in registration order |
-| `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request |
+| `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request, including a `GET` route answering `HEAD` |
 | `RouteByName(name) (RouteInfo, bool)` | A named route |
-| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Values are escaped; a catch-all value keeps its slashes, with `?`, `#` and `%` escaped. |
+| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Values are escaped; a catch-all value keeps its slashes, with `?`, `#` and `%` escaped. Returns an error if the path wouldn't route back to the same route and values. |
 
 ```go
 type RouteInfo struct {

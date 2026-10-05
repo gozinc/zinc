@@ -1,13 +1,13 @@
 ---
 title: Upgrading to 0.7
-description: What changed in Zinc 0.7 and 0.7.1. Zinc checks validate tags itself, the OpenAPI spec claims only the rules something enforces, and 0.7.1 tidies the spec's names.
+description: What changed in Zinc 0.7, 0.7.1 and 0.7.2. Zinc checks validate tags itself, the OpenAPI spec claims only the rules something enforces, 0.7.1 tidies the spec's names, and 0.7.2 fixes binding, status and redirect bugs.
 slug: extra/migration-0.7
 ---
 
 0.7 makes the spec a contract: every rule it states is a rule a request is checked against. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.7.1
+go get github.com/0mjs/zinc@v0.7.2
 go test ./...
 ```
 
@@ -66,6 +66,46 @@ A generated client's type names may change with them; most generators already ca
 
 The spec used to show headers in Go's canonical form, such as `Etag` for `header:"ETag"` and `X-Csrf-Token` for `header:"X-CSRF-Token"`. It now spells them as the tag does. Header names aren't case-sensitive, so clients keep working; a test that compares the spec's text may need the new spelling.
 
+### 0.7.2: binding fixes
+
+0.7.2 fixes bugs. Each item below changes what a program does only where the old behavior was wrong.
+
+- **A body can't fill a field tagged only for the path, query, headers or cookies**, whatever the key's spelling or the decoder. An escaped key such as `{"\u0072ole":"admin"}`, or a [configured decoder](/guide/customization/#body-formats) that maps its own key names, could set one.
+- **A `default` tag applies to a field from any source.** A body field's default was never set, and a path field's was set only sometimes. A body that leaves the key out now gets the default; `{"count":0}` still sets 0.
+- **A form field comes from the form body only.** A URL-encoded request also read the query string, so `?name=x` could fill a `form:"name"` field.
+- **`Content-Type` matches whatever its case**: `Application/JSON` is JSON, where it was a `400`.
+- **A struct binds its path and query when the body is `text/plain`.** All its fields used to be skipped. A non-empty text body, which can't fill a struct, is a `400`.
+
+### 0.7.2: validation checks everything it describes
+
+- **Recursive types are checked at every depth**: an empty `name` in a tree's grandchild is a `422` naming `child.child.name`, where only the top level was checked. A value that refers back to itself is checked once.
+- **An `enum` on a slice checks each element**, naming it as `roles[0]`. It used to check nothing.
+- **An `enum` value the field can't hold**, such as `enum:"lots"` on an `int`, panics at registration for a typed handler and is reported by `app.Validate()`. It used to be ignored.
+- **Number limits are exact**: `max=9007199254740992` on a `uint64` rejects `9007199254740993`, which it used to let through. A limit the field can't hold, such as `min=-1` on a `uint`, fails at registration.
+- **Rules run in the order you write them**, and `omitempty` skips only the rules after it, as go-playground's validator does: `required,omitempty` rejects `""`. A non-nil pointer counts as set, so a `*bool` holding `false` passes `required`.
+- `uuid4` requires lower case, and `uuid4_rfc4122` checks the RFC 4122 variant.
+
+### 0.7.2: routing
+
+- **A route for one method never hides another method's route.** `POST /x/123/` reaches `POST /x/{id}/` beside `GET /x/{id}`, where it was a `405`.
+- **A rest-of-path value keeps the path as sent**, trailing slash included: `/files/docs/` gives `docs/`, where it gave `docs`.
+- **A route registered with a trailing slash**, such as `/users/{id}/`, is reached without it unless `StrictRouting` is on. So `/users/{id}` and `/users/{id}/` together now panic at startup, naming both.
+- **`app.URL` returns an error** when the URL it would build reaches a different route or different values.
+- **`FindRoute` finds the `GET` route for a `HEAD` request**, as the app answers it.
+- **A `nil` handler or middleware, or a route with more than 256 parameters, panics at registration**, where it used to fail on the first request.
+
+### 0.7.2: typed handlers send the status the spec documents
+
+- A `NoContent` output on a route declared `Status(200)` sends 200, as the spec says, where it sent 204.
+- A `NoContent` output keeps a status middleware set with `c.Status`, where it replaced it with 204.
+- A `Redirect` output on a route declared with a status that isn't a redirect, such as `Status(201)`, panics at registration, naming the route. It used to send 302 while the spec said 201.
+- When an output's body fails to encode, its header fields, such as `Set-Cookie` or `Location`, are no longer sent on the `500`.
+
+### 0.7.2: middleware
+
+- **`Skip` keeps each middleware's own behavior.** Wrapping a rewrite in `Skip` made every `Skip`-wrapped middleware count as a rewrite, so putting one on a group panicked. Wrapping CORS made every `Skip`-wrapped middleware, auth included, run on automatic `OPTIONS` requests.
+- **A redirect built from the request path stays on this site.** Trailing Slash in redirect mode and redirect rules with a wildcard sent `GET /%2Fevil.example/` to `//evil.example`. Targets now keep the path's escaping, so a space is sent as `%20`, and a local target always starts with a single `/`. A rule whose target names a scheme or host, such as `https://example.com/*`, still redirects there.
+
 ## What's new
 
 - **[Validation](/guide/binding/#validation)** without a dependency: `required`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, `oneof`, `email`, `uuid`, `url` and more, through nested structs, slices and maps, with each field named as the client sent it.
@@ -77,6 +117,8 @@ The spec used to show headers in Go's canonical form, such as `Etag` for `header
 - **0.7.1: [`pattern` tags](/guide/binding/#match-a-pattern)**: a regular expression a string must match, checked with any validator and listed in the spec.
 - **0.7.1: [Describe what middleware adds](/guide/openapi/#describe-what-middleware-adds)**: `App.Document`, `Group.Document` and `Route.Document` add a middleware's credentials, headers and errors to the spec, and the CSRF, Timeout, Limiter and Body Limit middleware each have a `Doc()`.
 - **0.7.1: `SchemaNamer` names enum types** as well as structs; it always could, and the docs now say so.
+- **0.7.2: The Limiter middleware sends `Retry-After`** on a `429`: the whole seconds until a request would be allowed, rounded up.
+- **0.7.2: [Security policy](https://github.com/0mjs/zinc/security/policy)**: how to report a vulnerability privately.
 
 ## Not in 0.7
 

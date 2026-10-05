@@ -89,7 +89,10 @@ app.Get("/files/{path...}", func(c *zinc.Context) error {
 ```bash
 curl http://localhost:8080/files/css/app.css   # css/app.css
 curl http://localhost:8080/files/              # (empty)
+curl http://localhost:8080/files/docs/         # docs/
 ```
+
+The value is the rest of the path exactly as sent, trailing slash included, so `app.URL` can build it back.
 
 ## Which route wins
 
@@ -103,7 +106,7 @@ The order you register routes in doesn't matter.
 Two defaults are worth knowing, because Gin and Echo behave differently:
 
 - **Case doesn't matter.** `/Users/42` reaches the same handler as `/users/42`, so a link typed with capitals still works. Parameter values keep their original case. Set `CaseSensitive: true` in [`zinc.Config`](/guide/configuration/) to turn this off.
-- **A trailing slash doesn't matter.** `/users/42/` reaches the same handler as `/users/42`. Set `StrictRouting: true` to treat them as different routes.
+- **A trailing slash doesn't matter.** `/users/42/` reaches the same handler as `/users/42`, and a route registered as `/users/{id}/` is reached at `/users/42` too. So `/users/{id}` and `/users/{id}/` are the same route, and registering both panics at startup. Set `StrictRouting: true` to treat them as different routes.
 
 :::tip[Try it on the homepage]
 The route matcher on the [Zinc homepage](/) runs these rules live. Type a path and see which route wins, and why.
@@ -190,7 +193,7 @@ app.Get("/users/{id}", showUser).Name("users.show")
 url, err := app.URL("users.show", "42") // "/users/42"
 ```
 
-Names must be unique: a duplicate panics at startup. `app.URL` returns an error if a value can't form a valid URL, such as an empty `id`.
+Names must be unique: a duplicate panics at startup. `app.URL` returns an error if a value can't form a valid URL, such as an empty `id`, or if the URL it would build reaches a different route or different values, such as `me` for `/users/{id}` beside a `/users/me` route.
 
 ## Use a standard handler
 
