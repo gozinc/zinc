@@ -169,7 +169,7 @@ func (w *gzipResponseWriter) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	if !gzipBodyAllowed(w.method, w.status) || w.Header().Get(zinc.HeaderContentEncoding) != "" {
+	if !gzipBodyAllowed(w.method, w.status) || !w.compressible() {
 		w.writeRawHeader()
 		return w.ResponseWriter.Write(p)
 	}
@@ -268,6 +268,7 @@ func (w *gzipResponseWriter) startGzip() error {
 	appendVary(w.Header(), zinc.HeaderAcceptEncoding)
 	w.Header().Set(zinc.HeaderContentEncoding, "gzip")
 	w.Header().Del(zinc.HeaderContentLength)
+	weakenETag(w.Header())
 	w.writeRawHeader()
 
 	writer, err := gzip.NewWriterLevel(w.ResponseWriter, w.level)
@@ -276,6 +277,30 @@ func (w *gzipResponseWriter) startGzip() error {
 	}
 	w.writer = writer
 	return nil
+}
+
+// compressible reports whether the response may be gzip-encoded: it is not
+// already encoded, and it is not a partial response. A 206 or a Content-Range
+// gives byte offsets in the identity representation, which a gzip body would
+// no longer match.
+func (w *gzipResponseWriter) compressible() bool {
+	header := w.Header()
+	return w.status != http.StatusPartialContent &&
+		header.Get(zinc.HeaderContentEncoding) == "" &&
+		header.Get(zinc.HeaderContentRange) == ""
+}
+
+// weakenETag marks a strong ETag weak once the body is gzip-encoded. RFC 9110
+// section 8.8.3 requires a strong validator to differ between content
+// codings. A weak one claims only semantic equivalence, which the gzip and
+// identity bodies share, and still matches If-None-Match's weak comparison.
+// A weak ETag is left as it is.
+func weakenETag(header http.Header) {
+	etag := header.Get(zinc.HeaderETag)
+	if etag == "" || strings.HasPrefix(etag, "W/") {
+		return
+	}
+	header.Set(zinc.HeaderETag, "W/"+etag)
 }
 
 func (w *gzipResponseWriter) writeRawHeader() {
