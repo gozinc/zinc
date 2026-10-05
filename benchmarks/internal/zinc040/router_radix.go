@@ -4,7 +4,6 @@
 package zinc040
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -173,10 +172,12 @@ func cloneParamRangesForCache(values paramRanges, count int) paramRanges {
 	return cloned
 }
 
-// addBrace converts a validated pattern into alternating static and wildcard
-// edges. Parameter names are already stored on radixRoute, so wildcard nodes
-// encode matching behaviour only and can be shared by differently named paths.
-func (n *radixNode) addBrace(path string, route *radixRoute, caseInsensitive bool) error {
+// braceNode converts a validated pattern into alternating static and wildcard
+// edges and returns its node. Parameter names are already stored on
+// radixRoute, so wildcard nodes encode matching behaviour only and can be
+// shared by differently named paths. v0.4.0's addBrace, without recording
+// the route, for deliberate changes 7 and 8 (see doc.go).
+func (n *radixNode) braceNode(path string, caseInsensitive bool) *radixNode {
 	current := n
 	staticStart := 0
 	for i := 0; i < len(path); i++ {
@@ -207,18 +208,7 @@ func (n *radixNode) addBrace(path string, route *radixRoute, caseInsensitive boo
 		}
 		current = current.addStaticPath(literal)
 	}
-	if !current.trySetRoute(route) {
-		return fmt.Errorf("route already registered for %s", path)
-	}
-	return nil
-}
-
-func (n *radixNode) trySetRoute(route *radixRoute) bool {
-	if route == nil || n.route != nil {
-		return false
-	}
-	n.route = route
-	return true
+	return current
 }
 
 // addStaticPath inserts a literal into the compressed tree. When an existing
@@ -348,12 +338,10 @@ func (n *radixNode) lookup(path string, offset int, values *paramRanges, capture
 		offset += end
 		path = path[end:]
 	case radixCatchAll:
-		start := offset
-		if len(path) > 0 && path[0] == '/' {
-			start++
-		}
+		// Deliberate change 6 (see doc.go): the value is the rest of the
+		// path as sent, without dropping a leading slash.
 		values.set(captured, paramRange{
-			start: uint32(start),
+			start: uint32(offset),
 			end:   uint32(offset + len(path)),
 		})
 		captured++

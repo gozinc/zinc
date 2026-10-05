@@ -25,6 +25,8 @@ type radixRoute struct {
 	paramIndices     map[string]uint8
 	infoIndex        uint32
 	paramCount       uint16
+	// catchAll is set when the last parameter is a {name...}.
+	catchAll bool
 }
 
 // radixNode stores compressed static prefixes and dedicated wildcard edges.

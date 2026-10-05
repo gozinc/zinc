@@ -294,12 +294,12 @@ func TestRadixNodeBranches(t *testing.T) {
 
 	slot := singleBitIndex(methodMaskFor(MethodGet))
 	static := &radixNode{kind: radixStatic, prefix: "abc"}
-	if matched := static.lookupMethod("ab", 0, &paramRanges{}, 0, false, slot, MethodGet); matched != nil {
+	if matched := static.walk("ab", 0, 0, &treeWalk{values: &paramRanges{}, method: MethodGet, slot: slot}); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 
 	param := &radixNode{kind: radixParam}
-	if matched := param.lookupMethod("/x", 0, &paramRanges{}, 0, false, slot, MethodGet); matched != nil {
+	if matched := param.walk("/x", 0, 0, &treeWalk{values: &paramRanges{}, method: MethodGet, slot: slot}); matched != nil {
 		t.Fatalf("matched=%v", matched)
 	}
 

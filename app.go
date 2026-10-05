@@ -773,18 +773,38 @@ func (a *App) RouteByName(name string) (RouteInfo, bool) {
 
 // URL builds a named route URL. Segment parameters are escaped and must be
 // non-empty without slashes; catch-all values keep their slashes and escape
-// '?', '#', and '%', so the URL routes back to the same values.
+// '?', '#', and '%'. The URL routes back to the same route and values, or URL
+// returns an error: for example, beside GET /users/me, the value "me" for
+// GET /users/{id} has no URL, and under default routing neither has an empty
+// catch-all value for GET /files/{path...} beside GET /files.
 func (a *App) URL(name string, params ...string) (string, error) {
-	meta, ok := a.router.routeMetaByName(name)
+	index, ok := a.router.namedRoutes[name]
 	if !ok {
 		return "", fmt.Errorf("route %q not found", name)
 	}
-	return meta.url(params)
+	meta := a.router.routeMetaAt(index)
+	built, err := meta.url(params)
+	if err != nil || len(params) == 0 {
+		return built, err
+	}
+	path, err := url.PathUnescape(built)
+	if err != nil {
+		return "", err
+	}
+	if ok, got := a.router.resolvesTo(meta.method, path, index, params); !ok {
+		return "", fmt.Errorf("route %q has no URL for %q: %s reaches %s", name, params, built, got)
+	}
+	return built, nil
 }
 
-// FindRoute resolves metadata without invoking the route handler.
+// FindRoute resolves metadata without invoking the route handler. It finds
+// the route a request would run: a HEAD request with no HEAD route finds the
+// GET route, unless automatic HEAD is off.
 func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 	_, ctx := a.router.Find(method, path)
+	if ctx == nil && method == MethodHead && a.autoHead {
+		_, ctx = a.router.Find(MethodGet, path)
+	}
 	if ctx != nil {
 		return ctx.Route(), true
 	}

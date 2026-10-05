@@ -59,7 +59,7 @@
     "status": "design",
     "reason": "Registering the spec route on a path already in use panics, like any duplicate route.",
     "findings": [
-      "building the app panicked: route already registered for /openapi.json"
+      "building the app panicked: route already registered: GET /openapi.json"
     ]
   },
   "X16": {
