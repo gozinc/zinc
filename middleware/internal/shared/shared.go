@@ -54,27 +54,46 @@ func CloneRewriteRules(rules map[string]string) map[string]string {
 // RewriteTarget applies the first matching rule to path. A pattern ending in
 // "*" matches a prefix; a "*" in the target is replaced by the matched tail.
 func RewriteTarget(path string, rules map[string]string) (string, bool) {
-	if len(rules) == 0 {
+	to, tail, prefix, ok := MatchRule(path, rules)
+	if !ok {
 		return "", false
 	}
-	if target, ok := rules[path]; ok {
-		return target, true
+	if !prefix {
+		return to, true
+	}
+	return ExpandTarget(to, tail), true
+}
+
+// MatchRule finds the first rule matching path. It returns the rule's target,
+// the part of path after a prefix pattern, and whether a prefix pattern
+// matched rather than an exact one.
+func MatchRule(path string, rules map[string]string) (to, tail string, prefix, ok bool) {
+	if len(rules) == 0 {
+		return "", "", false, false
+	}
+	if to, ok := rules[path]; ok {
+		return to, "", false, true
 	}
 	for from, to := range rules {
 		if !strings.HasSuffix(from, "*") {
 			continue
 		}
-		prefix := strings.TrimSuffix(from, "*")
-		if !strings.HasPrefix(path, prefix) {
+		pattern := strings.TrimSuffix(from, "*")
+		if !strings.HasPrefix(path, pattern) {
 			continue
 		}
-		tail := strings.TrimPrefix(path, prefix)
-		if strings.Contains(to, "*") {
-			return strings.Replace(to, "*", tail, 1), true
-		}
-		return to + tail, true
+		return to, strings.TrimPrefix(path, pattern), true, true
 	}
-	return "", false
+	return "", "", false, false
+}
+
+// ExpandTarget replaces the first "*" in to with tail, or appends tail when
+// to has none.
+func ExpandTarget(to, tail string) string {
+	if strings.Contains(to, "*") {
+		return strings.Replace(to, "*", tail, 1)
+	}
+	return to + tail
 }
 
 // PathWithRawQuery appends rawQuery to path.
