@@ -9,8 +9,6 @@ import (
 	"math/bits"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/0mjs/zinc/internal/preflight"
 )
 
 // routeMap indexes static routes by method and exact spelling. Its values are
@@ -148,7 +146,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	r.entries = append(r.entries, route)
 	r.handlers = append(r.handlers, precomposed)
 	for _, h := range handlers[:len(handlers)-1] {
-		if preflight.Is(h) {
+		if middlewareMarks(h).Preflight {
 			if r.preflight == nil {
 				r.preflight = map[string][]HandlerFunc{}
 			}

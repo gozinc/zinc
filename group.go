@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-
-	"github.com/0mjs/zinc/internal/prerouting"
 )
 
 // Group applies a shared path prefix and middleware chain to related routes.
@@ -62,7 +60,7 @@ func (g *Group) Use(handlers ...HandlerFunc) *Group {
 // the route any more.
 func mustRunAfterRouting(prefix string, handlers []HandlerFunc) {
 	for _, h := range handlers {
-		if name, ok := prerouting.Name(h); ok {
+		if name := middlewareMarks(h).Prerouting; name != "" {
 			if prefix == "" {
 				prefix = "/"
 			}
