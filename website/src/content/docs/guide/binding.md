@@ -52,7 +52,7 @@ Declare a struct for each handler's input rather than binding into your database
 
 `c.Bind().All(&in)` is the usual choice for API handlers, and binds exactly what a [typed handler](/guide/typed-handlers/) binds. It reads, in order:
 
-1. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`; not on GET or HEAD, where a body has no meaning,
+1. the body, choosing JSON, XML, text, form or a [configured decoder](/guide/customization/#body-formats) from `Content-Type`, whatever its case; not on GET or HEAD, where a body has no meaning. A form field is read from the form body only, never the query string,
 2. headers and cookies,
 3. query values,
 4. route parameters,
@@ -89,7 +89,7 @@ curl -X POST "http://localhost:8080/customers/7/orders?dry_run=true" \
 
 The URL is read last, so it always wins. Go's JSON decoder matches `Customer` to a `"customer"` key whatever the case, but a body of `{"customer":99,"dry_run":false}` still binds customer `7` and `dry_run=true` from the URL.
 
-`All` doesn't read headers. Bind them with `c.Bind().Header(&in)`:
+`All` reads headers and cookies by their tags, as above. To read the headers alone, use `c.Bind().Header(&in)`:
 
 ```go
 var in struct {
@@ -127,7 +127,7 @@ Use `All` for input that spans sources. It validates once, after everything is r
 
 ## Default values
 
-A `default` tag gives a query, header, cookie or form field the value to use when the request leaves it out:
+A `default` tag gives a field the value to use when the request leaves it out. It works for a field from any source: the query, headers, cookies, a form, the body or the path:
 
 ```go
 type ListPets struct {
@@ -137,7 +137,7 @@ type ListPets struct {
 }
 ```
 
-A request to `/pets` gets `Limit` 20, `Sort` "name" and `Kinds` `[cat dog]`; `/pets?limit=5&kind=bird` gets 5, "name" and `[bird]`. A slice's default separates its values with commas.
+A request to `/pets` gets `Limit` 20, `Sort` "name" and `Kinds` `[cat dog]`; `/pets?limit=5&kind=bird` gets 5, "name" and `[bird]`. A slice's default separates its values with commas. A body field keeps its default when the body leaves its key out; `{"count":0}` still sets 0.
 
 The default is checked against the field's type when the struct is first used: at registration for a [typed handler](/guide/typed-handlers/), so `default:"lots"` on an `int` panics at startup. [OpenAPI](/guide/openapi/) specs list each default.
 
@@ -404,7 +404,7 @@ A JSON body follows `encoding/json`: a key left out keeps the field's current va
 
 ### Maps, strings and plain text
 
-`All` needs a pointer to a struct for JSON, XML and form bodies. A `map` target returns an error, which answers `500`; use `c.Bind().Body(&m)` or `JSON` to decode into a map. Two cases read the body only, skipping path and query: a `text/plain` body, and a [configured decoder](/guide/customization/#body-formats) with a non-struct target. A `text/plain` body binds into a `string`, a `[]byte`, a scalar or a `TextUnmarshaler`.
+`All` needs a pointer to a struct for JSON, XML and form bodies. A `map` target returns an error, which answers `500`; use `c.Bind().Body(&m)` or `JSON` to decode into a map. A non-struct target reads the body only, skipping path and query: a `text/plain` body binds into a `string`, a `[]byte`, a scalar or a `TextUnmarshaler`, and a [configured decoder](/guide/customization/#body-formats) can fill a map or slice. A struct still binds its path, query and other fields when the body is `text/plain`; a non-empty text body, which can't fill a struct, is a `400`.
 
 ### Embedded structs bind too
 

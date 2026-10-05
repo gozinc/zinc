@@ -112,7 +112,7 @@ func bindAll(c *Context, v any) error {
 // there and the spec never documents one.
 func bindRequest(c *Context, v any) error {
 	mediaType := requestMediaType(c.Header(HeaderContentType))
-	if mediaType == "text/plain" {
+	if mediaType == "text/plain" && !isStructTarget(v) {
 		return bindPlainTextBody(c, v, false)
 	}
 	// A configured decoder fills a non-struct target, such as a map, from the
@@ -130,10 +130,7 @@ func bindRequest(c *Context, v any) error {
 		return err
 	}
 	if plan.hasDefaults {
-		applyDefaults(val, plan.formFields)
-		applyDefaults(val, plan.queryFields)
-		applyDefaults(val, plan.headerFields)
-		applyDefaults(val, plan.cookieFields)
+		applyDefaults(val, plan.defaultFields)
 	}
 	if method := c.Method(); method != MethodGet && method != MethodHead {
 		if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
@@ -169,6 +166,17 @@ func bindRequest(c *Context, v any) error {
 		return nil
 	}
 	return c.validate(v, plan.rules)
+}
+
+// isStructTarget reports whether v points to a struct that doesn't decode
+// itself from text. Such a target binds the path, query and other sources
+// whatever the body's Content-Type.
+func isStructTarget(v any) bool {
+	if _, ok := v.(encoding.TextUnmarshaler); ok {
+		return false
+	}
+	t := reflect.TypeOf(v)
+	return t != nil && t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Struct
 }
 
 // bindRequestBody decodes an optional body into v without validating it. A
@@ -208,7 +216,7 @@ func bindRequestBody(c *Context, v any, val reflect.Value, plan *bindingPlan, me
 		if err := req.ParseForm(); err != nil {
 			return wrapBindError("form", fmt.Errorf("parse form: %w", err))
 		}
-		if err := bindFieldsFromValues(val, plan.formFields, req.Form); err != nil {
+		if err := bindFieldsFromValues(val, plan.formFields, req.PostForm); err != nil {
 			return wrapBindError("form", err)
 		}
 	case "multipart/form-data":
@@ -217,6 +225,15 @@ func bindRequestBody(c *Context, v any, val reflect.Value, plan *bindingPlan, me
 		}
 		if err := bindMultipartForm(val, plan, req); err != nil {
 			return wrapBindError("form", err)
+		}
+	case "text/plain":
+		// A struct can't be filled from text, but an empty body is no body.
+		body, err := c.readAndCacheBodyBytes()
+		if err != nil {
+			return wrapBindError("body", err)
+		}
+		if len(body) > 0 {
+			return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
 		}
 	default:
 		return wrapBindError("body", fmt.Errorf("unsupported content type: %s", mediaType))
@@ -315,7 +332,7 @@ func bindForm(c *Context, v any) error {
 	if err := req.ParseForm(); err != nil {
 		return wrapBindError("form", fmt.Errorf("parse form: %w", err))
 	}
-	if err := bindFieldsFromValues(val, plan.formFields, req.Form); err != nil {
+	if err := bindFieldsFromValues(val, plan.formFields, req.PostForm); err != nil {
 		return wrapBindError("form", err)
 	}
 	return c.validateWith(v, plan)
