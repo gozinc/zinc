@@ -139,8 +139,10 @@ func bindRequest(c *Context, v any) error {
 		if err := bindRequestBody(c, v, val, plan, mediaType, decode); err != nil {
 			return err
 		}
-		// Only a decoded body can name these fields; a form binds by tag.
-		if len(plan.paramOnly) > 0 && c.bodyRead && plan.bodyMentionsParams(c.body) {
+		// Only a decoded body can name these fields; a form binds by tag. A
+		// configured decoder can fill a field from a key that looks nothing
+		// like its name, so its decodes always reset them.
+		if len(plan.paramOnly) > 0 && c.bodyRead && (decode != nil || plan.bodyMentionsParams(c.body)) {
 			plan.keepParamsOutOfBody(val)
 		}
 	}
@@ -228,7 +230,7 @@ func bindBody(c *Context, v any) error {
 	if decode := c.decoderFor(mediaType); decode != nil {
 		return decodeBody(c, decode, v, true)
 	}
-	snap, plan := snapshotParams(c, v)
+	snap, plan := snapshotParams(c, v, false)
 	if snap != nil {
 		defer snap.restore()
 	}
@@ -386,7 +388,7 @@ func (b *Bind) JSON(v any) error {
 	if b == nil || b.c == nil {
 		return errors.New("context is nil")
 	}
-	snap, plan := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v, false)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheJSONBody(v)
 	if snap != nil {
 		snap.restore()
@@ -416,7 +418,7 @@ func (b *Bind) XML(v any) error {
 	if decode := b.c.decoderFor("application/xml"); decode != nil {
 		return decodeBody(b.c, decode, v, true)
 	}
-	snap, plan := snapshotParams(b.c, v)
+	snap, plan := snapshotParams(b.c, v, false)
 	bodyLen, readErr, decodeErr := b.c.readAndCacheBody(func(r io.Reader) error {
 		return xml.NewDecoder(r).Decode(v)
 	})
