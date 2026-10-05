@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/internal/preflight"
+	"github.com/0mjs/zinc/internal/marks"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -80,6 +80,9 @@ func New(configs ...Config) zinc.Middleware {
 	exposeHeadersStr := strings.Join(config.ExposeHeaders, ",")
 
 	mw := func(c *zinc.Context) error {
+		if c.Request() == marks.Probe {
+			return probeAnswer
+		}
 		c.Writer().Header().Add("Vary", "Origin")
 		c.Writer().Header().Add("Vary", "Access-Control-Request-Method")
 		c.Writer().Header().Add("Vary", "Access-Control-Request-Headers")
@@ -128,8 +131,10 @@ func New(configs ...Config) zinc.Middleware {
 
 		return c.Next()
 	}
-	// Answer preflight requests for a group's routes too: Zinc runs
-	// marked middleware on the automatic OPTIONS response.
-	preflight.Mark(mw)
+	marks.Answers(mw)
 	return mw
 }
+
+// probeAnswer tells Zinc to run CORS on the automatic OPTIONS response too,
+// so it answers preflight requests for a group's routes.
+var probeAnswer = &marks.Marks{Preflight: true}

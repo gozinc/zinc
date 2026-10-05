@@ -10,7 +10,8 @@ import (
 )
 
 // NoContent is the output type of a typed handler that sends no body. The
-// route answers 204 No Content, or the status declared with Route.Status.
+// route answers 204 No Content, or the status declared with Route.Status,
+// even 200.
 type NoContent struct{}
 
 // Typed adapts a function whose signature is the request contract into a
@@ -34,12 +35,14 @@ type NoContent struct{}
 // runs, and a failure is a *ValidationError (422). An error returned by fn
 // goes to the error handler like any other.
 //
-// The response status is the one fn sets with c.Status, or else the one
-// declared with Route.Status, or else 200. Out is written as JSON, except
-// for Zinc's output types: NoContent, Text, HTML, Bytes, File, Stream and
-// Redirect, each written and documented as what it is. Use NoContent as Out
-// for a response without a body; it answers 204 unless another status is
-// declared. If fn writes the response itself, its output is ignored.
+// The response status is the one fn or middleware sets with c.Status, or
+// else the one declared with Route.Status, or else 200, 204 for NoContent
+// and 302 for Redirect. The spec documents the same status. A status of 200
+// set with c.Status counts as unset on a route without a declared status.
+// Out is written as JSON, except for Zinc's output types: NoContent, Text,
+// HTML, Bytes, File, Stream and Redirect, each written and documented as
+// what it is. Use NoContent as Out for a response without a body. If fn
+// writes the response itself, its output is ignored.
 //
 // A field of Out tagged header is sent as that response header, and needs
 // json:"-" so it isn't also in the body:
@@ -67,7 +70,10 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 	}
 	types := handlerTypes{in: inType, out: reflect.TypeFor[Out]()}
 	bindInput := inType.NumField() > 0
-	_, noContent := any(*new(Out)).(NoContent)
+	kind := kindOf(types.out)
+	noContent := kind == outputNoContent
+	// Only NoContent and Redirect answer other than 200 by default.
+	defaulted := noContent || kind == outputRedirect
 	// write is nil for JSON, the common case, so it costs nothing there.
 	write := outputWriter[Out]()
 	// Fields tagged header are sent as response headers; nil when Out has
@@ -88,17 +94,15 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 				return err
 			}
 		}
-		// A route's status is already set when it matches. NoContent's
-		// default comes before fn, so a status fn sets itself still wins.
-		if noContent && c.declaredStatus() == 0 {
-			c.status = StatusNoContent
-		}
 		out, err := fn(c, in)
 		if err != nil || c.written {
 			return err
 		}
+		if defaulted {
+			c.applySuccessStatus(kind)
+		}
 		if noContent {
-			return c.NoContent()
+			return c.writeNoContent()
 		}
 		if c.app != nil && c.app.config.ValidateResponses {
 			if err := c.validateOutput(out); err != nil {
@@ -109,7 +113,7 @@ func Typed[In, Out any](fn func(*Context, In) (Out, error)) HandlerFunc {
 			return write(c, out)
 		}
 		if headers != nil {
-			c.writeOutputHeaders(headers, reflect.ValueOf(any(out)))
+			return c.jsonWithHeaders(out, headers)
 		}
 		return c.JSON(out)
 	}
@@ -146,9 +150,20 @@ func describeHandler(h HandlerFunc) (handlerTypes, bool) {
 	if _, ok := typedPCs.Load(handlerPC(h)); !ok {
 		return handlerTypes{}, false
 	}
+	return describe(h)
+}
+
+// describe runs h in describe mode. A handler that panics there isn't a
+// Typed closure, so it's reported as untyped.
+func describe(h HandlerFunc) (types handlerTypes, ok bool) {
+	defer func() {
+		if recover() != nil {
+			types, ok = handlerTypes{}, false
+		}
+	}()
 	c := &Context{index: describeIndex, store: map[any]any{}}
 	_ = h(c)
-	types, ok := c.store[describeKey{}].(handlerTypes)
+	types, ok = c.store[describeKey{}].(handlerTypes)
 	return types, ok
 }
 
@@ -164,4 +179,44 @@ func (c *Context) declaredStatus() int {
 		return int(c.app.router.routeMetaAt(uint32(c.routeIndex)).status)
 	}
 	return int(c.routeInfo.status)
+}
+
+// successStatus is the status a route answers with when neither a handler
+// nor middleware chose one: declared, from Route.Status, or else 204 for
+// NoContent, 302 for Redirect and 200 for anything else. The response and
+// the spec both use it.
+func successStatus(kind outputKind, declared int) int {
+	switch {
+	case declared != 0:
+		return declared
+	case kind == outputNoContent:
+		return StatusNoContent
+	case kind == outputRedirect:
+		return StatusFound
+	}
+	return StatusOK
+}
+
+// applySuccessStatus sets successStatus unless a handler or middleware
+// chose another status. The route sets its declared status, or 200, before
+// anything runs, so a status still at that value wasn't chosen.
+func (c *Context) applySuccessStatus(kind outputKind) {
+	declared := c.declaredStatus()
+	unset := declared
+	if unset == 0 {
+		unset = StatusOK
+	}
+	if c.status == unset {
+		c.status = successStatus(kind, declared)
+	}
+}
+
+// checkRedirectStatus panics when out is Redirect and status isn't a
+// redirect, a status the route could never send.
+func (r *routeTable) checkRedirectStatus(index uint32, out reflect.Type, status int) {
+	if status == 0 || kindOf(out) != outputRedirect || (status >= 300 && status <= 399) {
+		return
+	}
+	info := r.routeInfos[index]
+	panic(fmt.Sprintf("zinc: route %s %s has a Redirect output, so its status must be 301, 302, 303, 307 or 308, not %d", info.method, info.path, status))
 }

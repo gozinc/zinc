@@ -50,6 +50,14 @@ func TestBodyOnlyFillsBodyFields(t *testing.T) {
 	if got.Role != "" || got.Tenant != "acme" || got.Name != "Ada" {
 		t.Errorf("xml: %+v", got)
 	}
+	// An escaped key still matches the field, and a body with non-ASCII
+	// text is checked the same way.
+	for _, body := range []string{`{"\u0052ole":"admin"}`, `{"\u0072ole":"admin"}`, `{"Ro\u006ce":"admin"}`, `{"Limit":99,"name":"\u00e9"}`, "{\"Limit\":99,\"name\":\"\u00e9\"}"} {
+		send("application/json", body)
+		if got.Role != "" || got.Limit != 20 {
+			t.Errorf("%s: %+v", body, got)
+		}
+	}
 	// The header still binds, and wins over the body for a both-tagged field.
 	send("application/json", `{"tenant":"body"}`, "X-Role", "viewer", "X-Tenant", "header")
 	if got.Role != "viewer" || got.Tenant != "header" {
@@ -71,6 +79,61 @@ func TestBodyOnlyFillsBodyFields(t *testing.T) {
 	plain.ServeHTTP(w, r)
 	if !strings.Contains(w.Body.String(), `"Role":""`) {
 		t.Fatalf("Bind().JSON: %s", w.Body)
+	}
+}
+
+// A configured decoder can fill a parameter-only field from a key that looks
+// nothing like its name, or from no key at all; the field is reset anyway.
+func TestCustomDecoderCannotFillParamFields(t *testing.T) {
+	alias := func(body []byte, v any) error { // maps "r" to Role
+		var raw struct {
+			R    string `json:"r"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return err
+		}
+		in := v.(*sourced)
+		in.Role, in.Name, in.Limit = raw.R, raw.Name, 99
+		return nil
+	}
+	app := New(Config{Decoders: map[string]Decoder{"application/x-test": alias}})
+	var got sourced
+	app.Post("/typed", Typed(func(_ *Context, in sourced) (NoContent, error) { got = in; return NoContent{}, nil }))
+	app.Post("/all", func(c *Context) error {
+		got = sourced{}
+		if err := c.Bind().All(&got); err != nil {
+			return err
+		}
+		return c.NoContent()
+	})
+	app.Post("/body", func(c *Context) error {
+		got = sourced{Role: "earlier"}
+		if err := c.Bind().Body(&got); err != nil {
+			return err
+		}
+		return c.NoContent()
+	})
+	for path, wantRole := range map[string]string{"/typed": "", "/all": "", "/body": "earlier"} {
+		got = sourced{}
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{"r":"admin","name":"Alice"}`))
+		r.Header.Set("Content-Type", "application/x-test")
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		if w.Code != http.StatusNoContent || got.Role != wantRole || got.Name != "Alice" {
+			t.Errorf("%s: %d %+v", path, w.Code, got)
+		}
+		if path != "/body" && got.Limit != 20 {
+			t.Errorf("%s: Limit %d, want the default 20", path, got.Limit)
+		}
+	}
+	// A real header still binds after the reset.
+	r := httptest.NewRequest("POST", "/typed", strings.NewReader(`{"r":"admin","name":"Alice"}`))
+	r.Header.Set("Content-Type", "application/x-test")
+	r.Header.Set("X-Role", "viewer")
+	app.ServeHTTP(httptest.NewRecorder(), r)
+	if got.Role != "viewer" {
+		t.Errorf("header: %+v", got)
 	}
 }
 
@@ -138,6 +201,9 @@ func TestBodyMentionsParams(t *testing.T) {
 		{`{"limit":5}`, true},
 		{`{"name":"Ada","tenant":"x"}`, false},
 		{`{"r":1}`, false},
+		{`{"\u0072ole":"admin"}`, true},
+		{"{\"\u017fort\":1}", true},
+		{"{\"\u212aind\":1}", true},
 		{``, false},
 	} {
 		if got := plan.bodyMentionsParams([]byte(tt.body)); got != tt.want {

@@ -6,7 +6,7 @@ package rewrite
 
 import (
 	"github.com/0mjs/zinc"
-	"github.com/0mjs/zinc/internal/prerouting"
+	"github.com/0mjs/zinc/internal/marks"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -29,8 +29,11 @@ func New(configs ...Config) zinc.Middleware {
 	placement := shared.NewRoutingWarning("rewrite")
 
 	mw := func(c *zinc.Context) error {
-		placement.Check(c)
 		req := c.Request()
+		if req == marks.Probe {
+			return probeAnswer
+		}
+		placement.Check(c)
 		if req == nil || req.URL == nil {
 			return c.Next()
 		}
@@ -40,7 +43,10 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return c.Next()
 	}
-	// Mark this instance: on a group it would run after routing, so Group.Use panics.
-	prerouting.Mark(mw, "rewrite")
+	marks.Answers(mw)
 	return mw
 }
+
+// probeAnswer tells Zinc a rewrite must run before routing: on a group it
+// would run after routing, so Group.Use panics.
+var probeAnswer = &marks.Marks{Prerouting: "rewrite"}

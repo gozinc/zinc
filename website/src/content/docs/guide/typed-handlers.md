@@ -136,7 +136,9 @@ A typed handler answers `200` by default. Declare another success status on the 
 app.Post("/users", zinc.Typed(createUser)).Status(zinc.StatusCreated) // 201
 ```
 
-`Status` accepts `2xx` codes, and the redirect codes `301`, `302`, `303`, `307` and `308` for a [`Redirect`](#send-text-files-and-redirects) output. Anything else panics when the route is registered.
+`Status` accepts `2xx` codes, and the redirect codes `301`, `302`, `303`, `307` and `308` for a [`Redirect`](#send-text-files-and-redirects) output. A `Redirect` output takes only the redirect codes. Anything else panics when the route is registered.
+
+The status you declare is the one sent and the one the [spec](/guide/openapi/) documents. A status that middleware or the handler sets with `c.Status` wins over it.
 
 ## Send no body
 

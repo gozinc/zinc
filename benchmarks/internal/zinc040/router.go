@@ -127,8 +127,8 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		strictRouting := r.config != nil && r.config.StrictRouting
 		caseSensitive := r.config == nil || r.config.CaseSensitive
 		if staticRouteHasSingleCandidate(path, strictRouting, caseSensitive) {
-			if methodRoutes[path] != nil {
-				return 0, fmt.Errorf("route already registered for %s", path)
+			if existing := methodRoutes[path]; existing != nil {
+				return 0, r.conflictError(method, path, existing.infoIndex)
 			}
 			route := &routeEntry{
 				handler:   precomposed,
@@ -148,8 +148,8 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		}
 		routeCandidates, routeCandidateCount := staticRouteCandidates(path, strictRouting, caseSensitive)
 		for i := 0; i < routeCandidateCount; i++ {
-			if methodRoutes[routeCandidates[i]] != nil {
-				return 0, fmt.Errorf("route already registered for %s", path)
+			if existing := methodRoutes[routeCandidates[i]]; existing != nil {
+				return 0, r.conflictError(method, path, existing.infoIndex)
 			}
 		}
 		route := &routeEntry{
@@ -174,16 +174,55 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 
 	route := newRadixRoute(precomposed, infoIndex, paramNames)
 	tree := r.ensureDynamicTree(method, mask)
-	// Publish metadata only after the tree accepts the route, preserving stable indexes on failure.
-	err = tree.addBrace(path, route, r.config != nil && !r.config.CaseSensitive)
-	if err != nil {
-		return 0, err
+	// Deliberate change 7 (see doc.go): a parameter route with a trailing
+	// slash is also recorded without it, unless routing is strict. Create
+	// both nodes first (creating one can split the other), then check both
+	// before recording either.
+	spellings := []string{path}
+	if (r.config == nil || !r.config.StrictRouting) && len(path) > 1 && path[len(path)-1] == '/' {
+		spellings = append(spellings, path[:len(path)-1])
+	}
+	caseInsensitive := r.config != nil && !r.config.CaseSensitive
+	for _, spelling := range spellings {
+		tree.braceNode(spelling, caseInsensitive)
+	}
+	var nodes []*radixNode
+	for _, spelling := range spellings {
+		node := tree.braceNode(spelling, caseInsensitive)
+		if node.route != nil {
+			// Deliberate change 8 (see doc.go).
+			return 0, r.conflictError(method, path, node.route.infoIndex)
+		}
+		nodes = append(nodes, node)
+	}
+	for _, node := range nodes {
+		node.route = route
 	}
 	r.routeInfos = append(r.routeInfos, info)
 	r.recordNamedRoute(name, infoIndex)
 	r.dynamicRouteCount++
 	r.invalidateCache()
 	return infoIndex, nil
+}
+
+// conflictError names both routes. Deliberate change 8 (see doc.go).
+func (r *routeTable) conflictError(method, path string, existing uint32) error {
+	other := r.routeInfos[existing]
+	if other.path == path {
+		return fmt.Errorf("route already registered: %s %s", method, path)
+	}
+	return fmt.Errorf("route already registered: %s %s matches the same requests as %s %s", method, path, other.method, other.path)
+}
+
+// keepCatchAllSlash gives a catch-all matched without the request's
+// trailing slash its slash back. Deliberate change 6 (see doc.go).
+func (r *routeTable) keepCatchAllSlash(handler HandlerFunc, ctx *Context, path, originalPath string) HandlerFunc {
+	if handler == nil || path == originalPath || ctx.paramCount == 0 || !strings.HasSuffix(r.routeInfos[ctx.paramRoute.infoIndex].path, "...}") {
+		return handler
+	}
+	ctx.paramPath = originalPath
+	ctx.pathParams[ctx.paramCount-1].end = int32(len(originalPath))
+	return handler
 }
 
 func (r *routeTable) staticRoutesFor(method string, mask methodMask) map[string]*routeEntry {
@@ -326,16 +365,16 @@ func (r *routeTable) findInto(method, path string, ctx *Context) HandlerFunc {
 	}
 	if caseSensitive {
 		if handler := r.findDynamicInto(method, path, ctx); handler != nil || path == originalPath {
-			return handler
+			return r.keepCatchAllSlash(handler, ctx, path, originalPath)
 		}
 		return r.findDynamicInto(method, originalPath, ctx)
 	}
 	if lower, changed := lowercasePath(path); changed {
 		if handler := r.findFoldedInto(method, originalPath, lower, ctx); handler != nil {
-			return handler
+			return r.keepCatchAllSlash(handler, ctx, path, originalPath)
 		}
 	} else if handler := r.findDynamicInto(method, path, ctx); handler != nil {
-		return handler
+		return r.keepCatchAllSlash(handler, ctx, path, originalPath)
 	}
 	if path != originalPath {
 		if lower, changed := lowercasePath(originalPath); changed {
@@ -483,15 +522,30 @@ func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Co
 		matchedPath, _ = lowercasePath(path)
 	}
 	entry := r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
-	if path != originalPath && entry.route == nil && entry.allowed.empty() {
+	trimmedHit := entry.route != nil && path != originalPath
+	// Deliberate change 5 (see doc.go): the path as sent is tried for the
+	// method even when other methods match the path without its slash, and
+	// Allow merges both.
+	if path != originalPath && entry.route == nil {
+		trimmedAllowed := entry.allowed
 		matchedPath = originalPath
 		if !caseSensitive {
 			matchedPath, _ = lowercasePath(originalPath)
 		}
 		entry = r.lookupDynamicDispatch(method, mask, matchedPath, needAllowed, captured)
+		if entry.route == nil {
+			entry.allowed.merge(trimmedAllowed)
+		}
 	}
 	if entry.route != nil && matchedPath != originalPath {
 		remapFoldedParams(&entry.values, int(entry.route.paramCount), originalPath, matchedPath)
+	}
+	// Deliberate change 6 (see doc.go): a catch-all keeps the trailing slash.
+	if trimmedHit && strings.HasSuffix(r.routeInfos[entry.route.infoIndex].path, "...}") {
+		last := int(entry.route.paramCount) - 1
+		value := entry.values.at(last)
+		value.end = uint32(len(originalPath))
+		entry.values.set(last, value)
 	}
 	if needAllowed && entry.route == nil {
 		entry.allowed.merge(r.lookupStaticAllowedMethods(originalPath, path, caseSensitive))

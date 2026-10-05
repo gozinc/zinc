@@ -42,7 +42,14 @@ func New(configs ...Config) zinc.Middleware {
 		}
 
 		if cfg.Redirect {
-			return c.Status(cfg.StatusCode).Redirect(shared.PathWithRawQuery(nextPath, req.URL.RawQuery))
+			// Build the target from the escaped path, so an encoded slash
+			// stays encoded. When the slash itself is encoded, the escaped
+			// path does not change and redirecting would loop, so route it.
+			escaped := req.URL.EscapedPath()
+			if target := normalizeTrailingSlashPath(escaped, cfg.Add); target != escaped {
+				target = shared.SameSitePath(target)
+				return c.Status(cfg.StatusCode).Redirect(shared.PathWithRawQuery(target, req.URL.RawQuery))
+			}
 		}
 
 		c.SetPath(nextPath)

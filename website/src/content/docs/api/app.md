@@ -30,7 +30,7 @@ The returned `Route` has these methods. Each returns the route, so they chain:
 | Method | Purpose |
 |---|---|
 | `Name(name) Route` | A unique name for `URL` and `RouteByName`, and the OpenAPI operation ID; panics on a duplicate |
-| `Status(code) Route` | The route's status, such as `201`, for whatever it writes, typed or plain; a handler's own `c.Status` or an error wins. Panics unless `code` is 2xx or a redirect (301, 302, 303, 307, 308) |
+| `Status(code) Route` | The route's status, such as `201`, for whatever it writes, typed or plain; a handler's own `c.Status` or an error wins. Panics unless `code` is 2xx or a redirect (301, 302, 303, 307, 308), and unless it's a redirect on a route with a `Redirect` output |
 | `Summary(text) Route` | A one-line summary in the [OpenAPI](/guide/openapi/) spec |
 | `Description(text) Route` | A longer description in the spec; Markdown works |
 | `Tags(tags...) Route` | Tags that group the route in the spec, after its group's |
@@ -185,9 +185,9 @@ A nil filesystem panics at registration, like other registration mistakes. Optio
 | Method | Returns |
 |---|---|
 | `Routes() []RouteInfo` | Every route and mount, in registration order |
-| `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request |
+| `FindRoute(method, path) (RouteInfo, bool)` | The route that would serve a request, including a `GET` route answering `HEAD` |
 | `RouteByName(name) (RouteInfo, bool)` | A named route |
-| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Values are escaped; a catch-all value keeps its slashes, with `?`, `#` and `%` escaped. |
+| `URL(name, params...) (string, error)` | The path for a named route, with parameters filled in order. Values are escaped; a catch-all value keeps its slashes, with `?`, `#` and `%` escaped. Returns an error if the path wouldn't route back to the same route and values. |
 
 ```go
 type RouteInfo struct {

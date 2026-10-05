@@ -9,8 +9,6 @@ import (
 	"math/bits"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/0mjs/zinc/internal/preflight"
 )
 
 // routeMap indexes static routes by method and exact spelling. Its values are
@@ -39,16 +37,17 @@ type routeTable struct {
 	// Length masks are rejection filters only: false positives are safe, false negatives are not.
 	staticRouteLens   [routeMethodCount]uint64
 	staticLongMethods methodMask
+	// Route lookup (resolve) reads none of the fields from here on; keep the
+	// fields it reads above them, together.
+	//
 	// routeDocs holds OpenAPI metadata by route index, for documented routes
-	// only. Dispatch never reads it, and it's the last field so adding it
-	// moved nothing dispatch does read.
+	// only.
 	routeDocs map[uint32]*routeDoc
 	// docsVersion counts changes to route metadata after registration, such
 	// as Hidden or Summary, so a served spec knows when to rebuild.
 	docsVersion uint64
 	// entries and handlers hold each route's tree entry and its handler as
 	// registered, by route index, so Route.Status can wrap the handler.
-	// Dispatch never reads them.
 	entries  []*radixRoute
 	handlers []HandlerFunc
 	// preflight holds, by "METHOD path", a route's middleware that also
@@ -83,12 +82,17 @@ func (r *routeTable) add(method, path, name string, handlers ...HandlerFunc) err
 	return err
 }
 
-// register validates first, then records the route in the tree (and a static
-// route's exact spellings in the maps), and returns its metadata index. A failed registration
-// must not consume a metadata index.
+// register validates first, then records the route in the tree (and a
+// static route's exact spellings in the maps), and returns its metadata
+// index. A failed registration doesn't consume a metadata index.
 func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc) (uint32, error) {
 	if len(handlers) == 0 {
 		return 0, fmt.Errorf("no handler provided for %s %s", method, path)
+	}
+	for _, h := range handlers {
+		if h == nil {
+			return 0, fmt.Errorf("nil handler for %s %s", method, path)
+		}
 	}
 	if name != "" {
 		if _, exists := r.namedRoutes[name]; exists {
@@ -110,6 +114,9 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 		paramNames, err = collectBraceRouteParams(path)
 		if err != nil {
 			return 0, err
+		}
+		if paramNames.count > maxRouteParams {
+			return 0, fmt.Errorf("route %s %s has %d parameters; a route can have at most %d", method, path, paramNames.count, maxRouteParams)
 		}
 	}
 	isDynamic := bracePattern
@@ -138,7 +145,8 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	// The tree checks for conflicts and records the route; it is the only
 	// place a registration can fail from here on.
 	route := newRadixRoute(&r.arena, precomposed, infoIndex, paramNames)
-	if err := r.addToTree(method, mask, path, isDynamic, route); err != nil {
+	route.catchAll = strings.HasSuffix(path, "...}")
+	if err := r.addToTree(method, mask, path, route); err != nil {
 		return 0, err
 	}
 	if !isDynamic {
@@ -148,7 +156,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	r.entries = append(r.entries, route)
 	r.handlers = append(r.handlers, precomposed)
 	for _, h := range handlers[:len(handlers)-1] {
-		if preflight.Is(h) {
+		if middlewareMarks(h).Preflight {
 			if r.preflight == nil {
 				r.preflight = map[string][]HandlerFunc{}
 			}
@@ -165,8 +173,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 }
 
 // addStaticSpellings records a static route's exact spellings for the map
-// fast path: the registered path and, unless routing is strict, the path
-// without its trailing slash. Case-folded spellings are left to the tree.
+// fast path (routeSpellings). Case-folded spellings are left to the tree.
 func (r *routeTable) addStaticSpellings(method string, mask methodMask, path string, entry *radixRoute) {
 	if r.routes == nil {
 		r.routes = make(routeMap)
@@ -179,13 +186,21 @@ func (r *routeTable) addStaticSpellings(method string, mask methodMask, path str
 		}
 		r.routes[method] = methodRoutes
 	}
-	methodRoutes[path] = entry
-	r.recordStaticRouteLength(mask, path)
-	strictRouting := r.config != nil && r.config.StrictRouting
-	if !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		methodRoutes[path[:len(path)-1]] = entry
-		r.recordStaticRouteLength(mask, path[:len(path)-1])
+	spellings, count := r.routeSpellings(path)
+	for _, spelling := range spellings[:count] {
+		methodRoutes[spelling] = entry
+		r.recordStaticRouteLength(mask, spelling)
 	}
+}
+
+// routeSpellings returns the paths a route is recorded under: its pattern
+// and, unless routing is strict, the pattern without its trailing slash
+// (trimTrailingSlash).
+func (r *routeTable) routeSpellings(path string) ([2]string, int) {
+	if trimmed := r.trimTrailingSlash(path); trimmed != path {
+		return [2]string{path, trimmed}, 2
+	}
+	return [2]string{path}, 1
 }
 
 func (r *routeTable) recordStaticRouteLength(mask methodMask, path string) {
@@ -258,7 +273,7 @@ func (r *routeTable) routeMetaByName(name string) (routeMeta, bool) {
 
 // Find resolves a route without invoking it and returns a standalone Context
 // containing route metadata and parameters. Request dispatch reuses a pooled
-// Context instead and calls dispatchInto directly.
+// Context instead and calls dispatchInto.
 func (r *routeTable) Find(method, path string) (HandlerFunc, *Context) {
 	ctx := &Context{}
 	handler := r.findInto(method, path, ctx)
@@ -270,11 +285,6 @@ func (r *routeTable) Find(method, path string) (HandlerFunc, *Context) {
 
 func (r *routeTable) routeMetaAt(index uint32) routeMeta {
 	return r.routeInfos[index]
-}
-
-// findInto is the non-executing lookup used by Find (router_tree.go).
-func (r *routeTable) findInto(method, path string, ctx *Context) HandlerFunc {
-	return r.findTree(method, path, ctx)
 }
 
 // Unicode lowercasing can change byte widths (for example K to k). Walk both
@@ -311,13 +321,6 @@ func remapFoldedParams(values *paramRanges, count int, original, folded string) 
 	}
 }
 
-// dispatchInto resolves and invokes a route (router_tree.go). needAllowed
-// asks for the methods that match on a miss, for 405 and automatic OPTIONS;
-// ordinary not-found dispatch leaves it off.
-func (r *routeTable) dispatchInto(method, path string, needAllowed bool, ctx *Context) (bool, allowedMethodSet, error) {
-	return r.dispatchTree(method, path, needAllowed, ctx)
-}
-
 type allowedMethodSet struct {
 	// Standard methods use a mask; extension methods allocate only when present.
 	mask  methodMask
@@ -338,6 +341,10 @@ var routeMethods = []string{
 
 const routeMethodCount = 9
 const indexedParamThreshold = 10
+
+// maxRouteParams is the most parameters a route can have: a wide route's
+// name index (radixRoute.paramIndices) holds each position in a byte.
+const maxRouteParams = 256
 
 type methodMask uint16
 
@@ -405,13 +412,6 @@ func (s *allowedMethodSet) addMethod(method string) {
 		}
 	}
 	s.extra = append(s.extra, method)
-}
-
-func (s *allowedMethodSet) merge(other allowedMethodSet) {
-	s.mask |= other.mask
-	for _, method := range other.extra {
-		s.addMethod(method)
-	}
 }
 
 func (s allowedMethodSet) empty() bool {
@@ -507,22 +507,16 @@ func buildAllowHeaderWithExtra(mask methodMask, extra []string) string {
 	return builder.String()
 }
 
-// addToTree records route in the route tree. A static route registered with
-// a trailing slash is also reachable without it unless routing is strict, as
-// its map spellings made it before.
-func (r *routeTable) addToTree(method string, mask methodMask, path string, isDynamic bool, route *radixRoute) error {
+// addToTree records route in the route tree under each of its spellings
+// (routeSpellings). Two routes for one method that share a spelling would
+// match the same requests, so the second is rejected, naming both.
+func (r *routeTable) addToTree(method string, mask methodMask, path string, route *radixRoute) error {
 	if r.tree == nil {
 		r.tree = r.arena.node()
 		r.tree.kind = radixRoot
 	}
-	strictRouting := r.config != nil && r.config.StrictRouting
 	caseInsensitive := r.config != nil && !r.config.CaseSensitive
-	paths := [2]string{path}
-	count := 1
-	if !isDynamic && !strictRouting && len(path) > 1 && path[len(path)-1] == '/' {
-		paths[1] = path[:len(path)-1]
-		count = 2
-	}
+	paths, count := r.routeSpellings(path)
 	slot := singleBitIndex(mask)
 	// Create every spelling's node first: creating one can split a node
 	// another spelling returned. Then look them up again (which creates
@@ -534,8 +528,11 @@ func (r *routeTable) addToTree(method string, mask methodMask, path string, isDy
 	}
 	for i := 0; i < count; i++ {
 		nodes[i] = r.tree.nodeFor(&r.arena, paths[i], caseInsensitive)
-		if nodes[i].methods != nil && nodes[i].methods.get(slot, method) != nil {
-			return fmt.Errorf("route already registered for %s", path)
+		if nodes[i].methods == nil {
+			continue
+		}
+		if existing := nodes[i].methods.get(slot, method); existing != nil {
+			return r.conflictError(method, path, existing)
 		}
 	}
 	for i := 0; i < count; i++ {
@@ -545,4 +542,14 @@ func (r *routeTable) addToTree(method string, mask methodMask, path string, isDy
 		nodes[i].methods.set(slot, method, route)
 	}
 	return nil
+}
+
+// conflictError reports a route that matches the same requests as an
+// existing one.
+func (r *routeTable) conflictError(method, path string, existing *radixRoute) error {
+	other := r.routeMetaAt(existing.infoIndex)
+	if other.path == path {
+		return fmt.Errorf("route already registered: %s %s", method, path)
+	}
+	return fmt.Errorf("route already registered: %s %s matches the same requests as %s %s", method, path, other.method, other.path)
 }

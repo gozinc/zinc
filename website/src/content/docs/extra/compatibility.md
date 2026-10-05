@@ -33,11 +33,11 @@ These aren't covered, and can change in any release:
 
 ## Supported Go versions
 
-Each release supports the Go version in its `go.mod` and newer. CI tests the three most recent Go releases. Zinc 0.6 needs Go 1.25 or newer.
+Each release supports the Go version in its `go.mod` and newer. CI tests the three most recent Go releases. Zinc 0.7 needs Go 1.25 or newer.
 
 ## Security problems
 
-Report a security problem privately, through the **Report a vulnerability** button on the repository's [Security tab](https://github.com/0mjs/zinc/security), not in a public issue. Fixes go into the latest minor version.
+Report a security problem privately, through the **Report a vulnerability** button on the repository's [Security tab](https://github.com/gozinc/zinc/security), not in a public issue. Fixes go into the latest minor version.
 
 ## Next steps
 

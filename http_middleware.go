@@ -6,8 +6,7 @@ package zinc
 import (
 	"net/http"
 
-	"github.com/0mjs/zinc/internal/preflight"
-	"github.com/0mjs/zinc/internal/prerouting"
+	"github.com/0mjs/zinc/internal/marks"
 )
 
 // FromHTTP adapts standard net/http middleware to Zinc middleware, so it can
@@ -107,19 +106,39 @@ func Skip(skip func(*Context) bool, mw Middleware) Middleware {
 	if skip == nil || mw == nil {
 		panic("zinc: Skip needs a predicate and a middleware")
 	}
+	if middlewareMarks(mw) == (marks.Marks{}) {
+		return func(c *Context) error {
+			if skip(c) {
+				return c.Next()
+			}
+			return mw(c)
+		}
+	}
+	// Keep what Zinc knows about mw, such as rewrite running before
+	// routing: the wrapper passes probes on to mw. Only marked middleware
+	// gets this closure, so plain Skip wrappers are never probed.
 	wrapped := func(c *Context) error {
+		if c.request == marks.Probe {
+			return mw(c)
+		}
 		if skip(c) {
 			return c.Next()
 		}
 		return mw(c)
 	}
-	// Keep what Zinc knows about mw: middleware that must run before
-	// routing still can't be registered on a group when it's wrapped.
-	if name, ok := prerouting.Name(mw); ok {
-		prerouting.Mark(wrapped, name)
-	}
-	if preflight.Is(mw) {
-		preflight.Mark(wrapped)
-	}
+	marks.Answers(wrapped)
 	return wrapped
+}
+
+// middlewareMarks asks h what Zinc needs to know about it at registration.
+// It calls h only when h's code answers probes, so other middleware never
+// runs outside a request.
+func middlewareMarks(h HandlerFunc) marks.Marks {
+	if h == nil || !marks.CanAnswer(h) {
+		return marks.Marks{}
+	}
+	if m, ok := h(&Context{request: marks.Probe}).(*marks.Marks); ok && m != nil {
+		return *m
+	}
+	return marks.Marks{}
 }

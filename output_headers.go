@@ -4,6 +4,8 @@
 package zinc
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -158,6 +160,27 @@ func (c *Context) writeOutputHeaders(headers []outputHeader, out reflect.Value) 
 			c.SetHeader(h.name, headerText(v))
 		}
 	}
+}
+
+// jsonWithHeaders writes out as Context.JSON does, setting its header
+// fields only once the body has encoded, so a failed encode leaves none of
+// them on the error response.
+func (c *Context) jsonWithHeaders(out any, headers []outputHeader) error {
+	var data []byte
+	if encode := c.encoderFor("application/json"); encode != nil && out != nil {
+		var err error
+		if data, err = encode(out); err != nil {
+			return err
+		}
+	} else {
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(out); err != nil {
+			return err
+		}
+		data = buf.Bytes()
+	}
+	c.writeOutputHeaders(headers, reflect.ValueOf(out))
+	return c.Data(jsonType, data)
 }
 
 // fieldByIndex is reflect.Value.FieldByIndex that reports false, rather

@@ -749,20 +749,10 @@ func buildOperation(g *schemaGen, a *App, meta routeMeta, rd *routeDoc, middlewa
 
 	// Responses: success, then binding and validation failures, then the
 	// ones the route declares. A declared status replaces a derived one.
-	status := int(meta.status)
 	out := rd.out
 	kind := kindOf(out)
 	noContent := kind == outputNoContent
-	if status == 0 {
-		switch {
-		case noContent:
-			status = http.StatusNoContent
-		case kind == outputRedirect:
-			status = http.StatusFound
-		default:
-			status = http.StatusOK
-		}
-	}
+	status := successStatus(kind, int(meta.status))
 	success := &oaResponse{Description: http.StatusText(status)}
 	produced := rd.produces[status]
 	switch {

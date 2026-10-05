@@ -29,6 +29,11 @@ type bindingPlan struct {
 	// hasDefaults reports whether any field has a default tag, so binding
 	// skips the defaults pass for types without one.
 	hasDefaults bool
+	// defaultFields are every field with a default tag, whatever its
+	// source: the body, the path or anywhere else. Binding every source
+	// sets them first, so a source that leaves a field out keeps its
+	// default.
+	defaultFields []bindingField
 	// rules checks the type's validate tags and enum values; nil when it
 	// has none.
 	rules *rulePlan
@@ -55,12 +60,19 @@ type bindingPlan struct {
 
 // bodyMentionsParams reports whether body could have filled a
 // parameter-only field: whether any of their names appear in it, ignoring
-// ASCII case, as encoding/json matches them.
+// ASCII case, as encoding/json matches them. A key can also reach a field
+// spelled another way: escaped ("\u0072ole" is "role") or folded from a
+// non-ASCII letter ("ſort" matches Sort, the Kelvin sign matches K). The
+// scan can't see through either, so a body with a backslash or a non-ASCII
+// byte counts as mentioning them.
 func (plan *bindingPlan) bodyMentionsParams(body []byte) bool {
 	if plan.paramNamesFold {
 		return true
 	}
 	for i, b := range body {
+		if b == '\\' || b >= utf8.RuneSelf {
+			return true
+		}
 		if !plan.paramFirst[b] {
 			continue
 		}
@@ -147,9 +159,11 @@ type savedParam struct {
 
 // snapshotParams records v's parameter-only fields before a body decode. It
 // returns nil when there's nothing to restore: v has none, or the body
-// doesn't mention them, so the decode can't touch them. It also returns v's
-// binding plan, nil unless v points to a struct, for validating v after.
-func snapshotParams(c *Context, v any) (*paramSnapshot, *bindingPlan) {
+// doesn't mention them, so the decode can't touch them. A configured decoder
+// (custom) can fill a field from any key, so for one the body is never
+// scanned and the fields are always recorded. It also returns v's binding
+// plan, nil unless v points to a struct, for validating v after.
+func snapshotParams(c *Context, v any, custom bool) (*paramSnapshot, *bindingPlan) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
 		return nil, nil
@@ -158,7 +172,7 @@ func snapshotParams(c *Context, v any) (*paramSnapshot, *bindingPlan) {
 	if len(plan.paramOnly) == 0 {
 		return nil, plan
 	}
-	if body, err := c.readAndCacheBodyBytes(); err == nil && !plan.bodyMentionsParams(body) {
+	if body, err := c.readAndCacheBodyBytes(); !custom && err == nil && !plan.bodyMentionsParams(body) {
 		return nil, plan
 	}
 	snap := &paramSnapshot{plan: plan, val: rv.Elem()}
@@ -453,6 +467,14 @@ func (plan *bindingPlan) compileFields(root, t reflect.Type, path []int, depth i
 	}
 }
 
+// bindAdvice says which types binding can fill, in terms of t.
+func bindAdvice(t reflect.Type) string {
+	if t.Kind() == reflect.Slice {
+		return "a slice's elements must be a string, number or bool, or a type with UnmarshalText, not a pointer, slice, map or struct"
+	}
+	return "use a string, number or bool, a type with UnmarshalText, a pointer to one, or a slice of strings, numbers, bools or UnmarshalText types"
+}
+
 // hasTaggedFields reports whether t, or a struct it embeds, has a field with
 // a binding tag.
 func hasTaggedFields(t reflect.Type) bool {
@@ -474,11 +496,12 @@ func (plan *bindingPlan) compileField(root reflect.Type, i int, path []int, fiel
 		// intentionally so Bind.All can apply its documented source precedence.
 		setter := compileFieldSetter(field.Type)
 		if plan.err == nil && setter.unsupported() && hasBindingTag(field) {
-			plan.err = fmt.Errorf("zinc: %s.%s has a binding tag, but binding can't fill a %s; use a string, number or bool, a type with UnmarshalText, a pointer to one, or a slice of them", root, field.Name, field.Type)
+			plan.err = fmt.Errorf("zinc: %s.%s has a binding tag, but binding can't fill a %s; %s", root, field.Name, field.Type, bindAdvice(field.Type))
 		}
 		def := compileDefault(root, field, setter)
 		if def != nil {
 			plan.hasDefaults = true
+			plan.defaultFields = append(plan.defaultFields, bindingField{index: i, path: path, setter: setter, def: def})
 		}
 		if paramOnly(field) {
 			plan.paramOnly = append(plan.paramOnly, bindingField{index: i, path: path, setter: setter, def: def})
@@ -1058,8 +1081,9 @@ func (c *Context) lookupPathParam(name string) (string, bool) {
 func requestMediaType(header string) string {
 	// Binding dispatch needs only the media type. Charset and boundary parameters
 	// remain available on the request for the format-specific parser.
+	// Media types are case-insensitive: Application/JSON is JSON.
 	base, _, _ := strings.Cut(header, ";")
-	return strings.TrimSpace(base)
+	return strings.ToLower(strings.TrimSpace(base))
 }
 
 // mediaTag returns a file field's accepted content types, from a tag such

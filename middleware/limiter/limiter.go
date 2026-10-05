@@ -9,6 +9,7 @@ import (
 	"container/list"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,15 +57,17 @@ func (tb *bucket) refill(now time.Time) {
 	}
 }
 
-func (tb *bucket) takeAt(now time.Time) bool {
+// takeAt takes a token if there is one. When there isn't, it reports how
+// long until there will be.
+func (tb *bucket) takeAt(now time.Time) (bool, time.Duration) {
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
 	tb.refill(now)
 	if tb.tokens < 1 {
-		return false
+		return false, time.Duration((1 - tb.tokens) / tb.rate * float64(time.Second))
 	}
 	tb.tokens--
-	return true
+	return true, 0
 }
 
 func (tb *bucket) fullAt(now time.Time) bool {
@@ -119,9 +122,11 @@ func New(configs ...Config) zinc.Middleware {
 	var mu sync.Mutex
 	buckets := make(map[string]*list.Element)
 	order := list.New()
-	takeKey := func(key string, now time.Time) bool {
+	// takeKey reports a wait of 0 when the key itself is refused (too long, or
+	// no room for another key): no amount of waiting is sure to help.
+	takeKey := func(key string, now time.Time) (bool, time.Duration) {
 		if len(key) > cfg.MaxKeyBytes {
-			return false
+			return false, 0
 		}
 		mu.Lock()
 		defer mu.Unlock()
@@ -139,7 +144,7 @@ func New(configs ...Config) zinc.Middleware {
 		el := buckets[key]
 		if el == nil {
 			if len(buckets) >= cfg.MaxKeys {
-				return false
+				return false, 0
 			}
 			key = strings.Clone(key)
 			el = order.PushFront(&rateLimitEntry{key: key, bucket: newBucket(now), seen: now})
@@ -153,12 +158,18 @@ func New(configs ...Config) zinc.Middleware {
 	return func(c *zinc.Context) error {
 		now := cfg.Now()
 		var allowed bool
+		var wait time.Duration
 		if keyFor == nil {
-			allowed = global.takeAt(now)
+			allowed, wait = global.takeAt(now)
 		} else {
-			allowed = takeKey(keyFor(c), now)
+			allowed, wait = takeKey(keyFor(c), now)
 		}
 		if !allowed {
+			// Retry-After is in whole seconds, rounded up so a client that
+			// waits it out finds a token. LimitReached can change it.
+			if wait > 0 {
+				c.SetHeader(zinc.HeaderRetryAfter, strconv.FormatInt(int64(math.Ceil(wait.Seconds())), 10))
+			}
 			return cfg.LimitReached(c)
 		}
 		return c.Next()
@@ -166,7 +177,8 @@ func New(configs ...Config) zinc.Middleware {
 }
 
 // Doc describes the middleware for the OpenAPI spec: a request over the
-// limit is answered with 429. Pass it to Document beside the middleware.
+// limit is answered with 429, with Retry-After saying how many seconds until
+// it would be allowed. Pass it to Document beside the middleware.
 func Doc() zinc.MiddlewareDoc {
 	return zinc.MiddlewareDoc{Errors: []int{http.StatusTooManyRequests}}
 }

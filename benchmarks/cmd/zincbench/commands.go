@@ -293,13 +293,13 @@ func cmdImportZinc(s *Store, args []string) error {
 		return err
 	}
 	if header["goos"] != "" && header["goos"] != source.Env.GOOS {
-		return errors.New("Zinc and rival runs have different GOOS")
+		return errors.New("the Zinc and rival runs have different GOOS")
 	}
 	if header["goarch"] != "" && header["goarch"] != source.Env.GOARCH {
-		return errors.New("Zinc and rival runs have different GOARCH")
+		return errors.New("the Zinc and rival runs have different GOARCH")
 	}
 	if header["cpu"] != "" && header["cpu"] != source.Env.CPU {
-		return errors.New("Zinc and rival runs have different CPUs")
+		return errors.New("the Zinc and rival runs have different CPUs")
 	}
 	env := source.Env
 	env.Count = count
@@ -317,7 +317,7 @@ func cmdImportZinc(s *Store, args []string) error {
 
 func mergeZincWithRivals(partial map[string]Scenario, source *Run) (map[string]Scenario, int, error) {
 	if len(partial) != len(source.Scenarios) {
-		return nil, 0, fmt.Errorf("Zinc logs have %d scenarios; rival run %s has %d", len(partial), source.ID, len(source.Scenarios))
+		return nil, 0, fmt.Errorf("the Zinc logs have %d scenarios; rival run %s has %d", len(partial), source.ID, len(source.Scenarios))
 	}
 	scenarios := make(map[string]Scenario, len(partial))
 	count := 0

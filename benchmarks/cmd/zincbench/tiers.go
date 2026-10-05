@@ -132,9 +132,6 @@ func (r *Run) score(t Tier) Score {
 	return s
 }
 
-// wins counts headline scenarios Zinc wins by more than TieBand.
-func (r *Run) wins() int { return r.score(headline).Wins }
-
 func (s Score) String() string {
 	if s.Of == 0 {
 		return "—"

@@ -431,7 +431,7 @@ Struct fields follow `encoding/json`: `json` tag names, `-`, `,string`, and embe
 
 | Tag | Adds |
 |---|---|
-| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices: the rules the validator [enforces](#the-spec-claims-the-rules-that-are-enforced). With `omitempty`, the zero value is allowed too, as the validator allows it. |
+| `validate:"required,min=1,max=40"` | Required fields, lengths, ranges, `email`, `uuid` and `url` formats, and `oneof` choices: the rules the validator [enforces](#the-spec-claims-the-rules-that-are-enforced). With `omitempty`, the zero value is allowed by the rules after it, as the validator allows it, unless the field is a pointer: one that isn't nil is checked whatever it points to. |
 | `doc:"The pet's ID."` | A description |
 | `example:"7"` | An example value |
 | `enum:"s,m,l"` | The values the field takes, or its elements for a slice. Zinc checks them on input, whatever the validator |

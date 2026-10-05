@@ -224,7 +224,9 @@ func (r Route) Input(v any) Route {
 // known.
 func (r Route) Output(v any) Route {
 	doc := r.doc("Output")
-	doc.out = declaredType("Output", doc, v)
+	out := declaredType("Output", doc, v)
+	r.table.checkRedirectStatus(r.index, out, int(r.table.routeInfos[r.index].status))
+	doc.out = out
 	return r
 }
 

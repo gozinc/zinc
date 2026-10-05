@@ -55,7 +55,7 @@ curl -i "http://localhost:8080/users/?page=2"
 | Field | Default | Meaning |
 |---|---|---|
 | `Add` | `false` | Adds a trailing slash instead of removing it |
-| `Redirect` | `false` | Redirects the client to the changed path instead of routing it directly. The query string is kept. |
+| `Redirect` | `false` | Redirects the client to the changed path instead of routing it directly. The query string is kept, the path keeps its escaping, and the target always stays on this site. |
 | `StatusCode` | `301` | Redirect status when `Redirect` is on. A value outside `3xx` sends `302 Found`. |
 
 ## Always end with a slash
