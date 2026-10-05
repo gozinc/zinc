@@ -277,7 +277,11 @@ func (a *App) preflightChain(ctx *Context, path string) []HandlerFunc {
 	}
 	found := &Context{}
 	if a.router.findInto(requested, path, found) == nil {
-		return nil
+		// A GET route answers HEAD, so it's the route a HEAD preflight asks
+		// about, as FindRoute reports.
+		if requested != MethodHead || !a.autoHead || a.router.findInto(MethodGet, path, found) == nil {
+			return nil
+		}
 	}
 	mws := a.router.preflight[found.routeInfo.method+" "+found.routeInfo.path]
 	if len(mws) == 0 {

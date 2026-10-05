@@ -413,3 +413,12 @@ func FuzzRouterRules(f *testing.F) {
 		checkRouterRules(t, rand.New(rand.NewPCG(a, b)))
 	})
 }
+
+func TestRuleNilAppMiddlewareRejected(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "nil middleware") {
+			t.Fatalf("App.Use(nil): %v", r)
+		}
+	}()
+	New().Use(nil)
+}

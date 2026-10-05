@@ -553,6 +553,11 @@ func (a *App) closeStaticRoots() error {
 
 // Use appends Zinc middleware in registration order.
 func (a *App) Use(handlers ...HandlerFunc) {
+	for _, h := range handlers {
+		if h == nil {
+			panic("zinc: App.Use: nil middleware")
+		}
+	}
 	a.middleware = append(a.middleware, handlers...)
 	a.rebuildMiddlewareChain()
 }

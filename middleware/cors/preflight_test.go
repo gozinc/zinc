@@ -63,3 +63,18 @@ func TestGroupCORSAnswersPreflight(t *testing.T) {
 		t.Fatalf("real request: %d, auth ran %v", w.Code, authRan)
 	}
 }
+
+// A GET route answers HEAD, so a HEAD preflight gets the GET route's CORS.
+func TestGroupCORSAnswersHeadPreflight(t *testing.T) {
+	app := zinc.New()
+	api := app.Group("/api", cors.New(cors.Config{AllowOrigins: []string{"https://app.example.com"}}))
+	api.Get("/pets", func(c *zinc.Context) error { return c.NoContent() })
+	if w := preflight(app, "/api/pets", "HEAD"); w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" {
+		t.Fatalf("HEAD preflight: %d %v", w.Code, w.Header())
+	}
+	noHead := zinc.New(zinc.Config{DisableAutoHead: true})
+	noHead.Group("/api", cors.New()).Get("/pets", func(c *zinc.Context) error { return c.NoContent() })
+	if w := preflight(noHead, "/api/pets", "HEAD"); w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("HEAD preflight without automatic HEAD: %d %v", w.Code, w.Header())
+	}
+}
