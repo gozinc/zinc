@@ -104,4 +104,4 @@ The suite also gains `APIProductionStack`: an API route behind a request ID, an 
 ## Next steps
 
 - [OpenAPI](/guide/openapi/): describe, serve and export your API's spec.
-- [Release notes](https://github.com/0mjs/zinc/releases): every change in 0.6.0.
+- [Release notes](https://github.com/gozinc/zinc/releases): every change in 0.6.0.

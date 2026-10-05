@@ -228,6 +228,8 @@ curl -H "Accept: text/plain" http://localhost:8080/health   # ok
 curl http://localhost:8080/health                           # {"ok":true}
 ```
 
+`Negotiate` adds `Accept` to the `Vary` header, so a shared cache keeps the formats apart. Any `Vary` entries you set stay, and `Accept` isn't added twice.
+
 ## Redirect
 
 ```go

@@ -56,4 +56,4 @@ Without a route cache, a benchmark that sends the same URL over and over is slow
 ## Next steps
 
 - [Routing](/guide/routing/): the rules the new router follows.
-- [Release notes](https://github.com/0mjs/zinc/releases): every change in 0.5.0, 0.5.1 and 0.5.2.
+- [Release notes](https://github.com/gozinc/zinc/releases): every change in 0.5.0, 0.5.1 and 0.5.2.

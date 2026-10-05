@@ -70,7 +70,7 @@ curl -i -X POST http://localhost:8080/login
 | `Rules` | none | Old path → new path. A key ending in `*` matches a prefix. A `*` in the value is replaced by the rest of the path; with no `*`, the rest is appended. |
 | `StatusCode` | `301` | Redirect status. A value outside `3xx` sends `302 Found`. |
 
-Rules compare the path exactly, so `/old` doesn't match `/OLD` or `/old/`, though Zinc's routes do. Add a rule for each spelling you need, or register [Trailing Slash](/middleware/trailingslash/) first. An exact rule wins over a `*` rule; when two `*` rules match the same path, such as `/v1/*` and `/v1/users/*`, which one applies isn't defined.
+Rules compare the path exactly, so `/old` doesn't match `/OLD` or `/old/`, though Zinc's routes do. Add a rule for each spelling you need, or register [Trailing Slash](/middleware/trailingslash/) first. When several rules match, an exact rule wins over any `*` rule, and among `*` rules the longest prefix wins: with `/v1/*` and `/v1/users/*`, a request for `/v1/users/42` always takes `/v1/users/*`.
 
 Browsers and clients change a `POST` into a `GET` when they follow a `301` or `302`. Use `307 Temporary Redirect` or `308 Permanent Redirect` to keep the method and body.
 

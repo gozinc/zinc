@@ -61,7 +61,7 @@ curl http://localhost:8080/users/42
 # user 42
 ```
 
-The handler reads route parameters with `r.PathValue`, as it would under `http.ServeMux`.
+The handler reads route parameters with `r.PathValue`, as it would under `http.ServeMux`. `r.Pattern` is the route's method and full path, here `GET /users/{id}`.
 
 Groups have `HandleHTTP` too, and the group's middleware runs around the handler:
 
@@ -202,9 +202,9 @@ Standard handlers get a response writer that keeps the features of the server's 
 
 ## Good to know
 
-### Path values are set only for standard handlers
+### Path values are set only for standard code
 
-Zinc copies route parameters into `r.PathValue` right before a standard handler runs. Zinc handlers read them with `c.Param` instead, so `r.PathValue` is empty inside them.
+Zinc copies the matched route into the request right before a standard handler, or standard middleware on a group or route (`FromHTTP`, `Group.UseHTTP`), runs: `r.PathValue` returns each parameter and `r.Pattern` is the route's `METHOD /path`, such as `GET /users/{id}`. A HEAD request answered by a GET route gets the GET pattern, as with `http.ServeMux`. Middleware on the whole app, from `App.UseHTTP` or `App.Use`, runs before routing, so it sees neither. Zinc handlers read parameters with `c.Param` instead, so `r.PathValue` is empty inside them unless standard middleware ran first.
 
 ### The writer is a thin wrapper
 

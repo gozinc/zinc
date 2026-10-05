@@ -5,6 +5,7 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math/rand"
@@ -12,6 +13,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,9 +48,19 @@ type Config struct {
 	ErrorHandler   func(http.ResponseWriter, *http.Request, error)
 	Retries        int
 	RetryFilter    func(*zinc.Context, error) bool
-	Rewrite        map[string]string
-	RegexRewrite   map[*regexp.Regexp]string
-	Transport      http.RoundTripper
+	// Rewrite maps an upstream path, after the target's own path is added,
+	// to the path to send instead. A path ending in "*" matches a prefix,
+	// and a "*" in the target is replaced by the rest of the path. When
+	// several rules match, an exact rule wins over every "*" rule, and among
+	// "*" rules the longest prefix wins. The order is fixed when New runs.
+	Rewrite map[string]string
+	// RegexRewrite holds regular-expression path rules, tried when no
+	// Rewrite rule matches; the target may use $1-style references. A map
+	// has no order, so New puts the rules in one: the longest pattern
+	// source is tried first, then patterns in lexical order, and the first
+	// match wins. New panics when two rules have the same pattern source.
+	RegexRewrite map[*regexp.Regexp]string
+	Transport    http.RoundTripper
 }
 
 // New forwards matching requests to an upstream through an
@@ -91,8 +104,8 @@ func newReverseProxy(config Config) (*httputil.ReverseProxy, Balancer) {
 		panic("proxy: Retries must not be negative")
 	}
 	baseTarget, balancer := resolveProxyTargets(config)
-	rewriteRules := shared.CloneRewriteRules(config.Rewrite)
-	regexRewriteRules := cloneRegexRewriteRules(config.RegexRewrite)
+	rewriteRules := shared.CompileRules(config.Rewrite)
+	regexRewriteRules := compileRegexRewriteRules(config.RegexRewrite)
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -217,23 +230,42 @@ func normalizeOptionalProxyTargets(targets []*Target) []*Target {
 	return out
 }
 
-func cloneRegexRewriteRules(rules map[*regexp.Regexp]string) map[*regexp.Regexp]string {
-	out := make(map[*regexp.Regexp]string, len(rules))
+type regexRule struct {
+	from *regexp.Regexp
+	to   string
+}
+
+// compileRegexRewriteRules puts regular-expression rules in a fixed order:
+// longest pattern source first, then lexical. Two rules with the same source
+// would leave the winner to map order, so they are refused.
+func compileRegexRewriteRules(rules map[*regexp.Regexp]string) []regexRule {
+	out := make([]regexRule, 0, len(rules))
 	for from, to := range rules {
 		if from == nil {
 			continue
 		}
-		out[from] = to
+		out = append(out, regexRule{from: from, to: to})
+	}
+	slices.SortFunc(out, func(a, b regexRule) int {
+		as, bs := a.from.String(), b.from.String()
+		if c := cmp.Compare(len(bs), len(as)); c != 0 {
+			return c
+		}
+		return strings.Compare(as, bs)
+	})
+	for i := 1; i < len(out); i++ {
+		if out[i].from.String() == out[i-1].from.String() {
+			panic("proxy: RegexRewrite has two rules with the pattern " + strconv.Quote(out[i].from.String()))
+		}
 	}
 	return out
 }
 
-func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules map[string]string, regexRewriteRules map[*regexp.Regexp]string) {
+func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules *shared.Rules, regexRewriteRules []regexRule) {
 	req.URL.Scheme = target.Scheme
 	req.URL.Host = target.Host
 	req.URL.Path, req.URL.RawPath = joinProxyPaths(target, req.URL)
-	req.URL.Path = applyProxyRewrite(req.URL.Path, rewriteRules, regexRewriteRules)
-	req.URL.RawPath = ""
+	applyProxyRewrite(req.URL, rewriteRules, regexRewriteRules)
 	if target.RawQuery == "" || req.URL.RawQuery == "" {
 		req.URL.RawQuery = target.RawQuery + req.URL.RawQuery
 	} else {
@@ -241,26 +273,91 @@ func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules map[string
 	}
 }
 
-func applyProxyRewrite(path string, rewriteRules map[string]string, regexRewriteRules map[*regexp.Regexp]string) string {
-	if target, ok := shared.RewriteTarget(path, rewriteRules); ok {
-		return target
-	}
-	for from, to := range regexRewriteRules {
-		if from.MatchString(path) {
-			return from.ReplaceAllString(path, to)
+// applyProxyRewrite rewrites u's path by the first matching rule. Rules
+// match the decoded path, and u keeps a RawPath that agrees with its Path,
+// so the escaping the client sent survives where it can:
+//
+//   - an exact rule's target is a decoded path, escaped as usual;
+//   - a "*" rule's target is escaped as usual, and the part of the request
+//     the "*" carries over keeps the request's escaping;
+//   - a regular expression's result keeps the request's escaping when the
+//     same rule, applied to the escaped path, gives an encoding of the same
+//     path; otherwise it is escaped as usual.
+//
+// A request whose path has only standard escaping takes none of the extra
+// steps, since standard escaping of the result is then already right.
+func applyProxyRewrite(u *url.URL, rewriteRules *shared.Rules, regexRewriteRules []regexRule) {
+	if to, tail, prefix, ok := rewriteRules.Match(u.Path); ok {
+		switch {
+		case !prefix:
+			u.Path, u.RawPath = to, ""
+		case u.RawPath == "":
+			u.Path = shared.ExpandTarget(to, tail)
+		default:
+			rawPath := escapedRuleTarget(to, shared.EscapedTail(u, len(tail)))
+			u.Path, u.RawPath = shared.ExpandTarget(to, tail), rawPath
 		}
+		return
 	}
-	return path
+	for _, rule := range regexRewriteRules {
+		if !rule.from.MatchString(u.Path) {
+			continue
+		}
+		rawPath := ""
+		if u.RawPath != "" {
+			if escaped := u.EscapedPath(); rule.from.MatchString(escaped) {
+				rawPath = rule.from.ReplaceAllString(escaped, rule.to)
+			}
+		}
+		// url.URL ignores a RawPath that is not an encoding of Path, so a
+		// candidate that disagrees falls back to standard escaping.
+		u.Path, u.RawPath = rule.from.ReplaceAllString(u.Path, rule.to), rawPath
+		return
+	}
 }
 
+// escapedRuleTarget is the escaped form of a "*" rule's target with
+// escapedTail in place of the "*", or appended when there is none.
+func escapedRuleTarget(to, escapedTail string) string {
+	if before, after, ok := strings.Cut(to, "*"); ok {
+		return escapePath(before) + escapedTail + escapePath(after)
+	}
+	return escapePath(to) + escapedTail
+}
+
+// escapePath is the standard escaping of a decoded path.
+func escapePath(path string) string {
+	u := url.URL{Path: path}
+	return u.EscapedPath()
+}
+
+// joinProxyPaths appends the request path to the target's, returning the
+// decoded path and, when either side has non-standard escaping, a RawPath
+// that agrees with it. Whether a slash is added or dropped at the join is
+// decided on the escaped forms, so an escaped slash at either end ("%2F")
+// stays part of its segment.
 func joinProxyPaths(target, request *url.URL) (string, string) {
 	if target.Path == "" {
-		return request.Path, ""
+		return request.Path, request.RawPath
 	}
 	if request.Path == "" {
-		return target.Path, ""
+		return target.Path, target.RawPath
 	}
-	return singleJoiningSlash(target.Path, request.Path), ""
+	if target.RawPath == "" && request.RawPath == "" {
+		return singleJoiningSlash(target.Path, request.Path), ""
+	}
+	targetEscaped, requestEscaped := target.EscapedPath(), request.EscapedPath()
+	targetSlash := strings.HasSuffix(targetEscaped, "/")
+	requestSlash := strings.HasPrefix(requestEscaped, "/")
+	switch {
+	case targetSlash && requestSlash:
+		// An escaped path starting with "/" means the decoded one does too.
+		return target.Path + request.Path[1:], targetEscaped + requestEscaped[1:]
+	case !targetSlash && !requestSlash:
+		return target.Path + "/" + request.Path, targetEscaped + "/" + requestEscaped
+	default:
+		return target.Path + request.Path, targetEscaped + requestEscaped
+	}
 }
 
 func singleJoiningSlash(a, b string) string {

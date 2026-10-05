@@ -60,7 +60,7 @@ On a single route it can't change the route either, and logs a warning through `
 |---|---|---|
 | `Rules` | none | Incoming path → path to route instead. A key ending in `*` matches a prefix. A `*` in the value is replaced by the rest of the path; with no `*`, the rest is appended. |
 
-Rules compare the path exactly, so `/old` doesn't match `/OLD` or `/old/`. An exact rule wins over a `*` rule; when two `*` rules match the same path, which one applies isn't defined, so keep prefixes from overlapping.
+Rules compare the path exactly, so `/old` doesn't match `/OLD` or `/old/`. When several rules match, an exact rule wins over any `*` rule, and among `*` rules the longest prefix wins: with `/*` and `/api/*`, a request for `/api/pets` always takes `/api/*`. The order doesn't depend on how the map was written.
 
 ## Errors
 

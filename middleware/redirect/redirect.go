@@ -17,6 +17,11 @@ type Config struct {
 	// Rules maps a path to its target. A path ending in "*" matches a prefix,
 	// and a "*" in the target is replaced by the rest of the path, still
 	// escaped. A target without a scheme or host is a path on this site.
+	//
+	// When several rules match, an exact rule wins over every "*" rule, and
+	// among "*" rules the longest prefix wins: with "/*" and "/api/*", a
+	// request for /api/pets always takes "/api/*". The order is fixed when
+	// New runs, so every request agrees.
 	Rules map[string]string
 	// StatusCode is the redirect status. Zero uses 301 Moved Permanently.
 	StatusCode int
@@ -29,7 +34,7 @@ type Config struct {
 // time it runs.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("redirect", configs)
-	rules := shared.CloneRewriteRules(config.Rules)
+	rules := shared.CompileRules(config.Rules)
 	statusCode := config.StatusCode
 	if statusCode == 0 {
 		statusCode = http.StatusMovedPermanently
@@ -46,7 +51,7 @@ func New(configs ...Config) zinc.Middleware {
 			return c.Next()
 		}
 
-		to, tail, prefix, ok := shared.MatchRule(req.URL.Path, rules)
+		to, tail, prefix, ok := rules.Match(req.URL.Path)
 		if !ok {
 			return c.Next()
 		}

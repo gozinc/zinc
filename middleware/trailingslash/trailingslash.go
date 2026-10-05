@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/internal/marks"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -25,19 +26,31 @@ type Config struct {
 }
 
 // New normalizes the trailing slash of the request path, keeping the query
-// string.
+// string. Register it with App.Use or App.UsePrefix, so it runs before
+// routing. Registering it on a group panics, since the route can no longer
+// change there; on a single route it logs a warning the first time it runs.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("trailingslash", configs)
 	cfg := resolveTrailingSlashConfig(config)
+	placement := shared.NewRoutingWarning("trailingslash")
 
-	return func(c *zinc.Context) error {
+	mw := func(c *zinc.Context) error {
 		req := c.Request()
+		if req == marks.Probe {
+			return probeAnswer
+		}
+		placement.Check(c)
 		if req == nil || req.URL == nil {
 			return c.Next()
 		}
 
 		nextPath := normalizeTrailingSlashPath(req.URL.Path, cfg.Add)
 		if nextPath == req.URL.Path {
+			return c.Next()
+		}
+		// A static directory's URL ends with a slash, and the URL without
+		// it redirects back there, so removing the slash would loop.
+		if !cfg.Add && marks.StaticDirectory != nil && marks.StaticDirectory(c, req.URL.Path) {
 			return c.Next()
 		}
 
@@ -55,7 +68,13 @@ func New(configs ...Config) zinc.Middleware {
 		c.SetPath(nextPath)
 		return c.Next()
 	}
+	marks.Answers(mw)
+	return mw
 }
+
+// probeAnswer tells Zinc a trailingslash must run before routing: on a group
+// it would run after routing, so Group.Use panics.
+var probeAnswer = &marks.Marks{Prerouting: "trailingslash"}
 
 func resolveTrailingSlashConfig(config Config) Config {
 	if config.StatusCode == 0 {

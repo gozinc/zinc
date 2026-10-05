@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/0mjs/zinc"
 	"github.com/0mjs/zinc/middleware/internal/shared"
@@ -41,6 +42,10 @@ func New(configs ...Config) zinc.Middleware {
 		panic("compress: MinLength must be greater than or equal to zero")
 	}
 
+	// A gzip.Writer holds about a megabyte of compression state, so each
+	// instance keeps its writers, all at its one level, for reuse.
+	pool := &sync.Pool{}
+
 	return func(c *zinc.Context) error {
 		if !requestAcceptsGzip(c.Header(zinc.HeaderAcceptEncoding)) {
 			appendVary(c.Writer().Header(), zinc.HeaderAcceptEncoding)
@@ -53,21 +58,51 @@ func New(configs ...Config) zinc.Middleware {
 			method:         c.Method(),
 			level:          level,
 			minLength:      config.MinLength,
+			pool:           pool,
 		}
 		c.SetWriter(writer)
-		defer c.SetWriter(baseWriter)
+		finished := false
+		defer func() {
+			if finished {
+				return
+			}
+			finishOnPanic(c, baseWriter, writer, recover())
+		}()
 
 		err := c.Next()
 		if err != nil {
 			c.HandleError(err)
 		}
+		finished = true
 		closeErr := writer.Close()
+		writer.release()
 		c.SetWriter(baseWriter)
 		if err != nil {
 			return err
 		}
 		return closeErr
 	}
+}
+
+// finishOnPanic runs when the downstream chain panics. An ordinary panic
+// completes the response written so far, as returning normally would: a gzip
+// stream gets its trailer, and a buffered body under MinLength is sent as
+// identity. The client then reads a well-formed body rather than a truncated
+// gzip stream, and the status already committed stays as it is. The original
+// value is re-panicked so outer recovery still runs. http.ErrAbortHandler
+// asks net/http to abort the response, so it restores the writer and
+// re-panics the sentinel without completing any output.
+func finishOnPanic(c *zinc.Context, baseWriter http.ResponseWriter, writer *gzipResponseWriter, value any) {
+	c.SetWriter(baseWriter)
+	if value == nil {
+		// runtime.Goexit: there is no panic to propagate.
+		return
+	}
+	if value != http.ErrAbortHandler {
+		_ = writer.Close()
+		writer.release()
+	}
+	panic(value)
 }
 
 func requestAcceptsGzip(header string) bool {
@@ -113,6 +148,7 @@ type gzipResponseWriter struct {
 	status      int
 	wroteHeader bool
 	writer      *gzip.Writer
+	pool        *sync.Pool
 	buffer      bytes.Buffer
 }
 
@@ -142,7 +178,7 @@ func (w *gzipResponseWriter) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	if !gzipBodyAllowed(w.method, w.status) || w.Header().Get(zinc.HeaderContentEncoding) != "" {
+	if !gzipBodyAllowed(w.method, w.status) || !w.compressible() {
 		w.writeRawHeader()
 		return w.ResponseWriter.Write(p)
 	}
@@ -241,14 +277,57 @@ func (w *gzipResponseWriter) startGzip() error {
 	appendVary(w.Header(), zinc.HeaderAcceptEncoding)
 	w.Header().Set(zinc.HeaderContentEncoding, "gzip")
 	w.Header().Del(zinc.HeaderContentLength)
+	weakenETag(w.Header())
 	w.writeRawHeader()
 
+	if w.pool == nil {
+		// Built without New, as a test does: no pool to draw from.
+	} else if writer, _ := w.pool.Get().(*gzip.Writer); writer != nil {
+		writer.Reset(w.ResponseWriter)
+		w.writer = writer
+		return nil
+	}
 	writer, err := gzip.NewWriterLevel(w.ResponseWriter, w.level)
 	if err != nil {
 		return err
 	}
 	w.writer = writer
 	return nil
+}
+
+// release returns a closed gzip writer to the pool, pointed at nothing so
+// it keeps no reference to this response.
+func (w *gzipResponseWriter) release() {
+	if w.writer == nil || w.pool == nil {
+		return
+	}
+	w.writer.Reset(io.Discard)
+	w.pool.Put(w.writer)
+	w.writer = nil
+}
+
+// compressible reports whether the response may be gzip-encoded: it is not
+// already encoded, and it is not a partial response. A 206 or a Content-Range
+// gives byte offsets in the identity representation, which a gzip body would
+// no longer match.
+func (w *gzipResponseWriter) compressible() bool {
+	header := w.Header()
+	return w.status != http.StatusPartialContent &&
+		header.Get(zinc.HeaderContentEncoding) == "" &&
+		header.Get(zinc.HeaderContentRange) == ""
+}
+
+// weakenETag marks a strong ETag weak once the body is gzip-encoded. RFC 9110
+// section 8.8.3 requires a strong validator to differ between content
+// codings. A weak one claims only semantic equivalence, which the gzip and
+// identity bodies share, and still matches If-None-Match's weak comparison.
+// A weak ETag is left as it is.
+func weakenETag(header http.Header) {
+	etag := header.Get(zinc.HeaderETag)
+	if etag == "" || strings.HasPrefix(etag, "W/") {
+		return
+	}
+	header.Set(zinc.HeaderETag, "W/"+etag)
 }
 
 func (w *gzipResponseWriter) writeRawHeader() {

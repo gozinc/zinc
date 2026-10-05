@@ -27,6 +27,17 @@ Without the middleware, the strict app answers `/users/` with a 404. The slash i
 
 Register it with `app.Use`, so it runs before routing.
 
+:::caution[Not in a group]
+In a group, routing has already chosen a handler by the time `trailingslash` runs, so changing the path can't change the route. Registering it on a group panics at startup, in every mode:
+
+```go
+app.Group("/api").Use(trailingslash.New())
+// panic: zinc: trailingslash middleware on group "/api" would run after routing, where it can't work; register it with app.Use, or app.UsePrefix("/api", ...) for the group's paths
+```
+
+On a single route it can't change the route either, and logs a warning through `slog` the first time it runs.
+:::
+
 ## Defaults
 
 | Setting | Default |
@@ -78,6 +89,10 @@ curl -i http://localhost:8080/docs
 ```
 
 The root path `/` is always left alone.
+
+## Static folders
+
+A folder served by `Static` or `StaticFS` lives at its URL with a trailing slash, and redirects there without one. When removing slashes, Trailing Slash leaves a folder's URL alone, so the two never redirect back and forth. Files under a static mount are treated like any other path.
 
 ## Errors
 

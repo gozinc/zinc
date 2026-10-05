@@ -71,9 +71,14 @@ The response goes out as written when:
 - the request method is `HEAD`
 - the status can't have a body (`1xx`, `204`, `304`)
 - the handler already set `Content-Encoding`
+- the response is partial: a `206`, or any response with `Content-Range`, whose byte offsets refer to the uncompressed body
 - the body is shorter than `MinLength`
 
 Every response gets `Vary: Accept-Encoding`, compressed or not, so a shared cache keeps the two versions apart.
+
+## ETags
+
+A gzipped body is a different representation from the uncompressed one, so the two can't share a strong ETag. When `compress` gzips a response, a strong ETag becomes weak: `"v1"` goes out as `W/"v1"`. A weak ETag is left as it is, and so is the ETag of a response that goes out uncompressed. `If-None-Match` compares ETags weakly, so a client sending `W/"v1"` back still matches `"v1"`.
 
 ## Streaming and WebSockets
 
@@ -82,6 +87,8 @@ The compressing writer keeps `Flush`, `Hijack` and `Push` working, so streaming 
 ## Errors
 
 `compress` doesn't reject requests. An error from writing the gzip stream is returned from the middleware.
+
+When a handler panics after writing part of a body, `compress` finishes what was written before the panic carries on: a gzip stream gets its ending, so it decompresses cleanly, and a body still held back under `MinLength` goes out uncompressed. The status already written stays, so [Recover](/middleware/recover/) can only send its `500` when nothing was written. A panic with `http.ErrAbortHandler` is passed on without finishing the body, so `net/http` aborts the response.
 
 `compress.New` panics at startup when `Level` is outside -2 to 9, when `MinLength` is negative, or when it's given more than one `Config`.
 

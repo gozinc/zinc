@@ -123,6 +123,16 @@ curl http://localhost:8080/docs/guides/
 
 Folder listing is off by default: without an index file, the folder gets a `404`. Turn listing on only for content you intend to publish.
 
+A folder's URL ends with a slash, so relative links in its index, such as `href="style.css"`, resolve inside the folder. The URL without the slash redirects there, keeping the query string, as `http.FileServer` does:
+
+```bash
+curl -i "http://localhost:8080/docs/guides?page=2"
+# HTTP/1.1 301 Moved Permanently
+# Location: /docs/guides/?page=2
+```
+
+[Trailing Slash](/middleware/trailingslash/) leaves a folder's slash alone, so removing slashes never loops with this redirect.
+
 ## Serve files from a group
 
 `Group.Static` and `Group.StaticFS` put the folder under the group's prefix and run the group's middleware first:
@@ -145,6 +155,8 @@ Prefer `Static` and `StaticFS` in new code. They reject methods other than `GET`
 ## Share paths between files and routes
 
 A route always wins over a static folder. With `app.Static("/assets", "./public")`, a `GET /assets/version` route still runs your handler.
+
+The app's [spec and reference page](/guide/openapi/#serve-the-spec) win too: with `app.Static("/", "./public")`, `/openapi.json` and `/docs` still serve them. A folder at exactly `/docs` replaces the page.
 
 To serve files from the site root next to your routes, let routes match first and serve files from the not-found handler:
 

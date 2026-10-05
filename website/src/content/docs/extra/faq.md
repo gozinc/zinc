@@ -21,7 +21,7 @@ Zinc sits between the two styles: the ergonomics of Gin and Echo, with Chi's com
 
 ## Is Zinc production-ready?
 
-Zinc is **pre-1.0**. Its behavior is covered by tests, and the security-relevant middleware is documented with its limits. The public API can still change between minor versions; [Compatibility](/extra/compatibility/) says exactly what each kind of release can change. Pin a version, and read the [release notes](https://github.com/0mjs/zinc/releases) before upgrading.
+Zinc is **pre-1.0**. Its behavior is covered by tests, and the security-relevant middleware is documented with its limits. The public API can still change between minor versions; [Compatibility](/extra/compatibility/) says exactly what each kind of release can change. Pin a version, and read the [release notes](https://github.com/gozinc/zinc/releases) before upgrading.
 
 ## Why does a handler return an error?
 
@@ -57,4 +57,4 @@ Route patterns are written in source code, so a typo is a programming error. Pan
 
 ## Where do I report bugs or ask questions?
 
-Open an issue on [GitHub](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](https://github.com/0mjs/zinc/blob/dev/CONTRIBUTING.md) before opening a pull request.
+Open an issue on [GitHub](https://github.com/gozinc/zinc/issues). Read [CONTRIBUTING.md](https://github.com/gozinc/zinc/blob/dev/CONTRIBUTING.md) before opening a pull request.

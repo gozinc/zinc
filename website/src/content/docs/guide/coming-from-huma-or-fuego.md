@@ -5,7 +5,7 @@ description: Huma, Fuego and Zinc all build an OpenAPI spec from Go types. How t
 
 Huma and Fuego exist to turn Go types into an OpenAPI spec, and they do it well. Zinc does it too, since 0.6, as part of a general web framework. This page shows the same API in all three, then says plainly where they differ, including what Huma and Fuego offer that Zinc doesn't.
 
-The Huma and Fuego code is written from each project's README and documentation, Huma v2 and Fuego v0.20, as of October 2026. If something here is out of date, [open an issue](https://github.com/0mjs/zinc/issues).
+The Huma and Fuego code is written from each project's README and documentation, Huma v2 and Fuego v0.20, as of October 2026. If something here is out of date, [open an issue](https://github.com/gozinc/zinc/issues).
 
 ## The same endpoint three ways
 

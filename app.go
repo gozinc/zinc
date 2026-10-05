@@ -247,16 +247,22 @@ type App struct {
 	autoHead         bool
 	autoOptions      bool
 	methodNotAllowed bool
-	// spec is the spec served at specPath when no route matches it; nil when
-	// Config.OpenAPIPath is "-" or App.OpenAPI took over.
+	// spec is the spec served at specPath when no route matches it, before
+	// any mount above that path; nil when Config.OpenAPIPath is "-", or a
+	// route, mount or App.OpenAPI took over.
 	spec     *servedSpec
 	specPath string
 	// specs are the specs served with App.OpenAPI, which Validate builds.
 	specs []*servedSpec
 	// docs is the reference page served at docsPath when no route matches
-	// it; nil when Config.DocsPath is "-" or there's no spec.
+	// it, before any mount above that path; nil when Config.DocsPath is "-",
+	// there's no spec, or a mount took over.
 	docs     *docsPage
 	docsPath string
+	// builtinsUnderMounts is set when a mount, such as Static at /, covers a
+	// built-in endpoint's path. Dispatch then checks the built-ins before
+	// mounts; otherwise mount hits skip that check.
+	builtinsUnderMounts bool
 }
 
 // New creates an App. With no Config, or with a zero-valued field, Zinc's
@@ -658,10 +664,53 @@ func (a *App) addMount(entry mountedHandler, prefix string, info HandlerFunc, mi
 			return entry.serve(c)
 		})
 	}
+	a.claimBuiltins(prefix)
 	a.mounts = append(a.mounts, entry)
 	sort.SliceStable(a.mounts, func(i, j int) bool {
 		return len(a.mounts[i].prefixPath) > len(a.mounts[j].prefixPath)
 	})
+}
+
+// claimBuiltins applies a new mount at prefix to the built-in endpoints. A
+// mount at exactly a built-in's path claims it, as a route there would. A
+// mount above one, such as Static at /, doesn't: the built-in still answers
+// its own path, and the mount everything else.
+func (a *App) claimBuiltins(prefix string) {
+	same := func(path string) bool {
+		if a.config.CaseSensitive {
+			return path == prefix
+		}
+		return strings.EqualFold(path, prefix)
+	}
+	if a.spec != nil {
+		if same(a.specPath) {
+			a.spec, a.specPath = nil, ""
+		} else if pathHasPrefix(a.specPath, prefix, a.config.CaseSensitive) {
+			a.builtinsUnderMounts = true
+		}
+	}
+	if a.docs != nil {
+		if same(a.docsPath) {
+			a.docs, a.docsPath = nil, ""
+		} else if pathHasPrefix(a.docsPath, prefix, a.config.CaseSensitive) {
+			a.builtinsUnderMounts = true
+		}
+	}
+}
+
+// serveBuiltin serves the built-in endpoint at path, if there's one for the
+// method. The boolean reports whether it did.
+func (a *App) serveBuiltin(ctx *Context, method, path string) (bool, error) {
+	if method != MethodGet && method != MethodHead {
+		return false, nil
+	}
+	if a.spec != nil && path == a.specPath {
+		return true, a.spec.serve(ctx)
+	}
+	if a.docs != nil && path == a.docsPath {
+		return true, a.docs.serve(ctx)
+	}
+	return false, nil
 }
 
 // AcquireContext creates an application-bound Context for advanced integrations.
@@ -734,7 +783,8 @@ func (a *App) TryHandle(spec RouteSpec) error {
 
 // HandleHTTP registers a standard net/http handler using a "METHOD /path"
 // pattern, such as "GET /metrics". Matched parameters are available through
-// http.Request.PathValue inside the standard handler.
+// http.Request.PathValue inside the standard handler, and the route's
+// pattern through http.Request.Pattern, as Wrap describes.
 func (a *App) HandleHTTP(pattern string, handler http.Handler) Route {
 	if handler == nil {
 		panic("zinc: HTTP handler is nil")
@@ -813,9 +863,7 @@ func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 	if ctx != nil {
 		return ctx.Route(), true
 	}
-	if mount := a.matchMount(path); mount != nil {
-		return mount.info.export(), true
-	}
+	// A built-in endpoint answers before a mount above it, as dispatch does.
 	if method == MethodGet || method == MethodHead {
 		for _, b := range a.builtinRoutes() {
 			if b.Path == path {
@@ -823,14 +871,21 @@ func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 			}
 		}
 	}
+	if mount := a.matchMount(path); mount != nil {
+		return mount.info.export(), true
+	}
 	return RouteInfo{}, false
 }
 
-// Wrap adapts a standard net/http handler to HandlerFunc. Matched parameters
-// are populated into http.Request.PathValue immediately before it runs.
+// Wrap adapts a standard net/http handler to HandlerFunc. Immediately before
+// it runs, the matched route is published on the request as http.ServeMux
+// would: http.Request.PathValue returns each parameter, and
+// http.Request.Pattern is the route's method and full path, such as
+// "GET /users/{id}" (a GET route's pattern also for a HEAD request it
+// answers).
 func Wrap(h http.Handler) HandlerFunc {
 	return func(c *Context) error {
-		c.populateRequestPathValues()
+		c.publishRoute()
 		h.ServeHTTP(c.Writer(), c.Request())
 		return nil
 	}

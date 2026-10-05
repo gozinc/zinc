@@ -59,6 +59,16 @@ func (a *App) dispatch(ctx *Context) error {
 		return err
 	}
 
+	// The built-in spec and docs page are checked only after routing missed,
+	// so matched requests pay nothing for them. They answer before a mount
+	// above them, such as Static at /; mount hits pay for that only when
+	// such a mount exists.
+	if a.builtinsUnderMounts {
+		if served, err := a.serveBuiltin(ctx, method, path); served {
+			return err
+		}
+	}
+
 	if mount := a.matchMount(path); mount != nil {
 		ctx.setRoute(mount.info)
 		if len(mount.chain) > 0 {
@@ -68,15 +78,8 @@ func (a *App) dispatch(ctx *Context) error {
 		return mount.serve(ctx)
 	}
 
-	// The default spec is checked only after routing missed, so matched
-	// requests pay nothing for it.
-	if method == MethodGet || method == MethodHead {
-		if a.spec != nil && path == a.specPath {
-			return a.spec.serve(ctx)
-		}
-		if a.docs != nil && path == a.docsPath {
-			return a.docs.serve(ctx)
-		}
+	if served, err := a.serveBuiltin(ctx, method, path); served {
+		return err
 	}
 
 	if handled, err := a.handleRouteNotFound(ctx); handled {

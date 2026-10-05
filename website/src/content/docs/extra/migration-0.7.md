@@ -1,13 +1,13 @@
 ---
 title: Upgrading to 0.7
-description: What changed in Zinc 0.7, 0.7.1 and 0.7.2. Zinc checks validate tags itself, the OpenAPI spec claims only the rules something enforces, 0.7.1 tidies the spec's names, and 0.7.2 fixes binding, status and redirect bugs.
+description: What changed in Zinc 0.7 and its patch releases. Zinc checks validate tags itself, the OpenAPI spec claims only the rules something enforces, 0.7.1 tidies the spec's names, and 0.7.2 and 0.7.3 fix bugs in binding, routing, statuses and middleware.
 slug: extra/migration-0.7
 ---
 
 0.7 makes the spec a contract: every rule it states is a rule a request is checked against. Update the module and run your tests:
 
 ```bash
-go get github.com/0mjs/zinc@v0.7.2
+go get github.com/0mjs/zinc@v0.7.3
 go test ./...
 ```
 
@@ -105,6 +105,20 @@ The spec used to show headers in Go's canonical form, such as `Etag` for `header
 
 - **`Skip` keeps each middleware's own behavior.** Wrapping a rewrite in `Skip` made every `Skip`-wrapped middleware count as a rewrite, so putting one on a group panicked. Wrapping CORS made every `Skip`-wrapped middleware, auth included, run on automatic `OPTIONS` requests.
 - **A redirect built from the request path stays on this site.** Trailing Slash in redirect mode and redirect rules with a wildcard sent `GET /%2Fevil.example/` to `//evil.example`. Targets now keep the path's escaping, so a space is sent as `%20`, and a local target always starts with a single `/`. A rule whose target names a scheme or host, such as `https://example.com/*`, still redirects there.
+
+### 0.7.3: middleware and static files
+
+0.7.3 fixes bugs, as 0.7.2 did; each item changes behavior only where the old behavior was wrong.
+
+- **Overlapping rules pick one winner.** With Rewrite, Redirect or Proxy rules `/*` and `/api/*`, a request for `/api/pets` went to either target, changing from one request to the next. An exact rule now wins, then the `*` rule with the longest prefix. A key ending in `*` is always a prefix rule, never also an exact one.
+- **Proxy regex rules run in a fixed order**, the longest pattern first, and `proxy.New` panics when two rules have the same pattern.
+- **The proxy keeps the request path's escaping.** `%2F` reaches the upstream as `%2F`, where it was decoded to `/`. An upstream that relied on the decoding sees the encoded path.
+- **Compress finishes the response when a handler panics**, so the client gets a complete body rather than a broken gzip stream; recovery then runs as before. A gzipped response's strong `ETag` is sent weak (`W/"…"`), and a `206` or any response with `Content-Range` isn't compressed.
+- **`c.Negotiate` adds `Accept` to `Vary`**, so a shared cache doesn't serve JSON to a client that asked for text.
+- **A static directory redirects to its URL with a trailing slash**: `/assets/docs` answers `301` to `/assets/docs/`, as `http.FileServer` does, so the index's relative links work. Trailing Slash leaves that slash alone.
+- **The built-in `/openapi.json` and `/docs` answer under a mount at `/`.** `app.Static("/", dir)` used to hide them. A mount above them gives way for `GET` and `HEAD`; a route, or a mount at exactly that path, still takes it. A file named `openapi.json` or `docs` at a static root is no longer served at that path.
+- **Standard middleware on a group or route sees the matched route**: `r.PathValue` and `r.Pattern`, such as `"GET /items/{id}"`, as `http.ServeMux` sets them. Standard handlers get `r.Pattern` too.
+- **Trailing Slash can't go on a group.** Like Rewrite and Redirect, it changes the path before routing, so `Group.Use(trailingslash.New())` panics at startup; use `app.Use`.
 
 ## What's new
 

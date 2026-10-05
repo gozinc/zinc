@@ -1,6 +1,6 @@
 # Zinc
 
-[![Release](https://img.shields.io/github/v/release/0mjs/zinc?style=flat-square)](https://github.com/0mjs/zinc/releases)
+[![Release](https://img.shields.io/github/v/release/gozinc/zinc?style=flat-square)](https://github.com/gozinc/zinc/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/0mjs/zinc.svg)](https://pkg.go.dev/github.com/0mjs/zinc)
 [![Go Report Card](https://goreportcard.com/badge/github.com/0mjs/zinc?style=flat-square)](https://goreportcard.com/report/github.com/0mjs/zinc)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
@@ -166,7 +166,7 @@ Inside a handler, `c.Request()` and `c.Writer()` give you the underlying request
 
 ## Middleware
 
-Each middleware is its own package under `github.com/0mjs/zinc/middleware`, with a `New` function that takes an optional `Config`, and none adds a dependency. Middleware that needs a third-party library lives in [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib).
+Each middleware is its own package under `github.com/0mjs/zinc/middleware`, with a `New` function that takes an optional `Config`, and none adds a dependency. Middleware that needs a third-party library lives in [`github.com/0mjs/contrib`](https://github.com/gozinc/contrib).
 
 | Family | Packages, in chain order |
 | --- | --- |
@@ -189,9 +189,9 @@ Zinc is scored against Gin and Echo on 93 scenarios, and against the bare router
 
 ## Project status
 
-Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/0mjs/zinc/releases) and the [0.4 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.4/) when you upgrade.
+Zinc is pre-1.0. Pin a release, and check the [release notes](https://github.com/gozinc/zinc/releases) and the [0.4 migration guide](https://zinc.carbonsoft.sh/extra/migration-0.4/) when you upgrade.
 
-Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/0mjs/zinc/issues). Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
+Bug reports and focused proposals are welcome in [GitHub Issues](https://github.com/gozinc/zinc/issues). Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 
 ## License
 

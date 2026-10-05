@@ -925,12 +925,18 @@ func (c *Context) applyRouteParams(path string, route *radixRoute, values paramR
 	c.paramCount = count
 }
 
-// populateRequestPathValues crosses from Zinc's parameter representation into
-// net/http's. Keep it at the native-handler boundary so Zinc handlers pay only
-// for Context.Param, while wrapped handlers receive the standard contract.
-func (c *Context) populateRequestPathValues() {
+// publishRoute crosses from Zinc's route representation into net/http's: it
+// sets http.Request.Pattern to the matched route's "METHOD /path" and each
+// parameter as a path value, as http.ServeMux does. Only the native
+// boundaries, Wrap and FromHTTP, call it, so Zinc handlers pay only for
+// Context.Param, while standard handlers and middleware receive the standard
+// contract. Before routing there's no route, and it sets nothing.
+func (c *Context) publishRoute() {
 	if c == nil || c.request == nil {
 		return
+	}
+	if c.routeIndexed && c.app != nil && c.app.router != nil {
+		c.request.Pattern = c.app.router.pattern(uint32(c.routeIndex))
 	}
 	for i := 0; i < c.paramCount; i++ {
 		name := c.pathParams[i].key

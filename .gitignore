@@ -29,3 +29,6 @@ website/pnpm-debug.log*
 /benchmarks/results
 audits
 tmp
+
+# Cloudflare CLI cache
+.cloudflare/

@@ -127,12 +127,28 @@ Within each level, middleware runs in the order you registered it. On the way ou
 
 ## Where a request goes
 
+```text
+request
+└─ UseHTTP middleware                       standard net/http, outermost
+   └─ app.Use and app.UsePrefix middleware  every request, before routing
+      └─ routing: the route for the method and path; a GET route also answers HEAD
+         ├─ match:    group middleware → route middleware → handler
+         └─ no match: the first of these that applies
+              1. the built-in /openapi.json or /docs page
+              2. a mount, such as app.Static or app.Mount
+              3. a RouteNotFound handler
+              4. OPTIONS: the automatic answer, with Allow
+              5. 405 with Allow, when the path has other methods
+              6. 404
+error handler: a returned error becomes the response, once
+```
+
 1. **App middleware** (`app.Use`) and **prefix middleware** (`app.UsePrefix`) run for every request, before routing, so they see misses too.
 2. **Routing** picks the route for the method and path.
 3. **The route's chain** runs: its groups' middleware, outer groups first, then the route's own middleware and handler. A route's `.Status` is set before the chain starts.
 4. **The error handler** turns a returned error into the response, once.
 
-When no route matches, step 3 is replaced by one of these, in order: a mount; the built-in [spec and docs page](/guide/openapi/#serve-the-spec); a `RouteNotFound` handler; the automatic `OPTIONS` answer, which runs the matching route's [CORS middleware](/middleware/cors/#on-a-group) for preflights; a `405` with `Allow`; or a `404`. Each still runs inside step 1, so app middleware sees every request.
+When no route matches, step 3 is replaced by the first of the list above. The built-in [spec and docs page](/guide/openapi/#serve-the-spec) answer before a mount at `/`, such as `app.Static("/", dir)`, but a route or a mount at exactly `/openapi.json` or `/docs` takes that path. The automatic `OPTIONS` answer runs the matching route's [CORS middleware](/middleware/cors/#on-a-group) for preflights. Each still runs inside step 1, so app middleware sees every request.
 
 ## Stop a request early
 

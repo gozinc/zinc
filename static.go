@@ -9,10 +9,13 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
 	"sync"
+
+	"github.com/0mjs/zinc/internal/marks"
 )
 
 // StaticConfig controls directory serving and index behaviour.
@@ -83,6 +86,13 @@ func (a *App) FileFS(path, file string, filesystem fs.FS) Route {
 func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, string) error {
 	return func(c *Context, requestPath string) error {
 		r := c.Request()
+		if r == marks.Probe {
+			// Asked by staticDirectory, outside any request's chain.
+			if staticDirectoryServed(filesystem, requestPath, cfg) {
+				return errStaticDirectory
+			}
+			return nil
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			c.SetHeader(HeaderAllow, "GET, HEAD")
 			return ErrMethodNotAllowed
@@ -93,7 +103,7 @@ func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, string)
 			return ErrNotFound
 		}
 
-		if err := serveStaticPath(c.Writer(), r, filesystem, name, cfg); err != nil {
+		if err := serveStaticPath(c, requestPath, filesystem, name, cfg); err != nil {
 			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) || errors.Is(err, fs.ErrPermission) {
 				return ErrNotFound.Wrap(err)
 			}
@@ -101,6 +111,27 @@ func newStaticHandler(filesystem fs.FS, cfg StaticConfig) func(*Context, string)
 		}
 		return nil
 	}
+}
+
+// errStaticDirectory is a static handler's answer to a probe for a path it
+// serves as a directory.
+var errStaticDirectory = errors.New("zinc: static directory")
+
+func init() { marks.StaticDirectory = staticDirectory }
+
+// staticDirectory reports whether a static mount of c's app serves requestPath as a
+// directory, whose URL must end with a slash. trailingslash asks, so it
+// doesn't strip that slash and loop with the directory's redirect.
+func staticDirectory(v any, requestPath string) bool {
+	c, ok := v.(*Context)
+	if !ok || c == nil || c.app == nil {
+		return false
+	}
+	mount := c.app.matchMount(requestPath)
+	if mount == nil || mount.native == nil {
+		return false
+	}
+	return mount.native(&Context{request: marks.Probe}, requestPath[mount.prefixCut(requestPath):]) == errStaticDirectory
 }
 
 // confinedDirFS retains one OS root per static mount after its first open.
@@ -172,7 +203,12 @@ func staticPathName(requestPath string) (string, error) {
 	return name, nil
 }
 
-func serveStaticPath(w http.ResponseWriter, r *http.Request, filesystem fs.FS, name string, cfg StaticConfig) error {
+// serveStaticPath serves a directory only at its URL with a trailing slash,
+// as http.FileServer does, so relative links in its index resolve inside it.
+// The URL without the slash redirects there. A directory with nothing to
+// serve is a 404 either way.
+func serveStaticPath(c *Context, requestPath string, filesystem fs.FS, name string, cfg StaticConfig) error {
+	w, r := c.Writer(), c.Request()
 	file, stat, err := openStaticFile(filesystem, name)
 	if err != nil {
 		return err
@@ -183,11 +219,14 @@ func serveStaticPath(w http.ResponseWriter, r *http.Request, filesystem fs.FS, n
 		return serveOpenedStaticFile(w, r, file, stat)
 	}
 
-	if cfg.Index != "" {
-		indexName := cfg.Index
-		if name != "." {
-			indexName = path.Join(name, cfg.Index)
+	if !strings.HasSuffix(requestPath, "/") {
+		if !staticDirectoryHasContent(filesystem, name, cfg) {
+			return fs.ErrNotExist
 		}
+		return c.Status(http.StatusMovedPermanently).Redirect(staticDirectoryURL(r.URL))
+	}
+
+	if indexName := staticIndexName(name, cfg); indexName != "" {
 		if err := serveStaticNamedFile(w, r, filesystem, indexName); err == nil {
 			return nil
 		} else if !errors.Is(err, fs.ErrNotExist) {
@@ -200,6 +239,53 @@ func serveStaticPath(w http.ResponseWriter, r *http.Request, filesystem fs.FS, n
 	}
 
 	return serveStaticDirectoryListing(w, r, filesystem, name)
+}
+
+func staticIndexName(dir string, cfg StaticConfig) string {
+	if cfg.Index == "" || dir == "." {
+		return cfg.Index
+	}
+	return path.Join(dir, cfg.Index)
+}
+
+// staticDirectoryServed reports whether requestPath names a directory the
+// handler serves.
+func staticDirectoryServed(filesystem fs.FS, requestPath string, cfg StaticConfig) bool {
+	name, err := staticPathName(requestPath)
+	if err != nil {
+		return false
+	}
+	stat, err := fs.Stat(filesystem, name)
+	return err == nil && stat.IsDir() && staticDirectoryHasContent(filesystem, name, cfg)
+}
+
+// staticDirectoryHasContent reports whether directory name has an index
+// file, or is listed.
+func staticDirectoryHasContent(filesystem fs.FS, name string, cfg StaticConfig) bool {
+	if cfg.Browse {
+		return true
+	}
+	indexName := staticIndexName(name, cfg)
+	if indexName == "" {
+		return false
+	}
+	stat, err := fs.Stat(filesystem, indexName)
+	return err == nil && !stat.IsDir()
+}
+
+// staticDirectoryURL is the request URL with a trailing slash. It's built
+// from the escaped path, so encoded bytes stay encoded, and keeps the query.
+// Leading slashes and backslashes collapse to one slash, so it can't start
+// with "//" or "/\" and leave this site.
+func staticDirectoryURL(u *url.URL) string {
+	target := "/" + strings.TrimLeft(u.EscapedPath(), `/\`)
+	if !strings.HasSuffix(target, "/") {
+		target += "/"
+	}
+	if u.RawQuery != "" {
+		target += "?" + u.RawQuery
+	}
+	return target
 }
 
 func serveStaticNamedFile(w http.ResponseWriter, r *http.Request, filesystem fs.FS, name string) error {

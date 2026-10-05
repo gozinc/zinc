@@ -308,3 +308,38 @@ func TestSSEStreamOutlivesWriteTimeout(t *testing.T) {
 		t.Fatalf("received %d of %d events (read error: %v)", got, events, readErr)
 	}
 }
+
+func TestNegotiateAddsVaryAccept(t *testing.T) {
+	offers := map[string]any{"application/json": zinc.Map{"ok": true}, "text/plain": "plain"}
+	for _, tc := range []struct {
+		name   string
+		before []string
+		accept string
+		want   []string
+	}{
+		{"no vary", nil, "application/json", []string{"Accept"}},
+		{"keeps app entries", []string{"Origin, Accept-Language"}, "text/plain", []string{"Origin, Accept-Language", "Accept"}},
+		{"no duplicate", []string{"origin, accept"}, "text/plain", []string{"origin, accept"}},
+		{"star covers accept", []string{"*"}, "text/plain", []string{"*"}},
+		{"not acceptable", []string{"Origin"}, "image/png", []string{"Origin", "Accept"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := zinc.New()
+			app.Get("/", func(c *zinc.Context) error {
+				for _, v := range tc.before {
+					c.Vary(v)
+				}
+				return c.Negotiate(offers)
+			})
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set(zinc.HeaderAccept, tc.accept)
+			rec := httptest.NewRecorder()
+			app.ServeHTTP(rec, req)
+
+			got := rec.Header().Values(zinc.HeaderVary)
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("vary=%q, want %q (status %d)", got, tc.want, rec.Code)
+			}
+		})
+	}
+}

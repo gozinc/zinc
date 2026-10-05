@@ -117,8 +117,10 @@ app.UsePrefix("/api", proxy.New(proxy.Config{
 
 Rules see the path after the target URL's own path is added. With `Target: "http://localhost:9000/base?key=1"`, a request for `/users?x=2` reaches the upstream as `/base/users?key=1&x=2`.
 
+The upstream gets the path with the escaping the client sent, so `/objects/a%2Fb` stays one segment instead of becoming `/objects/a/b`; an escaped target path such as `/base%2Froot` is kept the same way. Rules match the decoded path. The fixed part of a rule's target is escaped as usual, and the part a `*` carries over keeps its escaping: with `"/api/*": "/v1/*"`, `/api/a%2Fb` reaches the upstream as `/v1/a%2Fb`. A `RegexRewrite` result keeps the escaping when the same rule, applied to the escaped path, gives the same path; otherwise it's escaped as usual.
+
 :::note[Overlapping rules]
-An exact `Rewrite` rule always wins. When several `*` rules, or several regular expressions, match the same path, which one applies isn't defined, so keep them from overlapping.
+An exact `Rewrite` rule always wins, and among `*` rules the longest prefix wins. `Rewrite` rules are tried before `RegexRewrite`. A map of regular expressions has no order, so Zinc gives it one: the longest pattern is tried first, then patterns in alphabetical order, and the first match wins. Two rules with the same pattern make `proxy.New` panic.
 :::
 
 ## Spread requests across servers
@@ -218,6 +220,7 @@ curl -i http://localhost:8080/ping
 - none of `Target`, `Targets` or `Balancer` is set
 - a target isn't an absolute URL with a scheme and host
 - `Retries` is negative
+- two `RegexRewrite` rules have the same pattern
 - it's given more than one `Config`
 
 `proxy.NewRoundRobinBalancer` and `proxy.NewRandomBalancer` panic when given no targets.

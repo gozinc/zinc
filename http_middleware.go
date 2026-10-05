@@ -25,6 +25,12 @@ import (
 // through an Unwrap() http.ResponseWriter method, the convention
 // http.ResponseController relies on. Zinc uses it to find the request's
 // Context without allocating.
+//
+// On a group or route, the route has matched before the middleware runs, so
+// the request carries it as http.ServeMux would set it: http.Request.PathValue
+// returns each parameter and http.Request.Pattern is the route's
+// "METHOD /path". On the app, through App.Use, the middleware runs before
+// routing and sees neither.
 func FromHTTP(middleware HTTPMiddleware) Middleware {
 	if middleware == nil {
 		panic("zinc: nil HTTP middleware")
@@ -36,6 +42,7 @@ func FromHTTP(middleware HTTPMiddleware) Middleware {
 	return func(c *Context) error {
 		outer := c.bridgeErr
 		c.bridgeErr = nil
+		c.publishRoute()
 		handler.ServeHTTP(c.Writer(), c.Request())
 		err := c.bridgeErr
 		c.bridgeErr = outer
