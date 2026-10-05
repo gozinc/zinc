@@ -316,10 +316,13 @@ func (c *Context) Accepts(types ...string) string {
 
 // Negotiate writes the offered representation that best matches the Accept
 // header, using the status set by Status, or returns ErrNotAcceptable.
+// The response depends on Accept, so Negotiate adds Accept to Vary, keeping
+// the Vary entries already set.
 func (c *Context) Negotiate(offers map[string]any) error {
 	if len(offers) == 0 {
 		return ErrNotAcceptable
 	}
+	addVary(c.Writer().Header(), HeaderAccept)
 	types := make([]string, 0, len(offers))
 	for contentType := range offers {
 		types = append(types, contentType)
@@ -331,6 +334,20 @@ func (c *Context) Negotiate(offers map[string]any) error {
 		return ErrNotAcceptable
 	}
 	return c.writeNegotiated(selected, offers[selected])
+}
+
+// addVary adds field to Vary unless it, or "*", is already listed in any of
+// the header's Vary lines.
+func addVary(header http.Header, field string) {
+	for _, line := range header.Values(HeaderVary) {
+		for _, part := range strings.Split(line, ",") {
+			part = strings.TrimSpace(part)
+			if part == "*" || strings.EqualFold(part, field) {
+				return
+			}
+		}
+	}
+	header.Add(HeaderVary, field)
 }
 
 // NoContent writes the selected status, defaulting to 204.
