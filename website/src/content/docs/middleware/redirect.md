@@ -90,6 +90,8 @@ curl -i http://localhost:8080/docs/intro
 # Location: https://docs.example.com/intro
 ```
 
+A target without a scheme or host, such as `/v2/*`, is a path on this site. The part of the request path a `*` carries keeps its escaping, and the result always starts with a single `/`, so a request like `/old/%2Fevil.example` can't redirect anywhere else.
+
 ## Errors
 
 `redirect` never fails a request. Paths that match no rule continue to routing as normal.

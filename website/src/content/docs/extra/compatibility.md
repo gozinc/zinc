@@ -37,7 +37,7 @@ Each release supports the Go version in its `go.mod` and newer. CI tests the thr
 
 ## Security problems
 
-Report a security problem privately, through the **Report a vulnerability** button on the repository's [Security tab](https://github.com/0mjs/zinc/security), not in a public issue. Fixes go into the latest minor version.
+Report a security problem privately, through the **Report a vulnerability** button on the repository's [Security tab](https://github.com/gozinc/zinc/security), not in a public issue. Fixes go into the latest minor version.
 
 ## Next steps
 

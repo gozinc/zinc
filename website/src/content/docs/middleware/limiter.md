@@ -22,8 +22,11 @@ app.Use(limiter.New(limiter.Config{
 ```bash
 curl -i http://localhost:8080/   # once the client's burst is used up
 # HTTP/1.1 429 Too Many Requests
+# Retry-After: 1
 # {"error":{"status":429,"message":"rate limit exceeded"}}
 ```
+
+`Retry-After` says how many seconds until the client's next token, rounded up to a whole second. A `LimitReached` handler can change it or remove it.
 
 Each client gets a bucket of `Capacity` tokens. Each request spends one, and tokens refill at `Rate` per second, so a client can send a burst of 40 and then 20 a second after that.
 
@@ -40,7 +43,7 @@ Configure [trusted proxies](/guide/ip-address/) first when the app runs behind a
 | Rate | 10 tokens per second |
 | Burst | 10 |
 | Key | none: one bucket shared by every request |
-| Response over the limit | `429` with the message `rate limit exceeded` |
+| Response over the limit | `429` with the message `rate limit exceeded`, and `Retry-After` in seconds |
 | Most buckets kept | 10,000 |
 | Longest key | 256 bytes |
 | Idle time before a bucket expires | 5 minutes |

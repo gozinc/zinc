@@ -118,7 +118,7 @@ The spec used to show headers in Go's canonical form, such as `Etag` for `header
 - **0.7.1: [Describe what middleware adds](/guide/openapi/#describe-what-middleware-adds)**: `App.Document`, `Group.Document` and `Route.Document` add a middleware's credentials, headers and errors to the spec, and the CSRF, Timeout, Limiter and Body Limit middleware each have a `Doc()`.
 - **0.7.1: `SchemaNamer` names enum types** as well as structs; it always could, and the docs now say so.
 - **0.7.2: The Limiter middleware sends `Retry-After`** on a `429`: the whole seconds until a request would be allowed, rounded up.
-- **0.7.2: [Security policy](https://github.com/0mjs/zinc/security/policy)**: how to report a vulnerability privately.
+- **0.7.2: [Security policy](https://github.com/gozinc/zinc/security/policy)**: how to report a vulnerability privately.
 
 ## Not in 0.7
 
