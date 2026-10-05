@@ -55,12 +55,19 @@ func New(configs ...Config) zinc.Middleware {
 			minLength:      config.MinLength,
 		}
 		c.SetWriter(writer)
-		defer c.SetWriter(baseWriter)
+		finished := false
+		defer func() {
+			if finished {
+				return
+			}
+			finishOnPanic(c, baseWriter, writer, recover())
+		}()
 
 		err := c.Next()
 		if err != nil {
 			c.HandleError(err)
 		}
+		finished = true
 		closeErr := writer.Close()
 		c.SetWriter(baseWriter)
 		if err != nil {
@@ -68,6 +75,26 @@ func New(configs ...Config) zinc.Middleware {
 		}
 		return closeErr
 	}
+}
+
+// finishOnPanic runs when the downstream chain panics. An ordinary panic
+// completes the response written so far, as returning normally would: a gzip
+// stream gets its trailer, and a buffered body under MinLength is sent as
+// identity. The client then reads a well-formed body rather than a truncated
+// gzip stream, and the status already committed stays as it is. The original
+// value is re-panicked so outer recovery still runs. http.ErrAbortHandler
+// asks net/http to abort the response, so it restores the writer and
+// re-panics the sentinel without completing any output.
+func finishOnPanic(c *zinc.Context, baseWriter http.ResponseWriter, writer *gzipResponseWriter, value any) {
+	c.SetWriter(baseWriter)
+	if value == nil {
+		// runtime.Goexit: there is no panic to propagate.
+		return
+	}
+	if value != http.ErrAbortHandler {
+		_ = writer.Close()
+	}
+	panic(value)
 }
 
 func requestAcceptsGzip(header string) bool {
