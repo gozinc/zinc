@@ -6,7 +6,9 @@ package zinc
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -49,10 +51,10 @@ type routeTable struct {
 	// registered, by route index, so Route.Status can wrap the handler.
 	entries  []*radixRoute
 	handlers []HandlerFunc
-	// patterns holds each route's net/http pattern, "METHOD /path", by route
-	// index, built at registration so native handlers and middleware get
-	// http.Request.Pattern without an allocation per request.
-	patterns []string
+	// patterns caches each route's net/http pattern, "METHOD /path", by route
+	// index. Only routes reached through Wrap or FromHTTP need one, so it's
+	// built on first use rather than at registration; see pattern.
+	patterns []atomic.Pointer[string]
 	// preflight holds, by "METHOD path", a route's middleware that also
 	// answers CORS preflight requests, outermost first. Only automatic
 	// OPTIONS reads it.
@@ -158,7 +160,9 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	r.routeInfos = append(r.routeInfos, info)
 	r.entries = append(r.entries, route)
 	r.handlers = append(r.handlers, precomposed)
-	r.patterns = append(r.patterns, method+" "+registeredPath)
+	// A slot per route, filled on first use. Growing copies the slots, which
+	// is safe because registration doesn't run while requests are served.
+	r.patterns = slices.Grow(r.patterns, 1)[:len(r.patterns)+1]
 	for _, h := range handlers[:len(handlers)-1] {
 		if middlewareMarks(h).Preflight {
 			if r.preflight == nil {
@@ -391,4 +395,17 @@ func (r *routeTable) conflictError(method, path string, existing *radixRoute) er
 		return fmt.Errorf("route already registered: %s %s", method, path)
 	}
 	return fmt.Errorf("route already registered: %s %s matches the same requests as %s %s", method, path, other.method, other.path)
+}
+
+// pattern returns the net/http pattern of the route at index, building it
+// the first time it's asked for.
+func (r *routeTable) pattern(index uint32) string {
+	slot := &r.patterns[index]
+	if p := slot.Load(); p != nil {
+		return *p
+	}
+	meta := r.routeInfos[index]
+	p := meta.method + " " + meta.path
+	slot.Store(&p)
+	return p
 }

@@ -936,7 +936,7 @@ func (c *Context) publishRoute() {
 		return
 	}
 	if c.routeIndexed && c.app != nil && c.app.router != nil {
-		c.request.Pattern = c.app.router.patterns[c.routeIndex]
+		c.request.Pattern = c.app.router.pattern(uint32(c.routeIndex))
 	}
 	for i := 0; i < c.paramCount; i++ {
 		name := c.pathParams[i].key
