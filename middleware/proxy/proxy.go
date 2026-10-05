@@ -5,6 +5,7 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math/rand"
@@ -12,6 +13,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,9 +48,19 @@ type Config struct {
 	ErrorHandler   func(http.ResponseWriter, *http.Request, error)
 	Retries        int
 	RetryFilter    func(*zinc.Context, error) bool
-	Rewrite        map[string]string
-	RegexRewrite   map[*regexp.Regexp]string
-	Transport      http.RoundTripper
+	// Rewrite maps an upstream path, after the target's own path is added,
+	// to the path to send instead. A path ending in "*" matches a prefix,
+	// and a "*" in the target is replaced by the rest of the path. When
+	// several rules match, an exact rule wins over every "*" rule, and among
+	// "*" rules the longest prefix wins. The order is fixed when New runs.
+	Rewrite map[string]string
+	// RegexRewrite holds regular-expression path rules, tried when no
+	// Rewrite rule matches; the target may use $1-style references. A map
+	// has no order, so New puts the rules in one: the longest pattern
+	// source is tried first, then patterns in lexical order, and the first
+	// match wins. New panics when two rules have the same pattern source.
+	RegexRewrite map[*regexp.Regexp]string
+	Transport    http.RoundTripper
 }
 
 // New forwards matching requests to an upstream through an
@@ -91,8 +104,8 @@ func newReverseProxy(config Config) (*httputil.ReverseProxy, Balancer) {
 		panic("proxy: Retries must not be negative")
 	}
 	baseTarget, balancer := resolveProxyTargets(config)
-	rewriteRules := shared.CloneRewriteRules(config.Rewrite)
-	regexRewriteRules := cloneRegexRewriteRules(config.RegexRewrite)
+	rewriteRules := shared.CompileRules(config.Rewrite)
+	regexRewriteRules := compileRegexRewriteRules(config.RegexRewrite)
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -217,18 +230,38 @@ func normalizeOptionalProxyTargets(targets []*Target) []*Target {
 	return out
 }
 
-func cloneRegexRewriteRules(rules map[*regexp.Regexp]string) map[*regexp.Regexp]string {
-	out := make(map[*regexp.Regexp]string, len(rules))
+type regexRule struct {
+	from *regexp.Regexp
+	to   string
+}
+
+// compileRegexRewriteRules puts regular-expression rules in a fixed order:
+// longest pattern source first, then lexical. Two rules with the same source
+// would leave the winner to map order, so they are refused.
+func compileRegexRewriteRules(rules map[*regexp.Regexp]string) []regexRule {
+	out := make([]regexRule, 0, len(rules))
 	for from, to := range rules {
 		if from == nil {
 			continue
 		}
-		out[from] = to
+		out = append(out, regexRule{from: from, to: to})
+	}
+	slices.SortFunc(out, func(a, b regexRule) int {
+		as, bs := a.from.String(), b.from.String()
+		if c := cmp.Compare(len(bs), len(as)); c != 0 {
+			return c
+		}
+		return strings.Compare(as, bs)
+	})
+	for i := 1; i < len(out); i++ {
+		if out[i].from.String() == out[i-1].from.String() {
+			panic("proxy: RegexRewrite has two rules with the pattern " + strconv.Quote(out[i].from.String()))
+		}
 	}
 	return out
 }
 
-func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules map[string]string, regexRewriteRules map[*regexp.Regexp]string) {
+func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules *shared.Rules, regexRewriteRules []regexRule) {
 	req.URL.Scheme = target.Scheme
 	req.URL.Host = target.Host
 	req.URL.Path, req.URL.RawPath = joinProxyPaths(target, req.URL)
@@ -241,13 +274,13 @@ func rewriteProxyURL(req *http.Request, target *url.URL, rewriteRules map[string
 	}
 }
 
-func applyProxyRewrite(path string, rewriteRules map[string]string, regexRewriteRules map[*regexp.Regexp]string) string {
-	if target, ok := shared.RewriteTarget(path, rewriteRules); ok {
+func applyProxyRewrite(path string, rewriteRules *shared.Rules, regexRewriteRules []regexRule) string {
+	if target, ok := rewriteRules.Rewrite(path); ok {
 		return target
 	}
-	for from, to := range regexRewriteRules {
-		if from.MatchString(path) {
-			return from.ReplaceAllString(path, to)
+	for _, rule := range regexRewriteRules {
+		if rule.from.MatchString(path) {
+			return rule.from.ReplaceAllString(path, rule.to)
 		}
 	}
 	return path

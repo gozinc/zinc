@@ -5,8 +5,10 @@
 package shared
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -39,22 +41,62 @@ func ResponseStatus(rw zinc.ResponseWriter, err error) int {
 	return zinc.StatusOK
 }
 
-// CloneRewriteRules copies rules, dropping empty patterns.
-func CloneRewriteRules(rules map[string]string) map[string]string {
-	out := make(map[string]string, len(rules))
+// Rules is a compiled set of path rules, as used by rewrite, redirect and
+// proxy. A pattern ending in "*" matches any path starting with the text
+// before the "*"; any other pattern matches one path exactly.
+//
+// When several rules match a path, the winner is fixed when the rules are
+// compiled, not by map order: an exact rule beats every "*" rule, and among
+// "*" rules the one with the longest literal prefix wins. Two different
+// prefixes that both match a path can't have the same length, so there are
+// no ties to break.
+type Rules struct {
+	exact    map[string]string
+	prefixes []prefixRule
+}
+
+type prefixRule struct {
+	prefix string
+	to     string
+}
+
+// CompileRules copies rules into precedence order, dropping empty patterns.
+func CompileRules(rules map[string]string) *Rules {
+	r := &Rules{}
 	for from, to := range rules {
 		if from == "" {
 			continue
 		}
-		out[from] = to
+		if prefix, ok := strings.CutSuffix(from, "*"); ok {
+			r.prefixes = append(r.prefixes, prefixRule{prefix: prefix, to: to})
+			continue
+		}
+		if r.exact == nil {
+			r.exact = make(map[string]string)
+		}
+		r.exact[from] = to
 	}
-	return out
+	// Longest prefix first; the lexical order only makes the slice itself
+	// stable, since equal-length prefixes never both match one path.
+	slices.SortFunc(r.prefixes, func(a, b prefixRule) int {
+		if c := cmp.Compare(len(b.prefix), len(a.prefix)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.prefix, b.prefix)
+	})
+	return r
 }
 
-// RewriteTarget applies the first matching rule to path. A pattern ending in
-// "*" matches a prefix; a "*" in the target is replaced by the matched tail.
-func RewriteTarget(path string, rules map[string]string) (string, bool) {
-	to, tail, prefix, ok := MatchRule(path, rules)
+// Len reports how many rules were compiled.
+func (r *Rules) Len() int {
+	return len(r.exact) + len(r.prefixes)
+}
+
+// Rewrite applies the winning rule to path. A "*" in the target is replaced
+// by the part of path after the matched prefix, or that part is appended
+// when the target has no "*".
+func (r *Rules) Rewrite(path string) (string, bool) {
+	to, tail, prefix, ok := r.Match(path)
 	if !ok {
 		return "", false
 	}
@@ -64,25 +106,17 @@ func RewriteTarget(path string, rules map[string]string) (string, bool) {
 	return ExpandTarget(to, tail), true
 }
 
-// MatchRule finds the first rule matching path. It returns the rule's target,
-// the part of path after a prefix pattern, and whether a prefix pattern
-// matched rather than an exact one.
-func MatchRule(path string, rules map[string]string) (to, tail string, prefix, ok bool) {
-	if len(rules) == 0 {
-		return "", "", false, false
-	}
-	if to, ok := rules[path]; ok {
+// Match finds the winning rule for path. It returns the rule's target, the
+// part of path after a prefix pattern, and whether a prefix pattern matched
+// rather than an exact one.
+func (r *Rules) Match(path string) (to, tail string, prefix, ok bool) {
+	if to, ok := r.exact[path]; ok {
 		return to, "", false, true
 	}
-	for from, to := range rules {
-		if !strings.HasSuffix(from, "*") {
-			continue
+	for _, rule := range r.prefixes {
+		if rest, found := strings.CutPrefix(path, rule.prefix); found {
+			return rule.to, rest, true, true
 		}
-		pattern := strings.TrimSuffix(from, "*")
-		if !strings.HasPrefix(path, pattern) {
-			continue
-		}
-		return to, strings.TrimPrefix(path, pattern), true, true
 	}
 	return "", "", false, false
 }

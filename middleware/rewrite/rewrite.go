@@ -15,6 +15,11 @@ type Config struct {
 	// Rules maps a path to the path to route instead. A path ending in "*"
 	// matches a prefix, and a "*" in the target is replaced by the rest of
 	// the path.
+	//
+	// When several rules match, an exact rule wins over every "*" rule, and
+	// among "*" rules the longest prefix wins: with "/*" and "/api/*", a
+	// request for /api/pets always takes "/api/*". The order is fixed when
+	// New runs, so every request agrees.
 	Rules map[string]string
 }
 
@@ -25,7 +30,7 @@ type Config struct {
 // warning the first time it runs.
 func New(configs ...Config) zinc.Middleware {
 	config := shared.Config("rewrite", configs)
-	rules := shared.CloneRewriteRules(config.Rules)
+	rules := shared.CompileRules(config.Rules)
 	placement := shared.NewRoutingWarning("rewrite")
 
 	mw := func(c *zinc.Context) error {
@@ -38,7 +43,7 @@ func New(configs ...Config) zinc.Middleware {
 			return c.Next()
 		}
 
-		if target, ok := shared.RewriteTarget(req.URL.Path, rules); ok {
+		if target, ok := rules.Rewrite(req.URL.Path); ok {
 			c.SetPath(target)
 		}
 		return c.Next()

@@ -35,10 +35,10 @@ func TestResponseStatus(t *testing.T) {
 }
 
 func TestRewriteTarget(t *testing.T) {
-	if target, ok := RewriteTarget("/x/path", map[string]string{"/x/*": "/y"}); !ok || target != "/ypath" {
+	if target, ok := CompileRules(map[string]string{"/x/*": "/y"}).Rewrite("/x/path"); !ok || target != "/ypath" {
 		t.Fatalf("target=%q ok=%v", target, ok)
 	}
-	if target, ok := RewriteTarget("/x/path", map[string]string{"/z/*": "/y/*"}); ok || target != "" {
+	if target, ok := CompileRules(map[string]string{"/z/*": "/y/*"}).Rewrite("/x/path"); ok || target != "" {
 		t.Fatalf("target=%q ok=%v", target, ok)
 	}
 	if got := PathWithRawQuery("/users", ""); got != "/users" {

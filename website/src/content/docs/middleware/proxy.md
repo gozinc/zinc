@@ -118,7 +118,7 @@ app.UsePrefix("/api", proxy.New(proxy.Config{
 Rules see the path after the target URL's own path is added. With `Target: "http://localhost:9000/base?key=1"`, a request for `/users?x=2` reaches the upstream as `/base/users?key=1&x=2`.
 
 :::note[Overlapping rules]
-An exact `Rewrite` rule always wins. When several `*` rules, or several regular expressions, match the same path, which one applies isn't defined, so keep them from overlapping.
+An exact `Rewrite` rule always wins, and among `*` rules the longest prefix wins. `Rewrite` rules are tried before `RegexRewrite`. A map of regular expressions has no order, so Zinc gives it one: the longest pattern is tried first, then patterns in alphabetical order, and the first match wins. Two rules with the same pattern make `proxy.New` panic.
 :::
 
 ## Spread requests across servers
@@ -218,6 +218,7 @@ curl -i http://localhost:8080/ping
 - none of `Target`, `Targets` or `Balancer` is set
 - a target isn't an absolute URL with a scheme and host
 - `Retries` is negative
+- two `RegexRewrite` rules have the same pattern
 - it's given more than one `Config`
 
 `proxy.NewRoundRobinBalancer` and `proxy.NewRandomBalancer` panic when given no targets.
