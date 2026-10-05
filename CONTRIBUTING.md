@@ -4,7 +4,7 @@ Thanks for helping improve Zinc. Bug fixes, tests, documentation, and focused fe
 
 ## Before you start
 
-Search the [open issues](https://github.com/0mjs/zinc/issues) before opening a new one.
+Search the [open issues](https://github.com/gozinc/zinc/issues) before opening a new one.
 
 Small fixes can go straight to a pull request. Please open an issue first when a change:
 
@@ -25,7 +25,7 @@ Fork the repository, then create a branch from `dev`:
 ```sh
 git clone https://github.com/YOUR_NAME/zinc.git
 cd zinc
-git remote add upstream https://github.com/0mjs/zinc.git
+git remote add upstream https://github.com/gozinc/zinc.git
 git fetch upstream
 git switch -c your-change upstream/dev
 ```
@@ -85,13 +85,13 @@ First-party middleware lives in `middleware/<name>`, one package per middleware,
 - exposes request state through `Get` and, where useful, `MustGet`
 - depends only on Zinc and the standard library
 
-Middleware that needs a third-party library goes to [`github.com/0mjs/contrib`](https://github.com/0mjs/contrib) instead, so Zinc's own module stays free of dependencies. Each contrib package is its own Go module with its own `go.mod`, tagged with a path prefix (`jwtauth/v0.1.0`), and versioned independently of Zinc. A contrib release states the Zinc versions it supports in its `go.mod` requirement. Name a contrib package so it does not clash with the library it wraps: `jwtauth`, not `jwt`.
+Middleware that needs a third-party library goes to [`github.com/0mjs/contrib`](https://github.com/gozinc/contrib) instead, so Zinc's own module stays free of dependencies. Each contrib package is its own Go module with its own `go.mod`, tagged with a path prefix (`jwtauth/v0.1.0`), and versioned independently of Zinc. A contrib release states the Zinc versions it supports in its `go.mod` requirement. Name a contrib package so it does not clash with the library it wraps: `jwtauth`, not `jwt`.
 
 Contrib modules require a released version of Zinc. To try a contrib change against unreleased Zinc work, clone both repositories into the same directory and point the module at your checkout for the duration:
 
 ```sh
-git clone https://github.com/0mjs/zinc.git
-git clone https://github.com/0mjs/contrib.git
+git clone https://github.com/gozinc/zinc.git
+git clone https://github.com/gozinc/contrib.git
 cd contrib/jwtauth
 go mod edit -replace=github.com/0mjs/zinc=../../zinc
 go test ./...

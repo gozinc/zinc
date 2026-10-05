@@ -2,6 +2,7 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { ExpressiveCodeTheme } from "@astrojs/starlight/expressive-code";
 import { readFileSync } from "node:fs";
+import { sidebar } from "./src/sidebar.mjs";
 
 const zincFrost = ExpressiveCodeTheme.fromJSONString(
   readFileSync(new URL("./src/themes/zinc-frost.json", import.meta.url), "utf-8"),
@@ -14,8 +15,6 @@ const plate = {
   line: "#1f242a",
   mute: "#7d889a",
 };
-
-const page = (label, link) => ({ label, link });
 
 export default defineConfig({
   site: "https://zinc.carbonsoft.sh",
@@ -55,14 +54,14 @@ export default defineConfig({
       favicon: "/favicon.png?v=20260923",
       customCss: ["./src/styles/zinc.css"],
       editLink: {
-        baseUrl: "https://github.com/0mjs/zinc/edit/dev/website/",
+        baseUrl: "https://github.com/gozinc/zinc/edit/dev/website/",
       },
       lastUpdated: true,
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/0mjs/zinc",
+          href: "https://github.com/gozinc/zinc",
         },
       ],
       components: {
@@ -100,153 +99,7 @@ export default defineConfig({
           },
         },
       ],
-      sidebar: [
-        {
-          label: "Start here",
-          items: [
-            page("Quickstart", "/guide/quickstart/"),
-            page("Installation", "/guide/installation/"),
-            page("Your First Route", "/guide/first-route/"),
-            page("Coming from Gin or Echo", "/guide/coming-from-gin-or-echo/"),
-            page("Coming from Huma or Fuego", "/guide/coming-from-huma-or-fuego/"),
-          ],
-        },
-        {
-          label: "Essentials",
-          items: [
-            page("Routing", "/guide/routing/"),
-            page("Request Data", "/guide/request/"),
-            page("Binding", "/guide/binding/"),
-            page("Responses and Rendering", "/guide/responses-and-rendering/"),
-            page("Errors", "/guide/errors/"),
-            page("Groups and Middleware", "/guide/groups-and-middleware/"),
-            page("Testing", "/guide/testing/"),
-          ],
-        },
-        {
-          label: "Going further",
-          collapsed: true,
-          items: [
-            page("Typed Handlers", "/guide/typed-handlers/"),
-            page("OpenAPI", "/guide/openapi/"),
-            page("Context", "/guide/context/"),
-            page("Templates", "/guide/templates/"),
-            page("Static Files", "/guide/static-files/"),
-            page("Cookies", "/guide/cookies/"),
-            page("Client IP and Proxies", "/guide/ip-address/"),
-            page("Configuration", "/guide/configuration/"),
-            page("Customization", "/guide/customization/"),
-            page("Zinc and net/http", "/guide/http-interoperability/"),
-          ],
-        },
-        {
-          label: "Middleware",
-          collapsed: true,
-          items: [
-            page("All Middleware", "/middleware/overview/"),
-            page("Request ID", "/middleware/requestid/"),
-            page("Request Logger", "/middleware/logger/"),
-            page("Recover", "/middleware/recover/"),
-            page("Secure Headers", "/middleware/secure/"),
-            page("CORS", "/middleware/cors/"),
-            page("Body Limit", "/middleware/bodylimit/"),
-            page("Context Timeout", "/middleware/timeout/"),
-            page("Rate Limiter", "/middleware/limiter/"),
-            page("Health Check", "/middleware/healthcheck/"),
-            page("API Docs", "/middleware/apidocs/"),
-            page("Basic Auth", "/middleware/basicauth/"),
-            page("Key Auth", "/middleware/keyauth/"),
-            page("JWT", "/middleware/jwtauth/"),
-            page("Session", "/middleware/session/"),
-            page("CSRF", "/middleware/csrf/"),
-            page("Casbin Auth", "/middleware/casbin/"),
-            page("Content Type", "/middleware/contenttype/"),
-            page("Headers", "/middleware/headers/"),
-            page("No Cache", "/middleware/nocache/"),
-            page("Compress", "/middleware/compress/"),
-            page("Decompress", "/middleware/decompress/"),
-            page("Proxy", "/middleware/proxy/"),
-            page("Prometheus", "/middleware/prometheus/"),
-            page("OpenTelemetry", "/middleware/open-telemetry/"),
-            page("pprof", "/middleware/pprof/"),
-            page("Body Dump", "/middleware/bodydump/"),
-            page("Rewrite", "/middleware/rewrite/"),
-            page("Redirect", "/middleware/redirect/"),
-            page("Method Override", "/middleware/methodoverride/"),
-            page("Trailing Slash", "/middleware/trailingslash/"),
-          ],
-        },
-        {
-          label: "Cookbook",
-          collapsed: true,
-          items: [
-            page("All Recipes", "/cookbook/"),
-            page("A Production Service", "/cookbook/production/"),
-            page("CRUD API", "/cookbook/crud/"),
-            page("Typed CRUD API", "/cookbook/typed-crud/"),
-            page("SQLite CRUD API", "/cookbook/sqlite-crud-api/"),
-            page("Validate Input", "/cookbook/validation/"),
-            page("Generate an API Client", "/cookbook/openapi-client/"),
-            page("Signed Webhooks", "/cookbook/signed-webhook/"),
-            page("Health and Readiness Checks", "/cookbook/health-readiness/"),
-            page("Structured Request Logs with slog", "/cookbook/structured-logging/"),
-            page("Graceful Shutdown", "/cookbook/graceful-shutdown/"),
-            page("Docker and Environment Config", "/cookbook/docker-config/"),
-            page("Automatic TLS", "/cookbook/auto-tls/"),
-            page("HTTP/2 Server", "/cookbook/http2/"),
-            page("Reverse Proxy", "/cookbook/reverse-proxy/"),
-            page("Timeouts", "/cookbook/timeout/"),
-            page("Rate Limiting", "/cookbook/rate-limiting/"),
-            page("Adopt Zinc in net/http", "/cookbook/existing-net-http-service/"),
-            page("Embed Resources", "/cookbook/embed-resources/"),
-            page("File Upload", "/cookbook/file-upload/"),
-            page("File Download", "/cookbook/file-download/"),
-            page("Single-Page App", "/cookbook/spa-fallback/"),
-            page("CORS for a Browser Front End", "/cookbook/cors-browser-frontend/"),
-            page("Templ UI", "/cookbook/templ-ui/"),
-            page("Templated HTML + JS", "/cookbook/templated-html-js-page/"),
-            page("Server-Sent Events", "/cookbook/sse/"),
-            page("Streaming Response", "/cookbook/streaming-response/"),
-            page("WebSocket", "/cookbook/websocket/"),
-            page("JWT", "/cookbook/jwt/"),
-            page("Session Login", "/cookbook/session-login/"),
-            page("Custom Middleware", "/cookbook/middleware/"),
-          ],
-        },
-        {
-          label: "API Reference",
-          collapsed: true,
-          items: [
-            page("Application", "/api/app/"),
-            page("Config type", "/api/config/"),
-            page("Context", "/api/context/"),
-            page("Binding", "/api/binding/"),
-            page("Errors", "/api/errors/"),
-            page("Groups", "/api/group/"),
-            page("Response Writer", "/api/response-writer/"),
-          ],
-        },
-        {
-          label: "Project",
-          collapsed: true,
-          items: [
-            page("FAQ", "/extra/faq/"),
-            page("Benchmarks", "/extra/benchmarks/"),
-            page("Compatibility", "/extra/compatibility/"),
-            {
-              label: "Upgrading",
-              items: [
-                page("To 0.7", "/extra/migration-0.7/"),
-                page("To 0.6", "/extra/migration-0.6/"),
-                page("To 0.5", "/extra/migration-0.5/"),
-                page("To 0.4", "/extra/migration-0.4/"),
-                page("To 0.3", "/extra/migration-0.3/"),
-                page("To 0.2", "/extra/migration-0.2/"),
-              ],
-            },
-          ],
-        },
-      ],
+      sidebar,
       expressiveCode: {
         themes: [zincFrost],
         useStarlightDarkModeSwitch: false,

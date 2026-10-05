@@ -60,7 +60,7 @@ go mod tidy
 Your `go.mod` records the exact version you build with, so Zinc only changes when you run `go get`.
 
 :::caution[Zinc is pre-1.0]
-A minor release, such as 0.4 to 0.5, can change the API. Read the [release notes](https://github.com/0mjs/zinc/releases) before you upgrade, and run your tests afterwards.
+A minor release, such as 0.4 to 0.5, can change the API. Read the [release notes](https://github.com/gozinc/zinc/releases) before you upgrade, and run your tests afterwards.
 :::
 
 Each minor release has an upgrade guide:

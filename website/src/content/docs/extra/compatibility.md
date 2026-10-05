@@ -43,4 +43,4 @@ Report a security problem privately, through the **Report a vulnerability** butt
 
 - [Upgrading to 0.7](/extra/migration-0.7/): what changed in 0.7.
 - [Upgrading to 0.6](/extra/migration-0.6/): what changed in each 0.6 release.
-- [Release notes](https://github.com/0mjs/zinc/releases): every change in every version.
+- [Release notes](https://github.com/gozinc/zinc/releases): every change in every version.

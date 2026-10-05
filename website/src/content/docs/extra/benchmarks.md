@@ -77,12 +77,12 @@ v0.4.0 scored 35 of 92 on this suite. Zinc 0.5.0 scored 62 of 92, after rebuildi
 - **Plain hits against BunRouter.** BunRouter serves hello world and static routes 30–40% faster, because it does less per request than a framework.
 - **Static files.** Gin answers a missing file in 950 ns against Zinc's 1,117 ns. About 110 ns of that is Zinc's confined file open, which refuses symlinks that point outside the served directory.
 
-The [full report](https://github.com/0mjs/zinc/blob/dev/BENCHMARKS.md) lists every scenario in both tables, every one Zinc loses, and every tie.
+The [full report](https://github.com/gozinc/zinc/blob/dev/BENCHMARKS.md) lists every scenario in both tables, every one Zinc loses, and every tie.
 
 ## Run it yourself
 
 ```bash
-git clone https://github.com/0mjs/zinc
+git clone https://github.com/gozinc/zinc
 cd zinc/benchmarks
 go run ./cmd/zincbench record
 go run ./cmd/zincbench report latest
@@ -90,4 +90,4 @@ go run ./cmd/zincbench report latest
 
 `record` runs every scenario ten times for each framework and saves the run under `benchmarks/results/`. `report` prints the tables above for that run. `compare` shows what changed between two runs. Results depend on the machine: record on a quiet machine on mains power, and compare runs from the same machine.
 
-The separate [Gin routing-suite report](https://github.com/0mjs/zinc/blob/dev/GIN_BENCHMARK.md) covers the upstream router-focused suite, where every request repeats one URL. Zinc 0.5 is slower there than 0.4 was, because 0.4's route cache answered those repeated URLs from memory: the 20-parameter row went from 125 to 634 ns. Its scores are not part of these tables.
+The separate [Gin routing-suite report](https://github.com/gozinc/zinc/blob/dev/GIN_BENCHMARK.md) covers the upstream router-focused suite, where every request repeats one URL. Zinc 0.5 is slower there than 0.4 was, because 0.4's route cache answered those repeated URLs from memory: the 20-parameter row went from 125 to 634 ns. Its scores are not part of these tables.

@@ -189,4 +189,4 @@ The proxy's `Director` runs after forwarding headers are set and hop-by-hop head
 - Rate Limiter `MaxKeys`, `MaxKeyBytes`, `IdleTTL`, and `Now`.
 - `NewPrometheusMetrics(maxSeries)`.
 
-The [release notes](https://github.com/0mjs/zinc/releases/tag/v0.3.0) cover performance changes and the full list of fixes.
+The [release notes](https://github.com/gozinc/zinc/releases/tag/v0.3.0) cover performance changes and the full list of fixes.
