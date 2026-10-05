@@ -7,7 +7,7 @@ Zinc keeps its benchmark suite in the repository, so every performance claim can
 
 ## Latest results
 
-Measured on 2 October 2026 for 0.7.0: Apple M1 Pro, `go1.27.1`, commit `62512f0`, with every rival measured in the same run. Lower is better.
+Measured on 5 October 2026 for 0.7.3: Apple M1 Pro, `go1.27.1`, commit `2a51380`, with every rival measured in the same run. Lower is better.
 
 Zinc is scored in two tables. **Frameworks** is the headline: Gin and Echo, on all 93 scenarios. **Routers** puts Zinc against two bare routers, BunRouter and Chi, on the 66 routing scenarios they can run. A bare router does less per request than a framework, so the second table is a stricter test of routing alone.
 
@@ -15,31 +15,41 @@ A framework is fastest in a scenario when it beats every other by 3% or more. Cl
 
 | Frameworks | Fastest in | Tied for fastest | Distance from the fastest |
 |---|---|---|---|
-| **Zinc** | **63 of 93** | **6** | **+5.7%** |
-| Gin | 21 of 93 | 4 | +41.7% |
-| Echo | 2 of 93 | 5 | +52.2% |
+| **Zinc** | **61 of 93** | **7** | **+6.1%** |
+| Gin | 21 of 93 | 5 | +41.2% |
+| Echo | 2 of 93 | 6 | +52.9% |
 
 | Routers | Fastest in | Tied for fastest | Distance from the fastest |
 |---|---|---|---|
-| **Zinc** | **32 of 66** | **12** | **+7.7%** |
-| BunRouter | 14 of 66 | 12 | +39.4% |
-| Chi | 8 of 66 | 0 | +194.6% |
+| **Zinc** | **32 of 66** | **10** | **+8.5%** |
+| BunRouter | 16 of 66 | 9 | +42.3% |
+| Chi | 8 of 66 | 1 | +193.0% |
 
 The distance is the geometric mean, over a table's scenarios, of how far each framework's median is above the fastest one in that scenario. 0% would mean fastest everywhere.
 
 | Benchmark | Zinc | Gin | Echo |
 |---|---:|---:|---:|
-| Hello world | **80.62** | 135.1 | 151.3 |
-| Route parameter, 10,000 distinct paths | **123.8** | 167.2 | 169.7 |
-| GitHub API, Zipf-weighted traffic | **190.8** | 222.4 | 239.7 |
-| API happy path | **1,099** | 2,978 | 1,681 |
-| API behind production middleware | 3,230 | 4,375 | 3,321 |
-| Parallel route parameter | **24.34** | 41.41 | 32.49 |
-| Method not allowed, large route set | 124.4 | **80.94** | 186.1 |
+| Hello world | **84.12** | 137.9 | 151.6 |
+| Route parameter, 10,000 distinct paths | **123.9** | 182.2 | 167.8 |
+| GitHub API, Zipf-weighted traffic | **191.2** | 219.9 | 233.1 |
+| API happy path | **1,137** | 3,089 | 1,721 |
+| API behind production middleware | 3,275 | 4,382 | 3,333 |
+| Parallel route parameter | **24.76** | 42.56 | 33.36 |
+| Method not allowed, large route set | 135.3 | **103.8** | 189.8 |
 
 Times are nanoseconds per operation. "API behind production middleware" runs each framework's own request ID, access log, panic recovery and CORS in front of a JSON route.
 
-## What changed since 0.6.0
+## What changed since 0.7.0
+
+Zinc wins 61 of 93 against Gin and Echo, two fewer than for 0.7.0, and its distance from the fastest moved from +5.7% to +6.1%. 0.7.2 and 0.7.3 were correctness releases, and two of their fixes cost a little time:
+
+- **The simplest lookups are 2–6 ns slower.** Since 0.7.2, dispatch, `FindRoute` and the `405` check share one lookup with one trailing-slash rule, which stops one method's route hiding another's. 0.7.3 added 1–2 ns more from code layout.
+- **404s and `405`s in large route sets are about 2% slower**, from the same changes.
+- **Compression is about ten times cheaper** since 0.7.3, which reuses its gzip writers; compression isn't one of the scored scenarios.
+
+Each release was measured on its final commit, and every row a release run flagged was checked again by interleaved A/B against the release before.
+
+## From 0.6.0 to 0.7.0
 
 Zinc wins the same 63 of 93 against Gin and Echo, and its distance from the fastest moved from +5.2% to +5.7%. Two things cost time on purpose, and one scenario moved into the tie band:
 
