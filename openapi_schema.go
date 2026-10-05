@@ -5,6 +5,7 @@ package zinc
 
 import (
 	"bytes"
+	"cmp"
 	"encoding"
 	"encoding/json"
 	"reflect"
@@ -39,7 +40,7 @@ type SchemaNamer interface {
 //
 //	func (Kind) Enum() []any { return []any{"cat", "dog"} }
 //
-// It documents the values; enforce them with a validator.
+// Zinc checks the values on input, whatever the validator.
 type EnumProvider interface {
 	Enum() []any
 }
@@ -64,9 +65,9 @@ type schema struct {
 	examples             []any
 	readOnly, writeOnly  bool
 	deprecated           bool
-	minimum, maximum     *float64
-	exclusiveMinimum     *float64
-	exclusiveMaximum     *float64
+	minimum, maximum     *schemaNumber
+	exclusiveMinimum     *schemaNumber
+	exclusiveMaximum     *schemaNumber
 	minLength, maxLength *int
 	pattern              string
 	minItems, maxItems   *int
@@ -156,22 +157,22 @@ func (g *schemaGen) schema(t reflect.Type, mode schemaMode) *schema {
 	case reflect.String:
 		return &schema{typ: []string{"string"}}
 	case reflect.Int8:
-		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(-128.0), maximum: ptr(127.0)}
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: num(-128), maximum: num(127)}
 	case reflect.Int16:
-		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(-32768.0), maximum: ptr(32767.0)}
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: num(-32768), maximum: num(32767)}
 	case reflect.Int32:
 		return &schema{typ: []string{"integer"}, format: "int32"}
 	case reflect.Uint8:
-		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0), maximum: ptr(255.0)}
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: num(0), maximum: num(255)}
 	case reflect.Uint16:
-		return &schema{typ: []string{"integer"}, format: "int32", minimum: ptr(0.0), maximum: ptr(65535.0)}
+		return &schema{typ: []string{"integer"}, format: "int32", minimum: num(0), maximum: num(65535)}
 	case reflect.Int, reflect.Int64:
 		return &schema{typ: []string{"integer"}, format: "int64"}
 	case reflect.Uint32:
-		return &schema{typ: []string{"integer"}, format: "int64", minimum: ptr(0.0), maximum: ptr(4294967295.0)}
+		return &schema{typ: []string{"integer"}, format: "int64", minimum: num(0), maximum: num(4294967295)}
 	case reflect.Uint, reflect.Uint64, reflect.Uintptr:
 		// No OpenAPI format holds values above 2^63-1.
-		return &schema{typ: []string{"integer"}, minimum: ptr(0.0)}
+		return &schema{typ: []string{"integer"}, minimum: num(0)}
 	case reflect.Float32:
 		return &schema{typ: []string{"number"}, format: "float"}
 	case reflect.Float64:
@@ -806,7 +807,7 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 	if g.rules == nil {
 		return false
 	}
-	required := applyValidateTag(target, f.tag.Get("validate"), base(f.typ), f.asString, g.rules)
+	required := applyValidateTag(target, f.tag.Get("validate"), f.typ, f.asString, g.rules)
 	return required || g.zeroFails(f)
 }
 
@@ -817,7 +818,7 @@ func (g *schemaGen) applyFieldTags(fs *schema, f jsonField) bool {
 // never is.
 func (g *schemaGen) zeroFails(f jsonField) bool {
 	tag := f.tag.Get("validate")
-	if g.rules == nil || tag == "" || f.asString || f.typ.Kind() == reflect.Pointer || hasValidateToken(tag, "omitempty") {
+	if g.rules == nil || tag == "" || f.asString || f.typ.Kind() == reflect.Pointer {
 		return false
 	}
 	if _, ok := f.tag.Lookup("default"); ok {
@@ -826,13 +827,13 @@ func (g *schemaGen) zeroFails(f jsonField) bool {
 	zero := reflect.Zero(f.typ)
 	for _, token := range strings.Split(tag, ",") {
 		key, param, _ := strings.Cut(strings.TrimSpace(token), "=")
-		if key == "dive" {
-			return false
+		if key == "dive" || key == "omitempty" {
+			return false // omitempty skips the rules after it
 		}
 		if key == "required" || !g.rules[key] {
 			continue
 		}
-		if check, ok := compileRule(key, param, f.typ); ok && check(zero) != "" {
+		if check, err := compileRule(key, param, f.typ); err == nil && check(zero) != "" {
 			return true
 		}
 	}
@@ -861,12 +862,14 @@ func applyEnumTag(s *schema, text string, f jsonField) {
 }
 
 // applyValidateTag reads the go-playground validator tokens that have a
-// JSON Schema meaning. Zinc doesn't depend on the validator; unknown tokens
-// are ignored, and anything after "dive" describes elements, so it stops.
-func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool, rules map[string]bool) (required bool) {
+// JSON Schema meaning, for a field of type ft. Zinc doesn't depend on the
+// validator; unknown tokens are ignored, and anything after "dive" describes
+// elements, so it stops.
+func applyValidateTag(s *schema, tag string, ft reflect.Type, asString bool, rules map[string]bool) (required bool) {
 	if tag == "" {
 		return false
 	}
+	t := base(ft)
 	// A $ref or a provider's schema is shared or fixed, so only "required",
 	// which belongs to the parent, applies to it.
 	constrain := s.ref == "" && s.raw == nil
@@ -879,12 +882,16 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool, rule
 	case t.Kind() == reflect.Struct || t.Kind() == reflect.Bool || t.Kind() == reflect.Interface:
 		kind = ""
 	}
-	if constrain {
-		// The validator's omitempty skips the other rules for a zero value,
-		// so the zero value must pass the schema too.
+	// The validator's omitempty skips the rules after it for a zero value,
+	// so the zero value must pass those in the schema too. A pointer that
+	// isn't nil is set even when its value is zero, so it keeps them all.
+	var strict *schema // s as the rules before omitempty left it
+	oneofBefore := false
+	if constrain && ft.Kind() != reflect.Pointer {
 		defer func() {
-			if hasValidateToken(tag, "omitempty") {
+			if strict != nil {
 				allowZero(s, kind, t, asString)
+				keepStrict(s, strict, oneofBefore)
 			}
 		}()
 	}
@@ -892,6 +899,14 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool, rule
 		key, value, _ := strings.Cut(strings.TrimSpace(token), "=")
 		if key == "dive" {
 			return required
+		}
+		if key == "omitempty" && strict == nil {
+			before := *s
+			strict = &before
+			continue
+		}
+		if key == "oneof" && strict == nil {
+			oneofBefore = true
 		}
 		if !rules[key] {
 			continue
@@ -916,29 +931,10 @@ func applyValidateTag(s *schema, tag string, t reflect.Type, asString bool, rule
 				}
 			}
 		case "min", "max", "len", "gte", "lte", "gt", "lt":
-			n, err := strconv.ParseFloat(value, 64)
-			if err != nil {
-				continue
-			}
-			applyBound(s, kind, key, n)
+			applyBound(s, kind, key, value, t)
 		}
 	}
 	return required
-}
-
-// hasValidateToken reports whether a validate tag has the token before any
-// "dive".
-func hasValidateToken(tag, want string) bool {
-	for _, token := range strings.Split(tag, ",") {
-		key, _, _ := strings.Cut(strings.TrimSpace(token), "=")
-		if key == "dive" {
-			return false
-		}
-		if key == want {
-			return true
-		}
-	}
-	return false
 }
 
 // allowZero relaxes the rules a zero value would break: it joins an enum,
@@ -958,23 +954,67 @@ func allowZero(s *schema, kind string, t reflect.Type, asString bool) {
 				s.enum = append(s.enum, zero)
 			}
 		}
-		if s.minimum != nil && *s.minimum > 0 {
+		if s.minimum != nil && s.minimum.f > 0 {
 			s.minimum = nil
 		}
-		if s.maximum != nil && *s.maximum < 0 {
+		if s.maximum != nil && s.maximum.f < 0 {
 			s.maximum = nil
 		}
-		if s.exclusiveMinimum != nil && *s.exclusiveMinimum >= 0 {
+		if s.exclusiveMinimum != nil && s.exclusiveMinimum.f >= 0 {
 			s.exclusiveMinimum = nil
 		}
-		if s.exclusiveMaximum != nil && *s.exclusiveMaximum <= 0 {
+		if s.exclusiveMaximum != nil && s.exclusiveMaximum.f <= 0 {
 			s.exclusiveMaximum = nil
 		}
 	}
 }
 
-func applyBound(s *schema, kind, key string, n float64) {
-	i := int(n)
+// keepStrict restores what allowZero relaxed that the rules before
+// omitempty set, since those still apply to a zero value.
+func keepStrict(s, strict *schema, oneof bool) {
+	if strict.format != "" {
+		s.format = strict.format
+	}
+	s.minLength = cmp.Or(strict.minLength, s.minLength)
+	s.minItems = cmp.Or(strict.minItems, s.minItems)
+	s.minimum = cmp.Or(strict.minimum, s.minimum)
+	s.maximum = cmp.Or(strict.maximum, s.maximum)
+	s.exclusiveMinimum = cmp.Or(strict.exclusiveMinimum, s.exclusiveMinimum)
+	s.exclusiveMaximum = cmp.Or(strict.exclusiveMaximum, s.exclusiveMaximum)
+	if oneof {
+		s.enum = strict.enum
+	}
+}
+
+// schemaNumber is a numeric bound. An integer bound keeps its exact digits,
+// which a float64 can't hold above 2^53.
+type schemaNumber struct {
+	f    float64
+	text string // the exact form, or "" to write f
+}
+
+func num(f float64) *schemaNumber { return &schemaNumber{f: f} }
+
+func (n schemaNumber) MarshalJSON() ([]byte, error) {
+	if n.text != "" {
+		return []byte(n.text), nil
+	}
+	return json.Marshal(n.f)
+}
+
+// applyBound adds a min, max or other bound, parsed as validation parses it
+// for type t, so the schema states the limit that's enforced. A bound
+// validation can't use isn't claimed.
+func applyBound(s *schema, kind, key, param string, t reflect.Type) {
+	measure := map[string]string{"string": "chars", "items": "items", "number": "number"}[kind]
+	if measure == "" || (kind == "number" && measureKind(t) != "number") {
+		return
+	}
+	b, err := parseBound(param, t, measure)
+	if err != nil {
+		return
+	}
+	i := int(b.i)
 	switch kind {
 	case "string":
 		switch key {
@@ -998,17 +1038,24 @@ func applyBound(s *schema, kind, key string, n float64) {
 			s.minItems, s.maxItems = &i, &i
 		}
 	case "number":
+		n := &schemaNumber{f: b.f}
+		switch {
+		case isSigned(t):
+			n.f, n.text = float64(b.i), strconv.FormatInt(b.i, 10)
+		case isUnsigned(t):
+			n.f, n.text = float64(b.u), strconv.FormatUint(b.u, 10)
+		}
 		switch key {
 		case "min", "gte":
-			s.minimum = &n
+			s.minimum = n
 		case "max", "lte":
-			s.maximum = &n
+			s.maximum = n
 		case "gt":
-			s.exclusiveMinimum = &n
+			s.exclusiveMinimum = n
 		case "lt":
-			s.exclusiveMaximum = &n
+			s.exclusiveMaximum = n
 		case "len":
-			s.minimum, s.maximum = &n, &n
+			s.minimum, s.maximum = n, n
 		}
 	}
 }
@@ -1062,8 +1109,6 @@ func nullable(s *schema) *schema {
 	}
 	return s
 }
-
-func ptr[T any](v T) *T { return &v }
 
 // MarshalJSON writes the schema with a fixed key order.
 func (s *schema) MarshalJSON() ([]byte, error) {

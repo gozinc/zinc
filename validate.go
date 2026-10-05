@@ -4,7 +4,10 @@
 package zinc
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
+	"math"
 	"net/mail"
 	"net/url"
 	"reflect"
@@ -36,9 +39,12 @@ type RuleSetValidator interface {
 //	email, uuid, uuid4, url, uri, http_url
 //
 // min, max, len, gt, gte, lt and lte count the characters of a string and
-// the elements of a slice or map, and compare a number's value. Nested
-// structs are validated too, including those in slices and maps, as the
-// spec describes them; go-playground/validator needs dive for that.
+// the elements of a slice or map, and compare a number's value exactly, as
+// the field's own type. A pointer that isn't nil counts as set, and
+// omitempty skips only the rules after it. Nested structs are validated
+// too, including those in slices and maps and those of a recursive type, as
+// deep as the value goes, as the spec describes them; go-playground/validator
+// needs dive for that.
 func BuiltinRules() []string {
 	return slices.Clone(builtinRuleNames)
 }
@@ -92,28 +98,37 @@ func (e invalidFields) Fields() map[string]string { return e }
 // is the validator.
 type rulePlan struct {
 	fields []ruleField
+	// recursive is set when the plan can reach itself through its fields,
+	// so a check tracks the structs on its path and stops at a cycle.
+	recursive bool
 	// unsupported lists validate rules outside BuiltinRules, as
 	// "Type.Field: rule", for the error when Zinc is the validator.
 	unsupported []string
-	// invalid lists pattern tags that can't be used, as "Type.Field: why",
-	// for the error whatever the validator.
+	// invalid lists enum and pattern tags that can't be used, as
+	// "Type.Field: why", for the error whatever the validator.
 	invalid []string
 }
 
 type ruleField struct {
 	index    []int
 	name     string
-	typ      reflect.Type // the field's type, pointers included
 	tagRules []rule
-	omit     bool // omitempty: a zero value skips tagRules
+	// omitAt is omitempty's position in tagRules: an unset field skips the
+	// rules from there on. It's len(tagRules) without omitempty.
+	omitAt int
+	// nilFails is set when required comes before any omitempty, so a nil
+	// pointer fails.
+	nilFails bool
 	enum     []any
+	enumMsg  string
+	enumEach bool // the enum applies to each element of a slice, array or map
 	pattern  *regexp.Regexp
 	nested   *rulePlan
 }
 
 type rule struct {
-	name  string
-	check func(v reflect.Value) string // "" when v passes
+	required bool
+	check    func(v reflect.Value) string // "" when v passes
 }
 
 var rulePlans sync.Map // reflect.Type -> *rulePlan (nil when nothing to check)
@@ -128,72 +143,224 @@ func rulePlanFor(t reflect.Type) *rulePlan {
 		plan, _ := cached.(*rulePlan)
 		return plan
 	}
-	plan := compileRulePlan(t, map[reflect.Type]bool{})
+	plan := compileRulePlans(t)
 	actual, _ := rulePlans.LoadOrStore(t, plan)
 	plan, _ = actual.(*rulePlan)
 	return plan
 }
 
-func compileRulePlan(t reflect.Type, visiting map[reflect.Type]bool) *rulePlan {
-	if visiting[t] {
-		return nil // a recursive type is checked to the depth its values have
+// ruleCompiler builds the plans for a struct type and the struct types it
+// reaches. A type's plan exists before its fields are compiled, so a
+// recursive field refers back to it.
+type ruleCompiler struct {
+	plans       map[reflect.Type]*rulePlan
+	all         []*rulePlan
+	flagged     map[*rulePlan]bool // has unsupported rules or invalid tags
+	unsupported []string
+	invalid     []string
+}
+
+// compileRulePlans returns the plan for struct type t, or nil when neither
+// t nor anything it reaches has something to check.
+func compileRulePlans(t reflect.Type) *rulePlan {
+	c := &ruleCompiler{plans: map[reflect.Type]*rulePlan{}, flagged: map[*rulePlan]bool{}}
+	root := c.compile(t)
+	// A plan is live when it checks something itself or reaches a plan that
+	// does. Recursion makes that a fixed point.
+	live := map[*rulePlan]bool{}
+	for changed := true; changed; {
+		changed = false
+		for _, p := range c.all {
+			if !live[p] && c.checksSomething(p, live) {
+				live[p], changed = true, true
+			}
+		}
 	}
-	visiting[t] = true
-	defer delete(visiting, t)
+	if !live[root] {
+		return nil
+	}
+	for _, p := range c.all {
+		kept := p.fields[:0]
+		for _, f := range p.fields {
+			if f.nested != nil && !live[f.nested] {
+				f.nested = nil
+			}
+			if len(f.tagRules) > 0 || len(f.enum) > 0 || f.pattern != nil || f.nested != nil {
+				kept = append(kept, f)
+			}
+		}
+		p.fields = kept
+	}
+	for _, p := range c.all {
+		p.recursive = live[p] && reaches(p, p, map[*rulePlan]bool{})
+	}
+	root.unsupported, root.invalid = c.unsupported, c.invalid
+	return root
+}
+
+func (c *ruleCompiler) checksSomething(p *rulePlan, live map[*rulePlan]bool) bool {
+	if c.flagged[p] {
+		return true
+	}
+	for _, f := range p.fields {
+		if len(f.tagRules) > 0 || len(f.enum) > 0 || f.pattern != nil || (f.nested != nil && live[f.nested]) {
+			return true
+		}
+	}
+	return false
+}
+
+// reaches reports whether target can be reached from p's nested fields.
+func reaches(p, target *rulePlan, seen map[*rulePlan]bool) bool {
+	for _, f := range p.fields {
+		if f.nested == nil {
+			continue
+		}
+		if f.nested == target {
+			return true
+		}
+		if !seen[f.nested] {
+			seen[f.nested] = true
+			if reaches(f.nested, target, seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *ruleCompiler) compile(t reflect.Type) *rulePlan {
+	if plan, ok := c.plans[t]; ok {
+		return plan
+	}
 	plan := &rulePlan{}
+	c.plans[t] = plan
+	c.all = append(c.all, plan)
 	for _, f := range reflect.VisibleFields(t) {
 		if !f.IsExported() || (f.Anonymous && base(f.Type).Kind() == reflect.Struct) {
 			continue
 		}
-		rf := ruleField{index: f.Index, name: wireName(f), typ: f.Type}
+		rf := ruleField{index: f.Index, name: wireName(f)}
 		elem := base(f.Type)
 		if text, ok := f.Tag.Lookup("enum"); ok {
-			for _, v := range strings.Split(text, ",") {
-				if parsed, ok := parseScalar(strings.TrimSpace(v), elem, false); ok {
-					rf.enum = append(rf.enum, parsed)
-				}
+			values, each, err := compileEnum(text, elem)
+			if err != nil {
+				c.flag(plan, &c.invalid, fmt.Sprintf("%s.%s: %v", t, f.Name, err))
 			}
-		} else if provider, ok := reflect.New(elem).Elem().Interface().(EnumProvider); ok && elem.Kind() != reflect.Struct {
-			rf.enum = provider.Enum()
+			rf.enum, rf.enumEach = values, each
+		} else {
+			rf.enum, rf.enumEach = providedEnum(elem)
+		}
+		if len(rf.enum) > 0 {
+			rf.enumMsg = "must be one of: " + enumText(rf.enum)
 		}
 		if text, ok := f.Tag.Lookup("pattern"); ok {
 			re, err := compilePattern(text, elem)
 			if err != nil {
-				plan.invalid = append(plan.invalid, fmt.Sprintf("%s.%s: %v", t, f.Name, err))
+				c.flag(plan, &c.invalid, fmt.Sprintf("%s.%s: %v", t, f.Name, err))
 			}
 			rf.pattern = re
 		}
+		rf.omitAt = -1
 		for _, token := range strings.Split(f.Tag.Get("validate"), ",") {
-			name, param, _ := strings.Cut(strings.TrimSpace(token), "=")
+			token = strings.TrimSpace(token)
+			name, param, _ := strings.Cut(token, "=")
 			switch name {
 			case "":
 				continue
 			case "omitempty":
-				rf.omit = true
+				if rf.omitAt < 0 {
+					rf.omitAt = len(rf.tagRules)
+				}
 				continue
 			}
-			check, ok := compileRule(name, param, elem)
-			if !ok {
-				plan.unsupported = append(plan.unsupported, fmt.Sprintf("%s.%s: %s", t, f.Name, strings.TrimSpace(token)))
+			check, err := compileRule(name, param, elem)
+			if err != nil {
+				entry := fmt.Sprintf("%s.%s: %s", t, f.Name, token)
+				if err != errRuleUnsupported {
+					entry += " (" + err.Error() + ")"
+				}
+				c.flag(plan, &c.unsupported, entry)
 				continue
 			}
-			rf.tagRules = append(rf.tagRules, rule{name: name, check: check})
+			if name == "required" && rf.omitAt < 0 {
+				rf.nilFails = true
+			}
+			rf.tagRules = append(rf.tagRules, rule{required: name == "required", check: check})
+		}
+		if rf.omitAt < 0 {
+			rf.omitAt = len(rf.tagRules)
 		}
 		if st := nestedStruct(f.Type); st != nil {
-			if nested := compileRulePlan(st, visiting); nested != nil {
-				rf.nested = nested
-				plan.unsupported = append(plan.unsupported, nested.unsupported...)
-				plan.invalid = append(plan.invalid, nested.invalid...)
-			}
+			rf.nested = c.compile(st)
 		}
 		if len(rf.tagRules) > 0 || len(rf.enum) > 0 || rf.pattern != nil || rf.nested != nil {
 			plan.fields = append(plan.fields, rf)
 		}
 	}
-	if len(plan.fields) == 0 && len(plan.unsupported) == 0 && len(plan.invalid) == 0 {
-		return nil
-	}
 	return plan
+}
+
+func (c *ruleCompiler) flag(plan *rulePlan, list *[]string, entry string) {
+	c.flagged[plan] = true
+	*list = append(*list, entry)
+}
+
+// compileEnum parses an enum tag's values for a field whose type, pointers
+// removed, is t: as t, or as its elements for a slice or array.
+func compileEnum(text string, t reflect.Type) (values []any, each bool, err error) {
+	et := t
+	if (t.Kind() == reflect.Slice && t.Elem().Kind() != reflect.Uint8) || t.Kind() == reflect.Array {
+		et, each = base(t.Elem()), true
+	}
+	noun := scalarNoun(et)
+	if noun == "" {
+		return nil, false, fmt.Errorf("enum applies to strings, numbers and booleans, and slices and arrays of them, not %s", t)
+	}
+	for _, v := range strings.Split(text, ",") {
+		v = strings.TrimSpace(v)
+		parsed, ok := parseScalar(v, et, false)
+		if !ok {
+			return nil, false, fmt.Errorf("enum value %q isn't %s", v, noun)
+		}
+		values = append(values, parsed)
+	}
+	return values, each, nil
+}
+
+// providedEnum returns the values of an EnumProvider type t, or of the
+// elements of a slice, array or map of one.
+func providedEnum(t reflect.Type) (values []any, each bool) {
+	switch t.Kind() {
+	case reflect.Struct:
+		return nil, false
+	case reflect.Slice, reflect.Array, reflect.Map:
+		et := base(t.Elem())
+		if et.Kind() == reflect.Struct {
+			return nil, false
+		}
+		values = enumValuesFor(et)
+		return values, values != nil
+	}
+	return enumValuesFor(t), false
+}
+
+// scalarNoun names the values of scalar type t for a message, or returns ""
+// when t isn't a string, number or boolean.
+func scalarNoun(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return "an int"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return "a uint"
+	case reflect.Float32, reflect.Float64:
+		return "a number"
+	}
+	return ""
 }
 
 // compilePattern compiles a pattern tag for a field whose type, pointers
@@ -221,22 +388,126 @@ func wireName(f reflect.StructField) string {
 	return f.Name
 }
 
-// check validates v, a struct value. tags is set when Zinc is the
-// validator, so validate tags apply as well as enums.
+// ruleWalk is one check's state. path holds the structs and maps of
+// recursive plans on the way down to the current value; one met again is a
+// cycle in memory, already being checked, so the walk ends. Others are
+// checked wherever they're reached.
+type ruleWalk struct {
+	tags bool // validate tags apply: Zinc is the validator
+	errs invalidFields
+	path []ruleVisit
+	// onPath indexes a deep path, so each step stays cheap.
+	onPath map[ruleVisit]bool
+}
+
+type ruleVisit struct {
+	plan *rulePlan
+	addr uintptr
+}
+
+const ruleWalkIndexDepth = 32
+
+// enter records a visit to addr for plan p, returning false when it's
+// already on the path.
+func (w *ruleWalk) enter(p *rulePlan, addr uintptr) bool {
+	v := ruleVisit{p, addr}
+	if w.onPath != nil {
+		if w.onPath[v] {
+			return false
+		}
+		w.onPath[v] = true
+	} else if slices.Contains(w.path, v) {
+		return false
+	}
+	w.path = append(w.path, v)
+	if w.onPath == nil && len(w.path) > ruleWalkIndexDepth {
+		w.onPath = make(map[ruleVisit]bool, 2*len(w.path))
+		for _, seen := range w.path {
+			w.onPath[seen] = true
+		}
+	}
+	return true
+}
+
+func (w *ruleWalk) leave() {
+	last := len(w.path) - 1
+	if w.onPath != nil {
+		delete(w.onPath, w.path[last])
+	}
+	w.path = w.path[:last]
+}
+
+func (w *ruleWalk) fail(name *ruleName, msg string) {
+	if w.errs == nil {
+		w.errs = invalidFields{}
+	}
+	w.errs[name.String()] = msg
+}
+
+// ruleName is a value's name as a chain from the root, written out only
+// when the value fails, so naming a deep value costs nothing until then.
+type ruleName struct {
+	parent *ruleName
+	field  string // a field's name, or the root's text
+	key    string // a map value's key, when index is -1
+	index  int    // an element's index, when field is unset
+}
+
+func (n *ruleName) String() string { return string(n.append(nil)) }
+
+func (n *ruleName) append(b []byte) []byte {
+	if n.parent == nil {
+		return append(b, n.field...)
+	}
+	b = n.parent.append(b)
+	switch {
+	case n.field != "":
+		if len(b) > 0 {
+			b = append(b, '.')
+		}
+		return append(b, n.field...)
+	case n.index < 0:
+		return append(append(append(b, '['), n.key...), ']')
+	}
+	return append(strconv.AppendInt(append(b, '['), int64(n.index), 10), ']')
+}
+
+// check validates v, a struct value, naming its fields after prefix. tags
+// is set when Zinc is the validator, so validate tags apply as well as
+// enums.
 func (p *rulePlan) check(v reflect.Value, tags bool, prefix string, errs invalidFields) invalidFields {
+	w := ruleWalk{tags: tags, errs: errs}
+	root := ruleName{field: strings.TrimSuffix(prefix, ".")}
+	w.structValue(p, v, &root)
+	return w.errs
+}
+
+// checkWithin checks the structs in v: v itself, or the elements of a
+// slice, array or map, through pointers, named name[i] or name[key].
+func (p *rulePlan) checkWithin(v reflect.Value, tags bool, name string, errs invalidFields) invalidFields {
+	w := ruleWalk{tags: tags, errs: errs}
+	root := ruleName{field: name}
+	w.within(p, v, &root)
+	return w.errs
+}
+
+func (w *ruleWalk) structValue(p *rulePlan, v reflect.Value, at *ruleName) {
+	if p.recursive && v.CanAddr() {
+		if !w.enter(p, v.UnsafeAddr()) {
+			return
+		}
+		defer w.leave()
+	}
 	for i := range p.fields {
 		f := &p.fields[i]
 		fv, ok := fieldByIndex(v, f.index)
 		if !ok {
 			continue
 		}
-		name := prefix + f.name
-		if tags && len(f.tagRules) > 0 {
+		name := ruleName{parent: at, field: f.name}
+		if w.tags && len(f.tagRules) > 0 {
 			if msg := f.checkTags(fv); msg != "" {
-				if errs == nil {
-					errs = invalidFields{}
-				}
-				errs[name] = msg
+				w.fail(&name, msg)
 				continue
 			}
 		}
@@ -249,74 +520,129 @@ func (p *rulePlan) check(v reflect.Value, tags bool, prefix string, errs invalid
 		if fv.Kind() == reflect.Pointer {
 			continue // nil
 		}
+		if f.enumEach {
+			w.enumElements(f, fv, &name)
+			continue
+		}
 		// A zero value is a field left out; required says whether that's
 		// allowed.
 		if len(f.enum) > 0 && !fv.IsZero() && !enumContains(f.enum, fv) {
-			if errs == nil {
-				errs = invalidFields{}
-			}
-			errs[name] = "must be one of: " + enumText(f.enum)
+			w.fail(&name, f.enumMsg)
 			continue
 		}
 		if f.pattern != nil && !fv.IsZero() && !f.pattern.MatchString(fv.String()) {
-			if errs == nil {
-				errs = invalidFields{}
-			}
-			errs[name] = "must match the pattern " + f.pattern.String()
+			w.fail(&name, "must match the pattern "+f.pattern.String())
 			continue
 		}
 		if f.nested != nil {
-			errs = f.nested.checkWithin(fv, tags, name, errs)
+			w.within(f.nested, fv, &name)
 		}
 	}
-	return errs
 }
 
-// checkWithin checks the structs in v: v itself, or the elements of a
-// slice, array or map, through pointers, named name[i] or name[key].
-func (p *rulePlan) checkWithin(v reflect.Value, tags bool, name string, errs invalidFields) invalidFields {
+// within checks the structs in v for plan p: v itself, or the elements of
+// a slice, array or map, through pointers, named name[i] or name[key].
+func (w *ruleWalk) within(p *rulePlan, v reflect.Value, at *ruleName) {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
-			return errs
+			return
 		}
 		v = v.Elem()
 	}
 	switch v.Kind() {
 	case reflect.Struct:
-		return p.check(v, tags, name+".", errs)
+		w.structValue(p, v, at)
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {
-			errs = p.checkWithin(v.Index(i), tags, name+"["+strconv.Itoa(i)+"]", errs)
+			w.within(p, v.Index(i), &ruleName{parent: at, index: i})
+		}
+	case reflect.Map:
+		// Map values are copies, so a cycle through a map is caught at the
+		// map.
+		if p.recursive && v.Len() > 0 {
+			if !w.enter(p, v.Pointer()) {
+				return
+			}
+			defer w.leave()
+		}
+		iter := v.MapRange()
+		for iter.Next() {
+			w.within(p, iter.Value(), &ruleName{parent: at, key: fmt.Sprint(iter.Key().Interface()), index: -1})
+		}
+	}
+}
+
+// enumElements checks each element of v, a slice, array or map, against
+// the field's enum. Unlike a field, an element that's its zero value was
+// sent, so it's checked too.
+func (w *ruleWalk) enumElements(f *ruleField, v reflect.Value, at *ruleName) {
+	element := func(e reflect.Value) bool {
+		for e.Kind() == reflect.Pointer {
+			if e.IsNil() {
+				return true
+			}
+			e = e.Elem()
+		}
+		return enumContains(f.enum, e)
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if !element(v.Index(i)) {
+				w.fail(&ruleName{parent: at, index: i}, f.enumMsg)
+			}
 		}
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
-			errs = p.checkWithin(iter.Value(), tags, name+"["+fmt.Sprint(iter.Key().Interface())+"]", errs)
+			if !element(iter.Value()) {
+				w.fail(&ruleName{parent: at, key: fmt.Sprint(iter.Key().Interface()), index: -1}, f.enumMsg)
+			}
 		}
 	}
-	return errs
 }
 
-// checkTags runs the field's validate rules, returning the first failure.
+// checkTags runs the field's validate rules in order, returning the first
+// failure. As in go-playground/validator, a pointer that isn't nil is set,
+// whatever it points to, and omitempty skips only the rules after it.
 func (f *ruleField) checkTags(fv reflect.Value) string {
+	viaPointer := false
 	for fv.Kind() == reflect.Pointer {
 		if fv.IsNil() {
-			if slices.ContainsFunc(f.tagRules, func(r rule) bool { return r.name == "required" }) {
+			if f.nilFails {
 				return "is required"
 			}
 			return ""
 		}
-		fv = fv.Elem()
+		fv, viaPointer = fv.Elem(), true
 	}
-	if f.omit && fv.IsZero() {
-		return ""
-	}
-	for _, r := range f.tagRules {
+	for i := range f.tagRules {
+		if i == f.omitAt && !hasValue(fv, viaPointer) {
+			return ""
+		}
+		r := &f.tagRules[i]
+		if r.required {
+			if !hasValue(fv, viaPointer) {
+				return "is required"
+			}
+			continue
+		}
 		if msg := r.check(fv); msg != "" {
 			return msg
 		}
 	}
 	return ""
+}
+
+// hasValue is go-playground/validator's test for required and omitempty: a
+// slice, map or pointer that isn't nil, a value reached through a pointer,
+// or a value that isn't its zero value.
+func hasValue(v reflect.Value, viaPointer bool) bool {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Chan, reflect.Func:
+		return !v.IsNil()
+	}
+	return viaPointer || !v.IsZero()
 }
 
 func enumContains(values []any, v reflect.Value) bool {
@@ -356,9 +682,14 @@ func enumText(values []any) string {
 	return strings.Join(parts, ", ")
 }
 
+// errRuleUnsupported is compileRule's error for a rule Zinc doesn't have, or
+// doesn't have for the field's type.
+var errRuleUnsupported = errors.New("unsupported rule")
+
 // compileRule returns the check for one validate rule on a field whose
-// type, pointers removed, is t; false when Zinc doesn't support it there.
-func compileRule(name, param string, t reflect.Type) (func(reflect.Value) string, bool) {
+// type, pointers removed, is t. The error is errRuleUnsupported when Zinc
+// doesn't support the rule there, or says why its parameter can't be used.
+func compileRule(name, param string, t reflect.Type) (func(reflect.Value) string, error) {
 	kind := measureKind(t)
 	switch name {
 	case "required":
@@ -367,32 +698,22 @@ func compileRule(name, param string, t reflect.Type) (func(reflect.Value) string
 				return "is required"
 			}
 			return ""
-		}, true
+		}, nil
 	case "min", "max", "len", "gt", "gte", "lt", "lte":
 		if kind == "" {
-			return nil, false
+			return nil, errRuleUnsupported
 		}
-		n, err := strconv.ParseFloat(param, 64)
-		if err != nil {
-			return nil, false
-		}
-		message := boundMessage(name, kind, param)
-		return func(v reflect.Value) string {
-			if boundHolds(name, measure(v), n) {
-				return ""
-			}
-			return message
-		}, true
+		return compileBound(name, param, t, kind)
 	case "oneof":
 		values := strings.Fields(param)
 		if len(values) == 0 || (kind != "chars" && kind != "number") {
-			return nil, false
+			return nil, errRuleUnsupported
 		}
 		var allowed []any
 		for _, text := range values {
 			parsed, ok := parseScalar(text, t, false)
 			if !ok {
-				return nil, false
+				return nil, errRuleUnsupported
 			}
 			allowed = append(allowed, parsed)
 		}
@@ -402,10 +723,10 @@ func compileRule(name, param string, t reflect.Type) (func(reflect.Value) string
 				return ""
 			}
 			return message
-		}, true
+		}, nil
 	case "email", "uuid", "uuid4", "uuid_rfc4122", "uuid4_rfc4122", "url", "uri", "http_url":
 		if t.Kind() != reflect.String {
-			return nil, false
+			return nil, errRuleUnsupported
 		}
 		valid, message := formatRule(name)
 		return func(v reflect.Value) string {
@@ -413,9 +734,111 @@ func compileRule(name, param string, t reflect.Type) (func(reflect.Value) string
 				return ""
 			}
 			return message
-		}, true
+		}, nil
 	}
-	return nil, false
+	return nil, errRuleUnsupported
+}
+
+// boundValue is a min, max or other bound parsed in its field's domain: a
+// length or signed integer, an unsigned integer, or a float.
+type boundValue struct {
+	i int64
+	u uint64
+	f float64
+}
+
+// parseBound parses a bound for a field of type t, which kind measures.
+// Lengths and integers must be whole numbers the domain holds, and floats
+// finite, so no bound is rounded into another.
+func parseBound(param string, t reflect.Type, kind string) (boundValue, error) {
+	var b boundValue
+	var err error
+	switch {
+	case kind == "chars" || kind == "items" || isSigned(t):
+		if b.i, err = strconv.ParseInt(param, 10, 64); err != nil {
+			return b, fmt.Errorf("the bound must be a whole number from %d to %d", math.MinInt64, math.MaxInt64)
+		}
+	case isUnsigned(t):
+		if b.u, err = strconv.ParseUint(param, 10, 64); err != nil {
+			return b, fmt.Errorf("the bound must be a whole number from 0 to %d", uint64(math.MaxUint64))
+		}
+	default:
+		if b.f, err = strconv.ParseFloat(param, t.Bits()); err != nil || math.IsNaN(b.f) || math.IsInf(b.f, 0) {
+			return b, errors.New("the bound must be a finite number")
+		}
+	}
+	return b, nil
+}
+
+// compileBound returns the check for min, max, len, gt, gte, lt or lte,
+// comparing in the field's own domain: lengths and signed integers as
+// int64, unsigned integers as uint64, floats as float64.
+func compileBound(name, param string, t reflect.Type, kind string) (func(reflect.Value) string, error) {
+	b, err := parseBound(param, t, kind)
+	if err != nil {
+		return nil, err
+	}
+	// allow says which outcomes of comparing the value with the bound pass:
+	// less, equal, greater.
+	allow := map[string][3]bool{
+		"min": {false, true, true}, "gte": {false, true, true},
+		"max": {true, true, false}, "lte": {true, true, false},
+		"len": {false, true, false},
+		"gt":  {false, false, true}, "lt": {true, false, false},
+	}[name]
+	message := boundMessage(name, kind, param)
+	switch {
+	case kind == "chars":
+		return func(v reflect.Value) string {
+			if allow[cmp.Compare(int64(utf8.RuneCountInString(v.String())), b.i)+1] {
+				return ""
+			}
+			return message
+		}, nil
+	case kind == "items":
+		return func(v reflect.Value) string {
+			if allow[cmp.Compare(int64(v.Len()), b.i)+1] {
+				return ""
+			}
+			return message
+		}, nil
+	case isSigned(t):
+		return func(v reflect.Value) string {
+			if allow[cmp.Compare(v.Int(), b.i)+1] {
+				return ""
+			}
+			return message
+		}, nil
+	case isUnsigned(t):
+		return func(v reflect.Value) string {
+			if allow[cmp.Compare(v.Uint(), b.u)+1] {
+				return ""
+			}
+			return message
+		}, nil
+	}
+	return func(v reflect.Value) string {
+		if f := v.Float(); !math.IsNaN(f) && allow[cmp.Compare(f, b.f)+1] {
+			return ""
+		}
+		return message
+	}, nil
+}
+
+func isSigned(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return true
+	}
+	return false
+}
+
+func isUnsigned(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return true
+	}
+	return false
 }
 
 // measureKind says what min, max and the others compare for type t:
@@ -432,34 +855,6 @@ func measureKind(t reflect.Type) string {
 		return "number"
 	}
 	return ""
-}
-
-func measure(v reflect.Value) float64 {
-	switch v.Kind() {
-	case reflect.String:
-		return float64(utf8.RuneCountInString(v.String()))
-	case reflect.Slice, reflect.Array, reflect.Map:
-		return float64(v.Len())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return float64(v.Int())
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return float64(v.Uint())
-	}
-	return v.Float()
-}
-
-func boundHolds(name string, got, n float64) bool {
-	switch name {
-	case "min", "gte":
-		return got >= n
-	case "max", "lte":
-		return got <= n
-	case "len":
-		return got == n
-	case "gt":
-		return got > n
-	}
-	return got < n // lt
 }
 
 func boundMessage(name, kind, n string) string {
@@ -495,9 +890,11 @@ func formatRule(name string) (func(string) bool, string) {
 			return err == nil && addr.Address == s && addr.Name == ""
 		}, "must be an email address"
 	case "uuid", "uuid_rfc4122":
-		return func(s string) bool { return isUUID(s, 0) }, "must be a UUID"
-	case "uuid4", "uuid4_rfc4122":
-		return func(s string) bool { return isUUID(s, '4') }, "must be a version 4 UUID"
+		return func(s string) bool { return isUUID(s, false, false) }, "must be a UUID"
+	case "uuid4":
+		return func(s string) bool { return isUUID(s, true, true) }, "must be a version 4 UUID"
+	case "uuid4_rfc4122":
+		return func(s string) bool { return isUUID(s, true, false) }, "must be a version 4 UUID"
 	case "uri":
 		return func(s string) bool { _, err := url.ParseRequestURI(s); return err == nil }, "must be a URI"
 	case "http_url":
@@ -512,9 +909,10 @@ func formatRule(name string) (func(string) bool, string) {
 	}, "must be a URL"
 }
 
-// isUUID reports whether s is a UUID in its 36-character form, with
-// version when it isn't 0.
-func isUUID(s string, version byte) bool {
+// isUUID reports whether s is a UUID in its 36-character form. With v4, it
+// must be version 4 with the RFC 4122 variant; with lower, in lower case,
+// as go-playground/validator's uuid4 requires.
+func isUUID(s string, v4, lower bool) bool {
 	if len(s) != 36 {
 		return false
 	}
@@ -526,24 +924,27 @@ func isUUID(s string, version byte) bool {
 				return false
 			}
 		default:
-			if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
+			if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || !lower && 'A' <= c && c <= 'F') {
 				return false
 			}
 		}
 	}
-	return version == 0 || s[14] == version
+	if !v4 {
+		return true
+	}
+	return s[14] == '4' && strings.IndexByte("89abAB", s[19]) >= 0
 }
 
-// ruleSupportError reports a typed handler's input or output with a pattern
-// tag that isn't a valid regular expression on a string, or using a validate
+// ruleSupportError reports a typed handler's input or output with an enum
+// or pattern tag that can't be used, or using a validate
 // rule the app's validator doesn't declare, so no rule in a tag is silently
 // unenforced. A validator that declares nothing isn't checked for rules.
 func ruleSupportError(types handlerTypes, cfg *Config) error {
-	// Pattern tags are checked whatever the validator, so a bad one is always
-	// an error.
+	// Enum and pattern tags are checked whatever the validator, so a bad one
+	// is always an error.
 	for _, t := range []reflect.Type{types.in, types.out} {
 		if plan := rulePlanFor(nestedStruct(t)); plan != nil && len(plan.invalid) > 0 {
-			return fmt.Errorf("zinc: these pattern tags can't be used: %s", strings.Join(plan.invalid, ", "))
+			return fmt.Errorf("zinc: these enum and pattern tags can't be used: %s", strings.Join(plan.invalid, ", "))
 		}
 	}
 	var v Validator

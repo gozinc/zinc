@@ -264,14 +264,14 @@ The rules mean what they mean to [go-playground/validator](https://github.com/go
 
 | Rule | Checks |
 |---|---|
-| `required` | The field isn't its zero value; a pointer isn't nil |
-| `omitempty` | Skips the other rules when the field is its zero value |
-| `min`, `max`, `len` | A string's length in characters, a slice's or map's number of items, or a number's value |
+| `required` | The field isn't its zero value; a pointer isn't nil, whatever it points to |
+| `omitempty` | Skips the rules after it when the field is its zero value or a nil pointer |
+| `min`, `max`, `len` | A string's length in characters, a slice's or map's number of items, or a number's value, compared exactly |
 | `gt`, `gte`, `lt`, `lte` | The same, compared strictly or not |
 | `oneof=a b` | One of the listed values, for strings and numbers |
 | `email`, `uuid`, `uuid4`, `url`, `uri`, `http_url` | The string's format |
 
-Structs inside the input are checked too, including those in slices and maps: a failure in the second owner is named `owners[1].email`. Values listed with an `enum` tag or an `EnumProvider` type are checked as well, and so are [`pattern` tags](#match-a-pattern).
+Structs inside the input are checked too, including those in slices and maps, and a recursive type as deep as the value goes: a failure in the second owner is named `owners[1].email`. Values listed with an `enum` tag or an `EnumProvider` type are checked as well, each element of a slice too, and so are [`pattern` tags](#match-a-pattern). An `enum` value the field's type can't hold stops a typed handler from registering.
 
 A rule Zinc doesn't have, such as `alphanum` or `dive`, stops a typed handler from registering, so it can't go unchecked:
 
