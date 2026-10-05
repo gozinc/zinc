@@ -4,6 +4,8 @@
   "compatibility_date": "2026-09-03",
   "workers_dev": true,
   "preview_urls": true,
+  // Each pull request gets a preview of the docs; the live site deploys from dev.
+  "previews": {},
   "routes": [
     { "pattern": "zinc.carbonsoft.sh", "custom_domain": true }
   ],
