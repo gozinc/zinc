@@ -734,7 +734,8 @@ func (a *App) TryHandle(spec RouteSpec) error {
 
 // HandleHTTP registers a standard net/http handler using a "METHOD /path"
 // pattern, such as "GET /metrics". Matched parameters are available through
-// http.Request.PathValue inside the standard handler.
+// http.Request.PathValue inside the standard handler, and the route's
+// pattern through http.Request.Pattern, as Wrap describes.
 func (a *App) HandleHTTP(pattern string, handler http.Handler) Route {
 	if handler == nil {
 		panic("zinc: HTTP handler is nil")
@@ -826,11 +827,15 @@ func (a *App) FindRoute(method, path string) (RouteInfo, bool) {
 	return RouteInfo{}, false
 }
 
-// Wrap adapts a standard net/http handler to HandlerFunc. Matched parameters
-// are populated into http.Request.PathValue immediately before it runs.
+// Wrap adapts a standard net/http handler to HandlerFunc. Immediately before
+// it runs, the matched route is published on the request as http.ServeMux
+// would: http.Request.PathValue returns each parameter, and
+// http.Request.Pattern is the route's method and full path, such as
+// "GET /users/{id}" (a GET route's pattern also for a HEAD request it
+// answers).
 func Wrap(h http.Handler) HandlerFunc {
 	return func(c *Context) error {
-		c.populateRequestPathValues()
+		c.publishRoute()
 		h.ServeHTTP(c.Writer(), c.Request())
 		return nil
 	}

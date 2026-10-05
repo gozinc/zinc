@@ -49,6 +49,10 @@ type routeTable struct {
 	// registered, by route index, so Route.Status can wrap the handler.
 	entries  []*radixRoute
 	handlers []HandlerFunc
+	// patterns holds each route's net/http pattern, "METHOD /path", by route
+	// index, built at registration so native handlers and middleware get
+	// http.Request.Pattern without an allocation per request.
+	patterns []string
 	// preflight holds, by "METHOD path", a route's middleware that also
 	// answers CORS preflight requests, outermost first. Only automatic
 	// OPTIONS reads it.
@@ -154,6 +158,7 @@ func (r *routeTable) register(method, path, name string, handlers ...HandlerFunc
 	r.routeInfos = append(r.routeInfos, info)
 	r.entries = append(r.entries, route)
 	r.handlers = append(r.handlers, precomposed)
+	r.patterns = append(r.patterns, method+" "+registeredPath)
 	for _, h := range handlers[:len(handlers)-1] {
 		if middlewareMarks(h).Preflight {
 			if r.preflight == nil {
