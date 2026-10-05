@@ -1,0 +1,23 @@
+name: Release check
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: version.go matches the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          got="v$(sed -n 's/^const Version = "\(.*\)"$/\1/p' version.go)"
+          if [ "$got" != "$TAG" ]; then
+            echo "::error file=version.go::Version is $got but the tag is $TAG; bump version.go before tagging"
+            exit 1
+          fi
+          echo "version.go is $got"
