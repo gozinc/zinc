@@ -123,6 +123,16 @@ curl http://localhost:8080/docs/guides/
 
 Folder listing is off by default: without an index file, the folder gets a `404`. Turn listing on only for content you intend to publish.
 
+A folder's URL ends with a slash, so relative links in its index, such as `href="style.css"`, resolve inside the folder. The URL without the slash redirects there, keeping the query string, as `http.FileServer` does:
+
+```bash
+curl -i "http://localhost:8080/docs/guides?page=2"
+# HTTP/1.1 301 Moved Permanently
+# Location: /docs/guides/?page=2
+```
+
+[Trailing Slash](/middleware/trailingslash/) leaves a folder's slash alone, so removing slashes never loops with this redirect.
+
 ## Serve files from a group
 
 `Group.Static` and `Group.StaticFS` put the folder under the group's prefix and run the group's middleware first:

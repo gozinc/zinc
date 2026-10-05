@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ func TestStaticFSHonorsIndexAndBrowse(t *testing.T) {
 	app := New()
 	app.StaticFS("/assets", fsys, WithStaticBrowse(true), WithStaticIndex("home.html"))
 
-	root := performRequest(t, app, http.MethodGet, "/assets", nil, nil)
+	root := performRequest(t, app, http.MethodGet, "/assets/", nil, nil)
 	if root.Code != http.StatusOK {
 		t.Fatalf("root status=%d", root.Code)
 	}
@@ -35,7 +36,7 @@ func TestStaticFSHonorsIndexAndBrowse(t *testing.T) {
 		t.Fatalf("root body=%q", body)
 	}
 
-	docs := performRequest(t, app, http.MethodGet, "/assets/docs", nil, nil)
+	docs := performRequest(t, app, http.MethodGet, "/assets/docs/", nil, nil)
 	if docs.Code != http.StatusOK {
 		t.Fatalf("docs status=%d", docs.Code)
 	}
@@ -43,7 +44,7 @@ func TestStaticFSHonorsIndexAndBrowse(t *testing.T) {
 		t.Fatalf("docs body=%q", body)
 	}
 
-	browse := performRequest(t, app, http.MethodGet, "/assets/browse", nil, nil)
+	browse := performRequest(t, app, http.MethodGet, "/assets/browse/", nil, nil)
 	if browse.Code != http.StatusOK {
 		t.Fatalf("browse status=%d", browse.Code)
 	}
@@ -63,7 +64,7 @@ func TestStaticFSBrowseDisabledWithoutIndexReturnsNotFound(t *testing.T) {
 	app := New()
 	app.StaticFS("/assets", fsys)
 
-	resp := performRequest(t, app, http.MethodGet, "/assets/browse", nil, nil)
+	resp := performRequest(t, app, http.MethodGet, "/assets/browse/", nil, nil)
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("status=%d", resp.Code)
 	}
@@ -90,7 +91,7 @@ func TestStaticUsesDirectoryFSAndCustomIndex(t *testing.T) {
 	app := New()
 	app.Static("/public", dir, WithStaticIndex("index.htm"))
 
-	resp := performRequest(t, app, http.MethodGet, "/public", nil, nil)
+	resp := performRequest(t, app, http.MethodGet, "/public/", nil, nil)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status=%d", resp.Code)
 	}
@@ -283,5 +284,29 @@ func TestConfinedDirFSPinsOpenedDirectoryAcrossRename(t *testing.T) {
 	mustDo(t, file.Close())
 	if string(body) != "original" {
 		t.Fatalf("retained root switched directories: %q", body)
+	}
+}
+
+// The directory redirect never starts with "//" or "/\", whatever path
+// reaches it.
+func TestStaticDirectoryURLStaysOnSite(t *testing.T) {
+	cases := []struct {
+		u    url.URL
+		want string
+	}{
+		{url.URL{Path: "/docs"}, "/docs/"},
+		{url.URL{Path: "/docs", RawQuery: "a=1"}, "/docs/?a=1"},
+		{url.URL{Path: "//evil.example"}, "/evil.example/"},
+		{url.URL{Path: "/\\evil.example"}, "/%5Cevil.example/"},
+		{url.URL{Path: "//evil.example", RawPath: "/%2Fevil.example"}, "/%2Fevil.example/"},
+		{url.URL{Path: "/a b"}, "/a%20b/"},
+		{url.URL{Path: ""}, "/"},
+		{url.URL{Path: "/"}, "/"},
+		{url.URL{Path: "///"}, "/"},
+	}
+	for _, tc := range cases {
+		if got := staticDirectoryURL(&tc.u); got != tc.want {
+			t.Errorf("%#v: %q, want %q", tc.u, got, tc.want)
+		}
 	}
 }

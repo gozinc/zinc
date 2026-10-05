@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/0mjs/zinc"
+	"github.com/0mjs/zinc/internal/marks"
 	"github.com/0mjs/zinc/middleware/internal/shared"
 )
 
@@ -38,6 +39,11 @@ func New(configs ...Config) zinc.Middleware {
 
 		nextPath := normalizeTrailingSlashPath(req.URL.Path, cfg.Add)
 		if nextPath == req.URL.Path {
+			return c.Next()
+		}
+		// A static directory's URL ends with a slash, and the URL without
+		// it redirects back there, so removing the slash would loop.
+		if !cfg.Add && marks.StaticDirectory != nil && marks.StaticDirectory(c, req.URL.Path) {
 			return c.Next()
 		}
 

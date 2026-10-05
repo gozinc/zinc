@@ -37,6 +37,12 @@ type Marks struct {
 
 func (*Marks) Error() string { return "zinc: middleware marks" }
 
+// StaticDirectory reports whether a static mount of the app serving c, a
+// *zinc.Context, serves path as a directory. Zinc sets it. A directory's URL
+// ends with a slash, so trailingslash leaves such a path alone rather than
+// loop with the directory's redirect.
+var StaticDirectory func(c any, path string) bool
+
 var answering sync.Map // code pointer → struct{}
 
 // Answers records that closures with mw's code answer a probe. It's a fact

@@ -79,6 +79,10 @@ curl -i http://localhost:8080/docs
 
 The root path `/` is always left alone.
 
+## Static folders
+
+A folder served by `Static` or `StaticFS` lives at its URL with a trailing slash, and redirects there without one. When removing slashes, Trailing Slash leaves a folder's URL alone, so the two never redirect back and forth. Files under a static mount are treated like any other path.
+
 ## Errors
 
 `trailingslash` never fails a request. If the changed path has no route, the client gets the usual 404.
