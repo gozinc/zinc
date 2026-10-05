@@ -312,7 +312,7 @@ app := zinc.New(zinc.Config{
 })
 ```
 
-The spec is built on the first request and kept; routes you register later are picked up on the next one. Neither endpoint is a route: a route of your own at the same path wins, and neither is listed in the spec. `Routes()` lists both, with `Builtin` set. Middleware added with `app.Use` runs for them like any request.
+The spec is built on the first request and kept; routes you register later are picked up on the next one. Neither endpoint is a route: a route of your own at the same path wins, and so does a mount or static directory at exactly that path, and neither is listed in the spec. A mount above them, such as `app.Static("/", "./public")`, doesn't hide them: `/openapi.json` and `/docs` still answer `GET` and `HEAD`, and the mount serves everything else. `Routes()` lists both, with `Builtin` set. Middleware added with `app.Use` runs for them like any request.
 
 The page at `/docs` loads [Scalar](https://github.com/scalar/scalar) from a CDN, pinned to one version with an integrity hash. To use another renderer or your own copy of the files, turn the page off and add [API Docs](/middleware/apidocs/).
 

@@ -156,6 +156,8 @@ Prefer `Static` and `StaticFS` in new code. They reject methods other than `GET`
 
 A route always wins over a static folder. With `app.Static("/assets", "./public")`, a `GET /assets/version` route still runs your handler.
 
+The app's [spec and reference page](/guide/openapi/#serve-the-spec) win too: with `app.Static("/", "./public")`, `/openapi.json` and `/docs` still serve them. A folder at exactly `/docs` replaces the page.
+
 To serve files from the site root next to your routes, let routes match first and serve files from the not-found handler:
 
 ```go
